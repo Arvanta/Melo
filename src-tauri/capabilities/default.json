@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capabilities/default.json",
+  "identifier": "default",
+  "description": "Default capabilities for Melo",
+  "windows": [
+    "*"
+  ],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "dialog:default",
+    "dialog:allow-open",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:event:default",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

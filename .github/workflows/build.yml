@@ -1,0 +1,79 @@
+name: Build Melo
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# required so tauri-action can create the draft release
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Tauri (Windows x64)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Melo v__VERSION__"
+          releaseBody: "Automated build of Melo for Windows"
+          releaseDraft: true
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc
+
+      - name: Upload artifact (msi/exe)
+        uses: actions/upload-artifact@v7
+        with:
+          name: melo-windows
+          path: |
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/nsis/*.exe
+            dist/**
+
+  build-linux-macos:
+    if: false # فعال کنید اگر برای لینوکس/مک هم می‌خواهید
+    strategy:
+      matrix:
+        platform: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
