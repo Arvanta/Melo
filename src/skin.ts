@@ -830,6 +830,21 @@ export function setupSkinEngine(toast: (m: string) => void) {
     }
   });
 
+  busOn("melo:skin-changed", (skinChoice: any) => {
+    if (skinChoice && typeof skinChoice === "string") {
+      const currentTheme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";
+      if (skinChoice === "default") {
+        resetSkin();
+      } else {
+        let targetFile = skinChoice;
+        if (skinChoice === "compact-pill" || skinChoice.startsWith("compact-pill")) {
+          targetFile = currentTheme === "dark" ? "compact-pill-dark.html" : "compact-pill-light.html";
+        }
+        loadSkinFromDisk(targetFile);
+      }
+    }
+  });
+
   if (skinUpload) {
     skinUpload.addEventListener("change", async () => {
       const file = skinUpload.files?.[0];
