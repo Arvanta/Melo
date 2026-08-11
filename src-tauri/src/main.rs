@@ -147,29 +147,47 @@ fn parse_track(p: &Path) -> Option<Track> {
 
 fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
     use tauri::Manager;
+    // 1. Next to current executable (e.g. C:\Program Files\Melo\skins\)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let p = parent.join("skins");
             if p.exists() && p.is_dir() {
                 return p;
             }
+            // Dev mode: target/debug/../../skins
+            let p_dev = parent.join("../../skins");
+            if p_dev.exists() && p_dev.is_dir() {
+                if let Ok(canon) = p_dev.canonicalize() {
+                    return canon;
+                }
+            }
         }
     }
+    // 2. Tauri resource directory
     if let Ok(res) = app.path().resource_dir() {
         let p = res.join("skins");
         if p.exists() && p.is_dir() {
             return p;
         }
     }
-    let p = Path::new("skins");
-    if p.exists() && p.is_dir() {
-        return p.to_path_buf();
+    // 3. Current working directory
+    if let Ok(cur) = std::env::current_dir() {
+        let p = cur.join("skins");
+        if p.exists() && p.is_dir() {
+            return p;
+        }
+        let p2 = cur.join("../skins");
+        if p2.exists() && p2.is_dir() {
+            return p2;
+        }
     }
-    let p2 = Path::new("../skins");
-    if p2.exists() && p2.is_dir() {
-        return p2.to_path_buf();
+    // 4. AppData directory fallback
+    if let Ok(app_data) = app.path().app_data_dir() {
+        let p = app_data.join("skins");
+        let _ = std::fs::create_dir_all(&p);
+        return p;
     }
-    Path::new("skins").to_path_buf()
+    PathBuf::from("skins")
 }
 
 // ---- Tauri Commands ----
@@ -245,16 +263,27 @@ fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, Stri
 #[tauri::command]
 fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<String, String> {
     let path = Path::new(&filename_or_path);
-    let full_path = if path.is_absolute() && path.exists() {
-        path.to_path_buf()
-    } else {
-        let skins_dir = get_skins_dir(&app);
-        skins_dir.join(&filename_or_path)
-    };
-    if !full_path.exists() {
-        return Err(format!("Skin file not found: {}", full_path.display()));
+    if path.is_absolute() && path.exists() {
+        return std::fs::read_to_string(path).map_err(|e| e.to_string());
     }
-    std::fs::read_to_string(&full_path).map_err(|e| e.to_string())
+
+    let skins_dir = get_skins_dir(&app);
+    let target = skins_dir.join(&filename_or_path);
+    if target.exists() {
+        return std::fs::read_to_string(&target).map_err(|e| e.to_string());
+    }
+
+    // Fallback checks
+    let p1 = Path::new("skins").join(&filename_or_path);
+    if p1.exists() {
+        return std::fs::read_to_string(&p1).map_err(|e| e.to_string());
+    }
+    let p2 = Path::new("../skins").join(&filename_or_path);
+    if p2.exists() {
+        return std::fs::read_to_string(&p2).map_err(|e| e.to_string());
+    }
+
+    Err(format!("Skin file not found: {}", filename_or_path))
 }
 
 #[tauri::command]
@@ -275,11 +304,16 @@ fn save_custom_skin_file(filename: String, content: String, app: tauri::AppHandl
 fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     let skins_dir = get_skins_dir(&app);
     let _ = std::fs::create_dir_all(&skins_dir);
-    let path_str = skins_dir.canonicalize().unwrap_or(skins_dir).to_string_lossy().to_string();
+    let abs_path = skins_dir.canonicalize().unwrap_or(skins_dir);
+    let mut path_str = abs_path.to_string_lossy().to_string();
+    if path_str.starts_with(r"\\?\") {
+        path_str = path_str[4..].to_string();
+    }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
-            .arg(&path_str)
+        let win_path = path_str.replace('/', "\\");
+        std::process::Command::new("explorer.exe")
+            .arg(&win_path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -318,6 +352,15 @@ fn scan_library(path: String, app: tauri::AppHandle) -> Result<Vec<Track>, Strin
     let root = Path::new(&path);
     if !root.exists() {
         return Err("Path does not exist".to_string());
+    }
+
+    if root.is_file() {
+        if supported_ext(root) {
+            if let Some(t) = parse_track(root) {
+                return Ok(vec![t]);
+            }
+        }
+        return Ok(Vec::new());
     }
 
     let entries: Vec<_> = WalkDir::new(root)

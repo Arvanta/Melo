@@ -287,11 +287,6 @@ app.innerHTML = `
             <div class="switch on" id="swDynamicTheme" data-key="dynamicTheme"></div>
           </div>
 
-          <div class="settings-row">
-            <div><div class="label">Show Stop button</div><div class="desc">Add dedicated stop button to the transport controls</div></div>
-            <div class="switch" id="swStopBtn" data-key="showStop"></div>
-          </div>
-
           <div class="settings-row" style="flex-direction:column; align-items:stretch;">
             <div class="label" style="margin-bottom:4px;">Skins Directory (Disk)</div>
             <div style="font-size:11px; color:var(--text-soft); line-height:1.6; margin-bottom:8px;">
@@ -305,11 +300,6 @@ app.innerHTML = `
               </label>
               <button class="btn small" id="btn-reset-skin-settings">Reset to Default</button>
             </div>
-          </div>
-
-          <div class="settings-row">
-            <div><div class="label">Window Opacity</div><div class="desc">Player background transparency</div></div>
-            <input type="range" min="30" max="100" value="100" id="setOpacity" style="width:100px;" />
           </div>
         </div>
 
@@ -632,7 +622,6 @@ const showToast: ToastFn = (msg) => {
 };
 
 const audio = new Audio();
-audio.crossOrigin = "anonymous";
 audio.preload = "metadata";
 (window as any).__LUMI_AUDIO__ = audio;
 (window as any).__TOAST__ = showToast;
@@ -1090,40 +1079,6 @@ function setupSettings(toast: ToastFn) {
       localStorage.setItem("melo-pref-lang", langSelect.value);
       toast(`Language set to ${langSelect.options[langSelect.selectedIndex].text}`);
     };
-  }
-
-  const swStop = document.getElementById("swStopBtn");
-  function applyStopVisibility() {
-    const on = localStorage.getItem("lumiv2-showStop") === "1";
-    if (swStop) swStop.classList.toggle("on", on);
-    const b = document.getElementById("btnStop");
-    if (b) b.style.display = on ? "" : "none";
-  }
-  if (swStop) {
-    applyStopVisibility();
-    swStop.onclick = () => {
-      const on = !swStop.classList.contains("on");
-      swStop.classList.toggle("on", on);
-      localStorage.setItem("lumiv2-showStop", on ? "1" : "0");
-      applyStopVisibility();
-      toast(on ? "Stop button shown" : "Stop button hidden");
-    };
-  }
-
-  const opacityInput = document.getElementById("setOpacity") as HTMLInputElement | null;
-  if (opacityInput) {
-    const savedOp = localStorage.getItem("melo-pref-opacity") || "100";
-    opacityInput.value = savedOp;
-    opacityInput.oninput = () => {
-      const op = parseInt(opacityInput.value) / 100;
-      const pc = document.getElementById("playerCard");
-      if (pc) pc.style.opacity = String(Math.max(0.2, op));
-      localStorage.setItem("melo-pref-opacity", opacityInput.value);
-    };
-    if (savedOp !== "100") {
-      const pc = document.getElementById("playerCard");
-      if (pc) pc.style.opacity = String(Math.max(0.2, parseInt(savedOp) / 100));
-    }
   }
 
   // Dynamic Album Artwork Theme
