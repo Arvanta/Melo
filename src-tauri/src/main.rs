@@ -151,17 +151,26 @@ fn parse_track(p: &Path) -> Option<Track> {
 
 // ---- Skin Folder Resolver & Populator ----
 
-fn get_skins_dir(_app: &tauri::AppHandle) -> PathBuf {
-    // 1. Next to current executable (e.g. C:\Program Files\Melo\skins\)
+fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    // 1. Next to current executable (e.g. C:\Program Files\Melo\skins\ or portable)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let p = parent.join("skins");
-            let _ = std::fs::create_dir_all(&p);
-            ensure_default_skins_on_disk(&p);
-            return p;
+            if p.exists() && p.is_dir() {
+                ensure_default_skins_on_disk(&p);
+                return p;
+            }
         }
     }
-    // 2. Fallback relative
+    // 2. Standard AppData writable directory on Windows
+    if let Ok(app_data) = app.path().app_data_dir() {
+        let p = app_data.join("skins");
+        let _ = std::fs::create_dir_all(&p);
+        ensure_default_skins_on_disk(&p);
+        return p;
+    }
+    // 3. Fallback relative
     let p = PathBuf::from("skins");
     let _ = std::fs::create_dir_all(&p);
     ensure_default_skins_on_disk(&p);
@@ -301,8 +310,8 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let win_path = path_str.replace('/', "\\");
-        std::process::Command::new("explorer.exe")
-            .arg(&win_path)
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &win_path])
             .spawn()
             .map_err(|e| e.to_string())?;
     }

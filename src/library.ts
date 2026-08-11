@@ -290,6 +290,16 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   // render only the song list of the current playlist into the playlist window
   function renderPlaylistWindow(){
     if(!winPlaylistTracks) return;
+    try {
+      const savedTracks = localStorage.getItem("melo-tracks");
+      if (savedTracks) {
+        const parsed = JSON.parse(savedTracks);
+        if (Array.isArray(parsed) && parsed.length > tracks.length) {
+          tracks = parsed;
+        }
+      }
+    } catch {}
+
     const pl = currentPlaylist();
     if(playlistSelect){
       playlistSelect.innerHTML = playlists.map(p=>`<option value="${p.id}" ${pl && p.id===pl.id ? "selected":""}>${p.name}</option>`).join("");

@@ -552,6 +552,9 @@ if (isTauri && !urlPanel) {
 
     busOn("melo:skin-changed", async (skinId: any) => {
       try {
+        if (!urlPanel && skinId) {
+          await applySkinChoice(skinId, theme);
+        }
         const h = (skinId === "compact-pill" || (typeof skinId === "string" && skinId.startsWith("compact-pill"))) ? 140 : 240;
         const sz = await mainWin.innerSize();
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
