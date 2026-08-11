@@ -1,7 +1,7 @@
-import { getAudioGraph } from "./audio-graph";
+import { getAudioGraph, frequencies } from "./audio-graph";
 import { busEmit, busOn } from "./bus";
 
-export const frequencies = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+export { frequencies };
 
 export const presets: Record<string, number[]> = {
   flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -27,11 +27,6 @@ function matchesPreset(gains: number[]): string {
   return "custom";
 }
 
-/**
- * Equalizer with a split architecture:
- * - the ENGINE (WebAudio filters) lives in the MAIN window
- * - the UI (sliders/presets/reset) syncs state and persists to localStorage
- */
 export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => void, opts: { remote?: boolean } = {}) {
   const remote = !!opts.remote;
 
@@ -44,7 +39,6 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
 
   let audioCtx: AudioContext | null = null;
   let filters: BiquadFilterNode[] = [];
-  let gainNode: GainNode | null = null;
   let sliders: HTMLInputElement[] = [];
 
   // Load persisted settings
@@ -65,22 +59,15 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
     try {
       const g = getAudioGraph(audio);
       audioCtx = g.ctx;
-      gainNode = audioCtx.createGain();
-      filters = frequencies.map((freq, i) => {
-        const f = audioCtx!.createBiquadFilter();
-        f.type = "peaking";
-        f.frequency.value = freq;
-        f.Q.value = 1.4;
+      filters = g.filters;
+      filters.forEach((f, i) => {
         f.gain.value = enabled ? displayGains[i] : 0;
-        return f;
       });
-      g.append(filters);
-      g.append([gainNode]);
-      g.toDestination();
     } catch { /* graph unavailable */ }
   }
 
   function engineGain(idx: number, val: number) {
+    ensureContext();
     if (filters[idx] && enabled) filters[idx].gain.value = val;
   }
 
@@ -108,12 +95,11 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
     drawCurve();
   }
 
-  // If main window, initialize audio graph with restored values
   if (!remote) {
     if (audio) {
       audio.addEventListener("play", () => {
         ensureContext();
-        if (audioCtx?.state === "suspended") audioCtx.resume();
+        if (audioCtx?.state === "suspended") audioCtx.resume().catch(() => {});
       });
     }
   }
@@ -122,10 +108,7 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
   busOn("melo:eq", (p: any) => {
     if (!p) return;
     if (p.type === "gain") {
-      if (!remote) {
-        ensureContext();
-        engineGain(p.idx, p.val);
-      }
+      if (!remote) engineGain(p.idx, p.val);
       displayGains[p.idx] = p.val;
       if (sliders[p.idx]) {
         sliders[p.idx].value = String(p.val);
@@ -236,11 +219,9 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
         displayGains[idx] = val;
         drawCurve();
 
-        // Check if matching preset
         const matched = matchesPreset(displayGains);
         if (eqPreset) eqPreset.value = matched;
 
-        // Persist
         localStorage.setItem("melo-eq-gains", JSON.stringify(displayGains));
         localStorage.setItem("melo-eq-preset", matched);
 
@@ -250,7 +231,6 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
     });
   }
 
-  // Initial preset select value
   if (eqPreset) {
     eqPreset.value = savedPreset;
     eqPreset.addEventListener("change", () => {
@@ -264,7 +244,6 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
       displayGains = [...vals];
       drawCurve();
 
-      // Persist
       localStorage.setItem("melo-eq-gains", JSON.stringify(displayGains));
       localStorage.setItem("melo-eq-preset", eqPreset.value);
 
@@ -274,7 +253,6 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
     });
   }
 
-  // Reset button handler
   if (btnEqReset) {
     btnEqReset.addEventListener("click", () => {
       const flatVals = presets.flat;
@@ -287,7 +265,6 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
       displayGains = [...flatVals];
       if (eqPreset) eqPreset.value = "flat";
 
-      // Persist
       localStorage.setItem("melo-eq-gains", JSON.stringify(displayGains));
       localStorage.setItem("melo-eq-preset", "flat");
 
@@ -298,7 +275,6 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
     });
   }
 
-  // Enable checkbox
   if (eqEnable) {
     eqEnable.checked = enabled;
     eqEnable.addEventListener("change", () => {

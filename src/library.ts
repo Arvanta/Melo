@@ -238,16 +238,20 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
 
   // import a dropped File into a Track (library-friendly)
   async function fileToTrack(file: File): Promise<Track>{
-    const url = URL.createObjectURL(file);
-    const id = Math.random().toString(36).slice(2);
+    const nativePath = (file as any).path;
+    const url = nativePath || URL.createObjectURL(file);
+    const id = nativePath || Math.random().toString(36).slice(2);
     const ext = file.name.split(".").pop()?.toUpperCase() || "MP3";
+    const stem = file.name.replace(/\.[^/.]+$/,"");
     const t: Track = {
-      id, title: file.name.replace(/\.[^/.]+$/,""), artist:"Unknown", album:"Imported",
+      id, title: stem, artist:"Unknown Artist", album:"Single",
       genre:"Unknown", year: new Date().getFullYear(), duration: 180, path: url,
-      codec: ext, specs:"Imported · Stereo", replayGain: 0
+      codec: ext, specs:"Local File", replayGain: 0, source: "import"
     } as any;
-    const a = new Audio(url);
-    await new Promise(res=>{ a.addEventListener("loadedmetadata", ()=>{ t.duration = Math.floor(a.duration)||180; res(null); }, {once:true}); a.load(); setTimeout(()=>res(null), 1200); });
+    try {
+      const a = new Audio(URL.createObjectURL(file));
+      await new Promise(res=>{ a.addEventListener("loadedmetadata", ()=>{ (t as any).duration = Math.floor(a.duration)||180; res(null); }, {once:true}); a.load(); setTimeout(()=>res(null), 800); });
+    } catch {}
     await withCover(file, t as any);
     return t;
   }
@@ -447,6 +451,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         }
       }
       if(added) toast(`${added} track(s) added to "${pl.name}"`);
+      saveTracks(); savePlaylists(); broadcastPlaylists();
       render(); renderPlaylistWindow();
     });
   }
@@ -477,12 +482,14 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         for(const f of files){
           const t = await fileToTrack(f);
           tracks.push(t); list.push(t);
-          // dropped files also join the current playlist
           if(pl && !pl.tracks.includes(t.id)){ pl.tracks.push(t.id); addedToPlaylist = true; }
         }
-        if(files.length){ render(); renderPlaylistWindow(); }
+        if(files.length){
+          saveTracks(); savePlaylists(); broadcastPlaylists();
+          render(); renderPlaylistWindow();
+        }
         if(lumi && list.length){
-          toast(addedToPlaylist && pl ? `Playback ${list.length} track(s) + added to "${pl.name}»` : `Playback ${list.length} track(s)`);
+          toast(addedToPlaylist && pl ? `Playback ${list.length} track(s) + added to "${pl.name}"` : `Playback ${list.length} track(s)`);
         }
       }
       if(!list.length) return;

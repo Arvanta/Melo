@@ -923,14 +923,16 @@ document.getElementById("menuAbout")?.addEventListener("click", () => {
   appMenu?.classList.remove("open");
 });
 
+const isTauriEnv = typeof (window as any).__TAURI_INTERNALS__ !== "undefined" || typeof (window as any).__TAURI__ !== "undefined";
+
 // Add files / folder dialogs
 async function addFilesViaDialog() {
   const lib = (window as any).LumiLibrary;
   const player = (window as any).LumiPlayer;
-  if ((window as any).__TAURI__) {
+  if (isTauriEnv) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus"] }] });
+      const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
       const list: any[] = [];
@@ -939,33 +941,36 @@ async function addFilesViaDialog() {
         const dot = leaf.lastIndexOf(".");
         const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
         const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
-        list.push({ id: "imp_" + Math.random().toString(36).slice(2, 9), title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: p, codec: ext, specs: "Local File", source: "import" });
+        list.push({ id: p, title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: p, codec: ext, specs: "Local File", source: "import" });
       }
-      lib.addToCurrentPlaylist(list);
+      lib?.addTracks(list, true);
+      lib?.addToCurrentPlaylist(list);
       list.forEach(t => player?.queue.push(t));
       busEmit("melo:play-tracks", { tracks: list, index: 0 });
-      showToast(`${list.length} file(s) added to playlist`);
-    } catch { showToast("Add files requires desktop build"); }
+      showToast(`${list.length} file(s) added`);
+    } catch { showToast("Error opening files"); }
     appMenu?.classList.remove("open");
     return;
   }
   const input = document.createElement("input");
-  input.type = "file"; input.multiple = true; input.accept = "audio/*,.mp3,.flac,.wav,.aac,.ogg,.m4a,.alac,.opus";
+  input.type = "file"; input.multiple = true; input.accept = "audio/*,.mp3,.flac,.wav,.aac,.ogg,.m4a,.alac,.opus,.wma,.aiff";
   input.onchange = async () => {
     const files = Array.from(input.files || []);
     if (!files.length) return;
     const list: any[] = [];
     for (const f of files) {
-      const url = URL.createObjectURL(f);
+      const nativePath = (f as any).path;
+      const url = nativePath || URL.createObjectURL(f);
       const leaf = f.name;
       const dot = leaf.lastIndexOf(".");
       const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
       const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
-      const t: any = { id: "imp_" + Math.random().toString(36).slice(2, 9), title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: url, codec: ext, specs: "Local File", source: "import" };
+      const t: any = { id: nativePath || ("imp_" + Math.random().toString(36).slice(2, 9)), title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: url, codec: ext, specs: "Local File", source: "import" };
       await withCover(f, t);
       list.push(t);
     }
-    lib.addToCurrentPlaylist(list);
+    lib?.addTracks(list, true);
+    lib?.addToCurrentPlaylist(list);
     list.forEach(t => player?.queue.push(t));
     busEmit("melo:play-tracks", { tracks: list, index: 0 });
     showToast(`${list.length} file(s) added`);
@@ -977,40 +982,43 @@ async function addFilesViaDialog() {
 async function addFolderViaDialog() {
   const lib = (window as any).LumiLibrary;
   const player = (window as any).LumiPlayer;
-  if ((window as any).__TAURI__) {
+  if (isTauriEnv) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const sel = await open({ directory: true });
       if (!sel) return;
       const folder = sel as string;
       const { invoke } = await import("@tauri-apps/api/core");
-      const tracks: any[] = await invoke("scan_library", { root: folder });
+      const tracks: any[] = await invoke("scan_library", { path: folder });
       const list = tracks.map((t: any) => ({ ...t, source: "import" }));
-      lib.addToCurrentPlaylist(list);
+      lib?.addTracks(list, true);
+      lib?.addToCurrentPlaylist(list);
       list.forEach(t => player?.queue.push(t));
       busEmit("melo:play-tracks", { tracks: list, index: 0 });
       showToast(`${list.length} track(s) added from folder`);
-    } catch { showToast("Add folder requires desktop build"); }
+    } catch { showToast("Error scanning folder"); }
     appMenu?.classList.remove("open");
     return;
   }
   const input = document.createElement("input");
   input.type = "file"; (input as any).webkitdirectory = true; input.multiple = true; input.accept = "audio/*";
   input.onchange = async () => {
-    const files = Array.from(input.files || []).filter(f => /\.(mp3|flac|wav|aac|ogg|m4a|alac|opus)$/i.test(f.name));
+    const files = Array.from(input.files || []).filter(f => /\.(mp3|flac|wav|aac|ogg|m4a|alac|opus|wma|aiff)$/i.test(f.name));
     if (!files.length) return;
     const list: any[] = [];
     for (const f of files) {
-      const url = URL.createObjectURL(f);
+      const nativePath = (f as any).path;
+      const url = nativePath || URL.createObjectURL(f);
       const leaf = f.name;
       const dot = leaf.lastIndexOf(".");
       const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
       const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
-      const t: any = { id: "imp_" + Math.random().toString(36).slice(2, 9), title: stem, artist: "Unknown Artist", album: "Folder Import", duration: 0, path: url, codec: ext, specs: "Local File", source: "import" };
+      const t: any = { id: nativePath || ("imp_" + Math.random().toString(36).slice(2, 9)), title: stem, artist: "Unknown Artist", album: "Folder Import", duration: 0, path: url, codec: ext, specs: "Local File", source: "import" };
       await withCover(f, t);
       list.push(t);
     }
-    lib.addToCurrentPlaylist(list);
+    lib?.addTracks(list, true);
+    lib?.addToCurrentPlaylist(list);
     list.forEach(t => player?.queue.push(t));
     busEmit("melo:play-tracks", { tracks: list, index: 0 });
     showToast(`${list.length} file(s) added from folder`);
@@ -1212,7 +1220,7 @@ function setupSettings(toast: ToastFn) {
   });
 
   document.getElementById("btnChooseFolder")?.addEventListener("click", async () => {
-    if ((window as any).__TAURI__) {
+    if (isTauriEnv) {
       try {
         const { open } = await import("@tauri-apps/plugin-dialog");
         const sel = await open({ directory: true });

@@ -38,20 +38,16 @@ export function setupVisualizer(audio: HTMLAudioElement){
   }
 
   function ensure(){
-    if(analyser) return;
-    try{
-      // shared graph: ONE MediaElementSource for the whole app (EQ + visualizer)
+    if(analyser && freqData) return;
+    try {
       const g = getAudioGraph(audio);
       audioCtx = g.ctx;
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0.72;
+      analyser = g.analyser;
       freqData = new Uint8Array(analyser.frequencyBinCount);
       timeData = new Uint8Array(analyser.fftSize);
-      try{
-        g.tap(analyser); // ...tail -> analyser -> destination
-      }catch{ useFake = true; }
-    }catch{ useFake = true; }
+    } catch {
+      useFake = true;
+    }
   }
 
   // ---------- data ----------

@@ -1,50 +1,67 @@
-// Shared Web Audio graph: ONE AudioContext + ONE MediaElementSourceNode per audio element.
-// An HTMLMediaElement can only be connected to a single MediaElementSourceNode,
-// so the equalizer and the visualizer must build on the same chain:
-// source -> [EQ filters -> gain] -> [analyser] -> destination
-let ctx: AudioContext | null = null;
-let source: MediaElementAudioSourceNode | null = null;
-let tail: AudioNode | null = null;
+// Shared Web Audio graph: ONE unified, persistent chain for the entire application.
+// Chain: source -> [10 EQ peaking filters] -> gainNode -> analyserNode -> destination
 
-export interface AudioGraph {
+export const frequencies = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+
+let ctx: AudioContext | null = null;
+let sourceNode: MediaElementAudioSourceNode | null = null;
+let eqFilterNodes: BiquadFilterNode[] = [];
+let gainNode: GainNode | null = null;
+let analyserNode: AnalyserNode | null = null;
+
+export interface AudioGraphEngine {
   ctx: AudioContext;
-  /** append processor nodes in series after the current tail */
-  append(nodes: AudioNode[]): AudioGraph;
-  /** insert a pass-through node (e.g. analyser) between tail and destination */
-  tap(node: AudioNode): AudioGraph;
-  /** connect the current tail to the speakers */
-  toDestination(): AudioGraph;
+  filters: BiquadFilterNode[];
+  gain: GainNode;
+  analyser: AnalyserNode;
   resume(): void;
 }
 
-export function getAudioGraph(audio: HTMLAudioElement): AudioGraph {
+export function getAudioGraph(audio: HTMLAudioElement): AudioGraphEngine {
   if (!ctx) {
-    ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    source = ctx.createMediaElementSource(audio);
-    tail = source;
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    ctx = new AudioContextClass();
+    sourceNode = ctx.createMediaElementSource(audio);
+
+    // Create 10 EQ Peaking Filters
+    eqFilterNodes = frequencies.map((freq) => {
+      const f = ctx!.createBiquadFilter();
+      f.type = "peaking";
+      f.frequency.value = freq;
+      f.Q.value = 1.4;
+      f.gain.value = 0;
+      return f;
+    });
+
+    // Create Gain Node (for ReplayGain / Preamp)
+    gainNode = ctx.createGain();
+    gainNode.gain.value = 1.0;
+
+    // Create Analyser Node (for Visualizer)
+    analyserNode = ctx.createAnalyser();
+    analyserNode.fftSize = 2048;
+    analyserNode.smoothingTimeConstant = 0.72;
+
+    // Connect entire chain linearly
+    let prevNode: AudioNode = sourceNode;
+    for (const filter of eqFilterNodes) {
+      prevNode.connect(filter);
+      prevNode = filter;
+    }
+    prevNode.connect(gainNode);
+    gainNode.connect(analyserNode);
+    analyserNode.connect(ctx.destination);
   }
-  const g: AudioGraph = {
-    get ctx() { return ctx!; },
-    append(nodes) {
-      try { tail!.disconnect(); } catch {} // drop any previous tail->destination wiring
-      let prev: AudioNode = tail!;
-      for (const n of nodes) { prev.connect(n); prev = n; }
-      tail = prev;
-      return g;
+
+  return {
+    ctx: ctx!,
+    filters: eqFilterNodes,
+    gain: gainNode!,
+    analyser: analyserNode!,
+    resume() {
+      if (ctx && ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
     },
-    tap(node) {
-      try { tail!.disconnect(); } catch {}
-      tail!.connect(node);
-      node.connect(ctx!.destination);
-      tail = node;
-      return g;
-    },
-    toDestination() {
-      try { tail!.disconnect(); } catch {}
-      tail!.connect(ctx!.destination);
-      return g;
-    },
-    resume() { if (ctx!.state === "suspended") ctx!.resume(); }
   };
-  return g;
 }
