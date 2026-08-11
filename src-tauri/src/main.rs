@@ -188,7 +188,7 @@ fn get_track_lyrics(path: String) -> Option<String> {
     }
 
     // 2. Check embedded lyrics via lofty
-    if let Ok(tagged) = lofty::probe::Probe::open(p).ok().and_then(|pr| pr.read().ok()) {
+    if let Some(tagged) = lofty::probe::Probe::open(p).ok().and_then(|pr| pr.read().ok()) {
         let tag = tagged.primary_tag().or(tagged.first_tag());
         if let Some(t) = tag {
             if let Some(lyrics) = t.get_string(&lofty::tag::ItemKey::Lyrics) {
