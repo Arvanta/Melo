@@ -1,5 +1,6 @@
 import type { Track, RepeatMode } from "./types";
 import { busEmit, busOn } from "./bus";
+import { applyDynamicAmbientTheme } from "./cover";
 
 
 export function setupPlayer(audio: HTMLAudioElement, toast: (m:string)=>void){
@@ -77,6 +78,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m:string)=>void){
     if(durTime) durTime.textContent = formatTime(t.duration);
     if(curTime) curTime.textContent = "0:00";
     applyReplayGain();
+    applyDynamicAmbientTheme(t.cover || null);
     document.querySelectorAll(".track-row").forEach((el, i)=>{
       el.classList.toggle("active", queue[i]?.id === t.id);
     });
@@ -278,6 +280,17 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m:string)=>void){
     if(e.key==="r"||e.key==="R"){ if(btnRepeat) btnRepeat.click(); }
     if(e.code==="ArrowUp"){ if(volBar){ volBar.value = String(Math.min(100, parseInt(volBar.value)+5)); volBar.dispatchEvent(new Event("input")); } }
     if(e.code==="ArrowDown"){ if(volBar){ volBar.value = String(Math.max(0, parseInt(volBar.value)-5)); volBar.dispatchEvent(new Event("input")); } }
+  });
+
+  // Tray actions
+  busOn("melo:tray-action", (action: any) => {
+    if (action === "play_pause") togglePlay();
+    else if (action === "next") next();
+    else if (action === "prev") prev();
+    else if (action === "mute") {
+      audio.muted = !audio.muted;
+      toast(audio.muted ? "Muted" : "Unmuted");
+    }
   });
 
   loadTrack(0, false);

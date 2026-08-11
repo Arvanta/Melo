@@ -252,6 +252,8 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     return t;
   }
 
+  let playlistSearchQuery = "";
+
   // render only the song list of the current playlist into the playlist window
   function renderPlaylistWindow(){
     if(!winPlaylistTracks) return;
@@ -265,11 +267,26 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
       if(winPlaylistEmpty) winPlaylistEmpty.style.display = "block";
       return;
     }
-    const list = pl.tracks.map(tid=> tracks.find(t=>t.id===tid)).filter(Boolean) as Track[];
-    if(winPlaylistEmpty) winPlaylistEmpty.style.display = list.length ? "none" : "block";
-    winPlaylistTracks.style.display = list.length ? "flex" : "none";
-    winPlaylistTracks.innerHTML = list.map((t, i)=>`
-      <div class="track-row" draggable="true" data-id="${t.id}" data-pl-idx="${i}">
+
+    let allList = pl.tracks.map(tid=> tracks.find(t=>t.id===tid)).filter(Boolean) as Track[];
+    let list = allList;
+    if(playlistSearchQuery.trim()){
+      const q = playlistSearchQuery.toLowerCase().trim();
+      list = allList.filter(t=> t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q) || t.album.toLowerCase().includes(q));
+    }
+
+    if(winPlaylistEmpty) winPlaylistEmpty.style.display = allList.length ? "none" : "block";
+    winPlaylistTracks.style.display = allList.length ? "flex" : "none";
+
+    if(!list.length && allList.length){
+      winPlaylistTracks.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:11px;">No tracks match "${playlistSearchQuery}"</div>`;
+      return;
+    }
+
+    winPlaylistTracks.innerHTML = list.map((t, i)=>{
+      const originalIndex = pl.tracks.indexOf(t.id);
+      return `
+      <div class="track-row" draggable="true" data-id="${t.id}" data-pl-idx="${originalIndex >= 0 ? originalIndex : i}">
         <span class="num">${i+1}</span>
         ${t.cover ? `<img class="track-cover-mini" src="${t.cover}" onerror="this.style.display='none'"/>` : `<div class="track-cover-mini cover-default">♪</div>`}
         <div style="flex:1;min-width:0;">
@@ -277,16 +294,59 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
           <div class="t-artist">${t.artist} • ${t.album}</div>
         </div>
         <span class="t-dur">${fmtDur(t.duration)}</span>
-        <button class="btn small ghost" data-action="pl-remove" data-idx="${i}" title="Remove from playlist">×</button>
+        <button class="btn small ghost" data-action="pl-remove" data-idx="${originalIndex >= 0 ? originalIndex : i}" title="Remove from playlist">×</button>
       </div>
-    `).join("");
+    `;}).join("");
+
+    let draggedPlIdx: number | null = null;
 
     winPlaylistTracks.querySelectorAll(".track-row").forEach(el=>{
-      el.addEventListener("dragstart", (e:any)=>{
-        e.dataTransfer.setData("application/x-melo-ids", (el as HTMLElement).dataset.id!);
-        e.dataTransfer.effectAllowed = "copy";
+      const row = el as HTMLElement;
+      row.addEventListener("dragstart", (e:any)=>{
+        draggedPlIdx = parseInt(row.dataset.plIdx!);
+        e.dataTransfer.setData("application/x-melo-ids", row.dataset.id!);
+        e.dataTransfer.setData("application/x-melo-pl-idx", String(draggedPlIdx));
+        e.dataTransfer.effectAllowed = "move";
+        row.style.opacity = "0.4";
       });
-      el.addEventListener("click", (e)=>{
+
+      row.addEventListener("dragend", ()=>{
+        row.style.opacity = "1";
+        draggedPlIdx = null;
+        winPlaylistTracks?.querySelectorAll(".track-row").forEach(r=> r.classList.remove("drag-over-target"));
+      });
+
+      row.addEventListener("dragover", (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        row.classList.add("drag-over-target");
+      });
+
+      row.addEventListener("dragleave", ()=>{
+        row.classList.remove("drag-over-target");
+      });
+
+      row.addEventListener("drop", (e:any)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        row.classList.remove("drag-over-target");
+        const targetPlIdx = parseInt(row.dataset.plIdx!);
+        const sourceIdxStr = e.dataTransfer?.getData("application/x-melo-pl-idx");
+
+        if(sourceIdxStr !== undefined && sourceIdxStr !== "" && !isNaN(parseInt(sourceIdxStr))){
+          const fromIdx = parseInt(sourceIdxStr);
+          if(fromIdx !== targetPlIdx && fromIdx >= 0 && targetPlIdx >= 0 && fromIdx < pl.tracks.length && targetPlIdx < pl.tracks.length){
+            const movedId = pl.tracks.splice(fromIdx, 1)[0];
+            pl.tracks.splice(targetPlIdx, 0, movedId);
+            savePlaylists(); broadcastPlaylists();
+            renderPlaylistWindow(); render();
+            toast("Track reordered in playlist");
+            return;
+          }
+        }
+      });
+
+      row.addEventListener("click", (e)=>{
         const target = e.target as HTMLElement;
         if(target.closest("[data-action='pl-remove']")){
           const idx = parseInt((target.closest("[data-action='pl-remove']") as HTMLElement).dataset.idx!);
@@ -295,9 +355,40 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
           renderPlaylistWindow(); render();
           return;
         }
-        const idx = parseInt((el as HTMLElement).dataset.plIdx!);
-        busEmit("melo:play-tracks", { tracks: list, index: idx });
+        const clickedId = row.dataset.id!;
+        const playIdx = list.findIndex(t=> t.id === clickedId);
+        busEmit("melo:play-tracks", { tracks: list, index: playIdx >= 0 ? playIdx : 0 });
       });
+    });
+  }
+
+  // Playlist search and sort controls
+  const playlistSearch = document.getElementById("playlistSearchInput") as HTMLInputElement | null;
+  if(playlistSearch){
+    playlistSearch.addEventListener("input", ()=>{
+      playlistSearchQuery = playlistSearch.value;
+      renderPlaylistWindow();
+    });
+  }
+
+  const playlistSort = document.getElementById("playlistSortSelect") as HTMLSelectElement | null;
+  if(playlistSort){
+    playlistSort.addEventListener("change", ()=>{
+      const pl = currentPlaylist();
+      if(!pl || !pl.tracks.length) return;
+      const order = playlistSort.value;
+      const plTracks = pl.tracks.map(tid=> tracks.find(t=>t.id===tid)).filter(Boolean) as Track[];
+
+      if(order === "title-asc") plTracks.sort((a,b)=> a.title.localeCompare(b.title));
+      else if(order === "artist-asc") plTracks.sort((a,b)=> a.artist.localeCompare(b.artist));
+      else if(order === "album-asc") plTracks.sort((a,b)=> a.album.localeCompare(b.album));
+      else if(order === "dur-asc") plTracks.sort((a,b)=> a.duration - b.duration);
+      else if(order === "dur-desc") plTracks.sort((a,b)=> b.duration - a.duration);
+
+      pl.tracks = plTracks.map(t=> t.id);
+      savePlaylists(); broadcastPlaylists();
+      renderPlaylistWindow();
+      toast(`Playlist sorted by ${playlistSort.options[playlistSort.selectedIndex].text}`);
     });
   }
 
