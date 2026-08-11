@@ -17,11 +17,11 @@
         "width": 960,
         "height": 240,
         "minWidth": 650,
-        "minHeight": 240,
-        "maxHeight": 240,
+        "minHeight": 135,
+        "maxHeight": 260,
         "resizable": true,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "center": true,
         "shadow": true
       }

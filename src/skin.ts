@@ -29,7 +29,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   body {
     margin: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: transparent;
+    background: transparent !important;
     color: var(--text);
     overflow: hidden;
     height: 100vh;
@@ -43,14 +43,15 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     box-shadow: var(--shadow) !important;
     padding: 10px 18px 12px 18px !important;
     width: 100% !important;
-    height: 100% !important;
-    min-height: 135px !important;
-    max-height: 145px !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
     position: relative !important;
     box-sizing: border-box !important;
+    overflow: hidden !important;
   }
   .player-titlebar {
     position: relative !important;
@@ -296,9 +297,6 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
         <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
       </button>
-      <button class="icon-btn" id="btnStop" title="Stop" style="display:none">
-        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-      </button>
       <button class="icon-btn" id="btnNext" title="Next">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
       </button>
@@ -337,7 +335,7 @@ const COMPACT_PILL_DARK = `<!doctype html>
   body {
     margin: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: transparent;
+    background: transparent !important;
     color: var(--text);
     overflow: hidden;
     height: 100vh;
@@ -351,14 +349,15 @@ const COMPACT_PILL_DARK = `<!doctype html>
     box-shadow: var(--shadow) !important;
     padding: 10px 18px 12px 18px !important;
     width: 100% !important;
-    height: 100% !important;
-    min-height: 135px !important;
-    max-height: 145px !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
     position: relative !important;
     box-sizing: border-box !important;
+    overflow: hidden !important;
   }
   .player-titlebar {
     position: relative !important;
@@ -604,9 +603,6 @@ const COMPACT_PILL_DARK = `<!doctype html>
         <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
       </button>
-      <button class="icon-btn" id="btnStop" title="Stop" style="display:none">
-        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-      </button>
       <button class="icon-btn" id="btnNext" title="Next">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
       </button>
@@ -699,7 +695,7 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
   localStorage.setItem("lumi-custom-skin-isFull", isFull ? "1" : "0");
 }
 
-export function resetSkin(toast?: (m: string) => void) {
+export function resetSkin(toast?: (m: string) => void, broadcast = true) {
   if (customStyleEl) { customStyleEl.remove(); customStyleEl = null; }
   if (customFrame) { customFrame.remove(); customFrame = null; }
   const playerCard = document.getElementById("playerCard") as HTMLElement;
@@ -717,7 +713,7 @@ export function resetSkin(toast?: (m: string) => void) {
   localStorage.removeItem("lumi-custom-skin");
   localStorage.removeItem("lumi-custom-skin-isFull");
   localStorage.setItem("melo-active-skin-id", "default");
-  busEmit("melo:skin-changed", "default");
+  if (broadcast) busEmit("melo:skin-changed", "default");
   if (toast) toast("Switched to Default Melo skin");
 }
 
@@ -769,9 +765,9 @@ export async function loadSkinFromDisk(filenameOrPath: string, toast?: (m: strin
   return false;
 }
 
-export async function applySkinChoice(skinChoice: string, currentTheme: "light" | "dark", toast?: (m: string) => void) {
+export async function applySkinChoice(skinChoice: string, currentTheme: "light" | "dark", toast?: (m: string) => void, broadcast = true) {
   if (skinChoice === "default") {
-    resetSkin(toast);
+    resetSkin(toast, broadcast);
     return;
   }
 
@@ -785,7 +781,7 @@ export async function applySkinChoice(skinChoice: string, currentTheme: "light" 
   const success = await loadSkinFromDisk(targetFile, toast);
   if (success) {
     localStorage.setItem("melo-active-skin-id", skinChoice);
-    busEmit("melo:skin-changed", skinChoice);
+    if (broadcast) busEmit("melo:skin-changed", skinChoice);
   }
 }
 
@@ -819,29 +815,21 @@ export function setupSkinEngine(toast: (m: string) => void) {
 
   if (savedSkinId && savedSkinId !== "default") {
     setTimeout(() => {
-      applySkinChoice(savedSkinId, theme);
+      applySkinChoice(savedSkinId, theme, undefined, false);
     }, 150);
   }
 
   busOn("melo:theme", (t: any) => {
     const activeSkin = localStorage.getItem("melo-active-skin-id");
     if (activeSkin && activeSkin !== "default") {
-      applySkinChoice(activeSkin, t);
+      applySkinChoice(activeSkin, t, undefined, false);
     }
   });
 
   busOn("melo:skin-changed", (skinChoice: any) => {
     if (skinChoice && typeof skinChoice === "string") {
       const currentTheme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";
-      if (skinChoice === "default") {
-        resetSkin();
-      } else {
-        let targetFile = skinChoice;
-        if (skinChoice === "compact-pill" || skinChoice.startsWith("compact-pill")) {
-          targetFile = currentTheme === "dark" ? "compact-pill-dark.html" : "compact-pill-light.html";
-        }
-        loadSkinFromDisk(targetFile);
-      }
+      applySkinChoice(skinChoice, currentTheme, undefined, false);
     }
   });
 

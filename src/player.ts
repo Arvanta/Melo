@@ -1,6 +1,7 @@
 import type { Track, RepeatMode } from "./types";
-import { busEmit, busOn } from "./bus";
+import { busEmit, busOn, isTauri } from "./bus";
 import { applyDynamicAmbientTheme } from "./cover";
+import { getAudioGraph } from "./audio-graph";
 
 
 export function setupPlayer(audio: HTMLAudioElement, toast: (m:string)=>void){
@@ -39,7 +40,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m:string)=>void){
   // <audio> cannot open raw OS paths; convert them to the tauri asset protocol
   async function resolveSrc(p: string): Promise<string> {
     if (/^(https?|data|blob):/.test(p)) return p;
-    if ((window as any).__TAURI__) {
+    if (isTauri) {
       try {
         const { convertFileSrc } = await import("@tauri-apps/api/core");
         return convertFileSrc(p);
@@ -123,6 +124,10 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m:string)=>void){
   window.addEventListener("keydown", onUnlocked);
 
   function play(){
+    try {
+      const g = getAudioGraph(audio);
+      g.resume();
+    } catch {}
     audio.play().then(()=>{
       pendingPlay = false;
       if(iconPlay) iconPlay.style.display="none";
