@@ -38,6 +38,12 @@ pub struct SkinFileInfo {
     pub path: String,
 }
 
+// Embedded default skin templates to ensure the skins folder is always populated on disk
+const DEFAULT_SKIN_COMPACT_LIGHT: &str = include_str!("../../skins/compact-pill-light.html");
+const DEFAULT_SKIN_COMPACT_DARK: &str = include_str!("../../skins/compact-pill-dark.html");
+const DEFAULT_SKIN_EXAMPLE: &str = include_str!("../../skins/example-custom.html");
+const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
+
 // ---- Helpers ----
 
 fn codec_from_ext(path: &Path) -> String {
@@ -143,51 +149,42 @@ fn parse_track(p: &Path) -> Option<Track> {
     })
 }
 
-// ---- Skin Folder Resolver ----
+// ---- Skin Folder Resolver & Populator ----
 
-fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
-    use tauri::Manager;
+fn get_skins_dir(_app: &tauri::AppHandle) -> PathBuf {
     // 1. Next to current executable (e.g. C:\Program Files\Melo\skins\)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let p = parent.join("skins");
-            if p.exists() && p.is_dir() {
-                return p;
-            }
-            // Dev mode: target/debug/../../skins
-            let p_dev = parent.join("../../skins");
-            if p_dev.exists() && p_dev.is_dir() {
-                if let Ok(canon) = p_dev.canonicalize() {
-                    return canon;
-                }
-            }
-        }
-    }
-    // 2. Tauri resource directory
-    if let Ok(res) = app.path().resource_dir() {
-        let p = res.join("skins");
-        if p.exists() && p.is_dir() {
+            let _ = std::fs::create_dir_all(&p);
+            ensure_default_skins_on_disk(&p);
             return p;
         }
     }
-    // 3. Current working directory
-    if let Ok(cur) = std::env::current_dir() {
-        let p = cur.join("skins");
-        if p.exists() && p.is_dir() {
-            return p;
-        }
-        let p2 = cur.join("../skins");
-        if p2.exists() && p2.is_dir() {
-            return p2;
-        }
+    // 2. Fallback relative
+    let p = PathBuf::from("skins");
+    let _ = std::fs::create_dir_all(&p);
+    ensure_default_skins_on_disk(&p);
+    p
+}
+
+fn ensure_default_skins_on_disk(skins_dir: &Path) {
+    let f1 = skins_dir.join("compact-pill-light.html");
+    if !f1.exists() {
+        let _ = std::fs::write(f1, DEFAULT_SKIN_COMPACT_LIGHT);
     }
-    // 4. AppData directory fallback
-    if let Ok(app_data) = app.path().app_data_dir() {
-        let p = app_data.join("skins");
-        let _ = std::fs::create_dir_all(&p);
-        return p;
+    let f2 = skins_dir.join("compact-pill-dark.html");
+    if !f2.exists() {
+        let _ = std::fs::write(f2, DEFAULT_SKIN_COMPACT_DARK);
     }
-    PathBuf::from("skins")
+    let f3 = skins_dir.join("example-custom.html");
+    if !f3.exists() {
+        let _ = std::fs::write(f3, DEFAULT_SKIN_EXAMPLE);
+    }
+    let f4 = skins_dir.join("full-html-example.html");
+    if !f4.exists() {
+        let _ = std::fs::write(f4, DEFAULT_SKIN_FULL_EXAMPLE);
+    }
 }
 
 // ---- Tauri Commands ----
@@ -223,9 +220,6 @@ fn get_track_lyrics(path: String) -> Option<String> {
 fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, String> {
     let skins_dir = get_skins_dir(&app);
     let mut list = Vec::new();
-    if !skins_dir.exists() {
-        let _ = std::fs::create_dir_all(&skins_dir);
-    }
     if let Ok(entries) = std::fs::read_dir(&skins_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -273,23 +267,19 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
         return std::fs::read_to_string(&target).map_err(|e| e.to_string());
     }
 
-    // Fallback checks
-    let p1 = Path::new("skins").join(&filename_or_path);
-    if p1.exists() {
-        return std::fs::read_to_string(&p1).map_err(|e| e.to_string());
+    // Check embedded fallback if filename matches
+    match filename_or_path.as_str() {
+        "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT_LIGHT.to_string()),
+        "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT_DARK.to_string()),
+        "example-custom.html" | "example-custom" => Ok(DEFAULT_SKIN_EXAMPLE.to_string()),
+        "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
+        _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }
-    let p2 = Path::new("../skins").join(&filename_or_path);
-    if p2.exists() {
-        return std::fs::read_to_string(&p2).map_err(|e| e.to_string());
-    }
-
-    Err(format!("Skin file not found: {}", filename_or_path))
 }
 
 #[tauri::command]
 fn save_custom_skin_file(filename: String, content: String, app: tauri::AppHandle) -> Result<String, String> {
     let skins_dir = get_skins_dir(&app);
-    let _ = std::fs::create_dir_all(&skins_dir);
     let safe_filename = if filename.ends_with(".html") || filename.ends_with(".htm") {
         filename
     } else {
@@ -303,7 +293,6 @@ fn save_custom_skin_file(filename: String, content: String, app: tauri::AppHandl
 #[tauri::command]
 fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     let skins_dir = get_skins_dir(&app);
-    let _ = std::fs::create_dir_all(&skins_dir);
     let abs_path = skins_dir.canonicalize().unwrap_or(skins_dir);
     let mut path_str = abs_path.to_string_lossy().to_string();
     if path_str.starts_with(r"\\?\") {
@@ -499,7 +488,6 @@ fn main() {
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
             use tauri::Manager;
 
-            // System Tray Menu
             let toggle_item = MenuItemBuilder::with_id("toggle", "Show / Hide Melo").build(app)?;
             let play_item = MenuItemBuilder::with_id("play_pause", "Play / Pause").build(app)?;
             let next_item = MenuItemBuilder::with_id("next", "Next Track").build(app)?;

@@ -924,13 +924,28 @@ async function addFilesViaDialog() {
       const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
+      const { invoke } = await import("@tauri-apps/api/core");
       const list: any[] = [];
       for (const p of paths) {
-        const leaf = p.replace(/^.*[\\/]/, "");
-        const dot = leaf.lastIndexOf(".");
-        const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
-        const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
-        list.push({ id: p, title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: p, codec: ext, specs: "Local File", source: "import" });
+        try {
+          const scanned: any[] = await invoke("scan_library", { path: p });
+          if (scanned && scanned.length) {
+            scanned.forEach((t: any) => t.source = "import");
+            list.push(...scanned);
+          } else {
+            const leaf = p.replace(/^.*[\\/]/, "");
+            const dot = leaf.lastIndexOf(".");
+            const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
+            const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
+            list.push({ id: p, title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: p, codec: ext, specs: "Local File", source: "import" });
+          }
+        } catch {
+          const leaf = p.replace(/^.*[\\/]/, "");
+          const dot = leaf.lastIndexOf(".");
+          const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
+          const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
+          list.push({ id: p, title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: p, codec: ext, specs: "Local File", source: "import" });
+        }
       }
       lib?.addTracks(list, true);
       lib?.addToCurrentPlaylist(list);

@@ -212,6 +212,29 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
 
   // Native OS drag & drop (Tauri): dropping files anywhere in this window
   if (isTauriEnv) {
+    import("@tauri-apps/api/webviewWindow").then(({ getCurrentWebviewWindow }) => {
+      const win = getCurrentWebviewWindow();
+      win.onDragDropEvent(async (e: any) => {
+        if (e.payload.type === "drop") {
+          const paths: string[] = e.payload.paths || [];
+          if (!paths.length) return;
+          const list = await importPaths(paths);
+          if (!list.length) return;
+          list.forEach(t => (t as any).source = "import");
+          addTracks(list, true);
+          if (myRole === "main") {
+            addToCurrentPlaylist(list);
+            busEmit("melo:play-tracks", { tracks: list, index: 0 });
+          } else if (myRole === "playlist") {
+            addToCurrentPlaylist(list);
+            toast(`Added ${list.length} track(s) to "${currentPlaylist()?.name}"`);
+          } else {
+            toast(`Added ${list.length} file(s) to library`);
+          }
+        }
+      });
+    }).catch(() => {});
+
     import("@tauri-apps/api/event").then(({ listen }) => {
       listen("tauri://drag-drop", async (e: any) => {
         const paths: string[] = e?.payload?.paths || [];
@@ -221,7 +244,6 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         list.forEach(t=> (t as any).source = "import");
         addTracks(list, true);
         if (myRole === "main") {
-          // dropped on the player window: play now + add to current playlist (quietly)
           addToCurrentPlaylist(list);
           busEmit("melo:play-tracks", { tracks: list, index: 0 });
         } else if (myRole === "playlist") {
@@ -231,7 +253,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
           toast(`Added ${list.length} file(s) to the library`);
         }
       });
-    });
+    }).catch(() => {});
   }
   function fmtDur(d:number){ return `${Math.floor(d/60)}:${String(Math.floor(d%60)).padStart(2,"0")}`; }
   function isAudioFile(f: File){ return f.type.startsWith("audio/") || /\.(mp3|flac|wav|ogg|aac|m4a|alac|opus)$/i.test(f.name); }
@@ -239,6 +261,13 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   // import a dropped File into a Track (library-friendly)
   async function fileToTrack(file: File): Promise<Track>{
     const nativePath = (file as any).path;
+    if (nativePath && isTauriEnv) {
+      const scanned = await importPaths([nativePath]);
+      if (scanned.length) {
+        (scanned[0] as any).source = "import";
+        return scanned[0];
+      }
+    }
     const url = nativePath || URL.createObjectURL(file);
     const id = nativePath || Math.random().toString(36).slice(2);
     const ext = file.name.split(".").pop()?.toUpperCase() || "MP3";
