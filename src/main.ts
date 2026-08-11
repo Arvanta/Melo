@@ -305,7 +305,7 @@ app.innerHTML = `
 
         <!-- SHORTCUTS TAB -->
         <div class="settings-section" data-panel="shortcuts">
-          <div style="display:grid; grid-template-columns: 140px 1fr; gap:10px 16px; font-size:12px; line-height:1.6; padding:4px 0;">
+          <div style="display:grid; grid-template-columns: 150px 1fr; gap:10px 16px; font-size:12px; line-height:1.6; padding:4px 0;">
             <b>Space</b><span>Play / Pause</span>
             <b>Left / Right</b><span>Seek 5 seconds backward / forward</span>
             <b>Up / Down</b><span>Adjust volume (±5%)</span>
@@ -314,6 +314,7 @@ app.innerHTML = `
             <b>R</b><span>Toggle Repeat mode (Off / All / One)</span>
             <b>Ctrl + O</b><span>Add audio files via file dialog</span>
             <b>Ctrl + Shift + O</b><span>Scan folder via folder dialog</span>
+            <b>Ctrl + , / F2</b><span>Open / Close Settings window</span>
             <b>Escape</b><span>Close popup menus & visualizer selector</span>
           </div>
         </div>
@@ -514,17 +515,17 @@ if (isTauri && !urlPanel) {
   import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
     const mainWin = getCurrentWindow();
     
-    const getTargetHeight = () => {
+    const getTargetSize = () => {
       const activeSkin = localStorage.getItem("melo-active-skin-id");
-      return activeSkin === "compact-pill" ? 140 : 240;
+      const isCompact = activeSkin === "compact-pill" || (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
+      return { w: isCompact ? 780 : 960, h: isCompact ? 138 : 240 };
     };
 
     try {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
       const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
-      const h = getTargetHeight();
-      const w = g?.w ? Math.max(650, g.w) : 960;
-      await mainWin.setSize(new LogicalSize(w, h));
+      const sz = getTargetSize();
+      await mainWin.setSize(new LogicalSize(g?.w ? Math.max(650, g.w) : sz.w, sz.h));
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -534,17 +535,18 @@ if (isTauri && !urlPanel) {
       try {
         const pos = await mainWin.outerPosition();
         const size = await mainWin.innerSize();
-        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: getTargetHeight() }));
+        const sz = getTargetSize();
+        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: sz.h }));
       } catch {}
     };
     mainWin.onMoved(saveGeo);
     mainWin.onResized(async () => {
       try {
         const sz = await mainWin.innerSize();
-        const h = getTargetHeight();
+        const target = getTargetSize();
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (sz.width < 650 || sz.height !== h) {
-          await mainWin.setSize(new LogicalSize(Math.max(650, sz.width), h));
+        if (sz.width < 650 || sz.height !== target.h) {
+          await mainWin.setSize(new LogicalSize(Math.max(650, sz.width), target.h));
         }
       } catch {}
       saveGeo();
@@ -553,12 +555,13 @@ if (isTauri && !urlPanel) {
     busOn("melo:skin-changed", async (skinId: any) => {
       try {
         if (!urlPanel && skinId) {
-          await applySkinChoice(skinId, theme);
+          await applySkinChoice(skinId, theme, undefined, false);
         }
-        const h = (skinId === "compact-pill" || (typeof skinId === "string" && skinId.startsWith("compact-pill"))) ? 140 : 240;
-        const sz = await mainWin.innerSize();
+        const isCompact = skinId === "compact-pill" || (typeof skinId === "string" && skinId.startsWith("compact-pill"));
+        const targetW = isCompact ? 780 : 960;
+        const targetH = isCompact ? 138 : 240;
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        await mainWin.setSize(new LogicalSize(Math.max(650, sz.width), h));
+        await mainWin.setSize(new LogicalSize(targetW, targetH));
         saveGeo();
       } catch {}
     });
@@ -1044,6 +1047,10 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
     if (e.shiftKey) { e.preventDefault(); addFolderViaDialog(); }
     else { e.preventDefault(); addFilesViaDialog(); }
+  }
+  if (((e.ctrlKey || e.metaKey) && e.key === ",") || e.key === "F2") {
+    e.preventDefault();
+    toggleWin("win-settings");
   }
 });
 

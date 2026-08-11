@@ -126,7 +126,8 @@ fn parse_track(p: &Path) -> Option<Track> {
             .map(|m| m.as_str().to_string())
             .unwrap_or_else(|| "image/jpeg".to_string());
         let data = pic.data();
-        if data.len() > 800_000 {
+        // Limit cover payload to 250KB to keep localStorage fast and prevent QuotaExceededError
+        if data.len() > 300_000 {
             return None;
         }
         let b64 = base64::engine::general_purpose::STANDARD.encode(data);
@@ -157,6 +158,7 @@ fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let p = parent.join("skins");
+            let _ = std::fs::create_dir_all(&p);
             if p.exists() && p.is_dir() {
                 ensure_default_skins_on_disk(&p);
                 return p;
@@ -302,6 +304,7 @@ fn save_custom_skin_file(filename: String, content: String, app: tauri::AppHandl
 #[tauri::command]
 fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     let skins_dir = get_skins_dir(&app);
+    let _ = std::fs::create_dir_all(&skins_dir);
     let abs_path = skins_dir.canonicalize().unwrap_or(skins_dir);
     let mut path_str = abs_path.to_string_lossy().to_string();
     if path_str.starts_with(r"\\?\") {
@@ -310,8 +313,8 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let win_path = path_str.replace('/', "\\");
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &win_path])
+        std::process::Command::new("explorer.exe")
+            .arg(&win_path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
