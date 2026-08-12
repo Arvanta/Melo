@@ -6,7 +6,7 @@ import { setupVisualizer } from "./visualizer";
 import { setupLyrics } from "./lyrics";
 import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
-import { busEmit, busOn } from "./bus";
+import { busEmit, busOn, isTauri } from "./bus";
 
 type ToastFn = (msg: string) => void;
 
@@ -471,7 +471,6 @@ app.innerHTML = `
 </div>
 `;
 
-const isTauri = !!(window as any).__TAURI__;
 const urlPanel = new URLSearchParams(location.search).get("panel");
 
 // Tauri: secondary OS windows render a single panel full-size (real native windows)
@@ -494,6 +493,7 @@ if (isTauri && urlPanel) {
 }
 
 if (isTauri && !urlPanel) {
+  document.documentElement.classList.add("tauri-main");
   document.body.classList.add("tauri-main");
   document.querySelectorAll(".side-actions .sbtn").forEach(b => b.classList.remove("active"));
   import("@tauri-apps/api/webviewWindow").then(({ WebviewWindow }) => {
@@ -914,17 +914,15 @@ document.getElementById("menuThemeToggle")?.addEventListener("click", () => {
   appMenu?.classList.remove("open");
 });
 document.getElementById("menuAbout")?.addEventListener("click", () => {
-  showToast("Melo 0.2 Beta — Tauri 2 + TypeScript + Rust");
+  showToast("Melo 0.3 Beta — Tauri 2 + TypeScript + Rust");
   appMenu?.classList.remove("open");
 });
-
-const isTauriEnv = typeof (window as any).__TAURI_INTERNALS__ !== "undefined" || typeof (window as any).__TAURI__ !== "undefined";
 
 // Add files / folder dialogs
 async function addFilesViaDialog() {
   const lib = (window as any).LumiLibrary;
   const player = (window as any).LumiPlayer;
-  if (isTauriEnv) {
+  if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
@@ -992,7 +990,7 @@ async function addFilesViaDialog() {
 async function addFolderViaDialog() {
   const lib = (window as any).LumiLibrary;
   const player = (window as any).LumiPlayer;
-  if (isTauriEnv) {
+  if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const sel = await open({ directory: true });
@@ -1200,7 +1198,7 @@ function setupSettings(toast: ToastFn) {
   });
 
   document.getElementById("btnChooseFolder")?.addEventListener("click", async () => {
-    if (isTauriEnv) {
+    if (isTauri) {
       try {
         const { open } = await import("@tauri-apps/plugin-dialog");
         const sel = await open({ directory: true });

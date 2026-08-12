@@ -382,11 +382,12 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
 }
 .panel-body .eq-grid { flex: 1; }
 /* Tauri main window: only the player card, no fake desktop, no visible webview frame */
-body.tauri-main { background: transparent !important; }
-body.tauri-main .desktop { display: none; }
+body.tauri-main, html.tauri-main { background: transparent !important; background-color: transparent !important; }
+body.tauri-main #app { background: transparent !important; }
+body.tauri-main .desktop { display: none !important; }
 body.tauri-main .app-shell { padding: 0; gap: 0; height: 100vh; min-height: 100vh; background: transparent !important; }
 body.tauri-main .player-card {
-  border: none; border-radius: var(--radius); box-shadow: none;
+  border: none; border-radius: var(--radius); box-shadow: var(--shadow);
   height: 100vh; min-height: 100vh; max-height: 100vh;
   width: 100%; padding: 12px 20px 14px 20px; box-sizing: border-box; overflow: hidden;
 }

@@ -1,17 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capabilities/default.json",
-  "identifier": "default",
-  "description": "Default capabilities for Melo Music Player",
+  "identifier": "melo-capability",
+  "description": "Main capabilities for Melo Music Player",
   "windows": [
     "*"
   ],
   "permissions": [
     "core:default",
     "core:event:default",
-    "core:event:allow-emit",
-    "core:event:allow-emit-to",
-    "core:event:allow-listen",
-    "core:event:allow-unlisten",
     "core:window:default",
     "core:window:allow-set-focus",
     "core:window:allow-show",
@@ -21,17 +17,11 @@
     "core:window:allow-destroy",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
-    "core:window:allow-internal-toggle-maximize",
     "core:window:allow-start-dragging",
-    "core:window:allow-outer-position",
-    "core:window:allow-outer-size",
-    "core:window:allow-set-position",
-    "core:window:allow-set-size",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "core:path:default",
     "dialog:default",
-    "dialog:allow-open",
     "fs:default",
     "global-shortcut:default"
   ]

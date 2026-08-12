@@ -1,8 +1,8 @@
 import type { Track, Playlist } from "./types";
 import { withCover } from "./cover";
-import { busEmit, busOn } from "./bus";
+import { busEmit, busOn, isTauri } from "./bus";
 
-const isTauriEnv = !!(window as any).__TAURI__;
+const isTauriEnv = isTauri;
 // window role derived from the URL: main player window or one of the panels
 const myRole: string = new URLSearchParams(location.search).get("panel") || "main";
 
@@ -222,35 +222,9 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
           if (!list.length) return;
           list.forEach(t => (t as any).source = "import");
           addTracks(list, true);
-          if (myRole === "main") {
-            addToCurrentPlaylist(list);
-            busEmit("melo:play-tracks", { tracks: list, index: 0 });
-          } else if (myRole === "playlist") {
-            addToCurrentPlaylist(list);
-            toast(`Added ${list.length} track(s) to "${currentPlaylist()?.name}"`);
-          } else {
-            toast(`Added ${list.length} file(s) to library`);
-          }
-        }
-      });
-    }).catch(() => {});
-
-    import("@tauri-apps/api/event").then(({ listen }) => {
-      listen("tauri://drag-drop", async (e: any) => {
-        const paths: string[] = e?.payload?.paths || [];
-        if (!paths.length) return;
-        const list = await importPaths(paths);
-        if (!list.length) return;
-        list.forEach(t=> (t as any).source = "import");
-        addTracks(list, true);
-        if (myRole === "main") {
           addToCurrentPlaylist(list);
           busEmit("melo:play-tracks", { tracks: list, index: 0 });
-        } else if (myRole === "playlist") {
-          addToCurrentPlaylist(list);
-          toast(`Added ${list.length} track(s) to "${currentPlaylist()?.name}"`);
-        } else {
-          toast(`Added ${list.length} file(s) to the library`);
+          toast(`Playing ${list[0]?.title || "track"}`);
         }
       });
     }).catch(() => {});
@@ -311,11 +285,29 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
       return;
     }
 
-    let allList = pl.tracks.map(tid=> tracks.find(t=>t.id===tid)).filter(Boolean) as Track[];
+    const allList: Track[] = pl.tracks.map((tid, idx)=>{
+      const found = tracks.find(t=> t.id === tid || t.path === tid);
+      if(found) return found;
+      const leaf = tid.replace(/^.*[\\/]/, "");
+      const dot = leaf.lastIndexOf(".");
+      const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
+      return {
+        id: tid,
+        title: stem || `Track ${idx + 1}`,
+        artist: "Audio Track",
+        album: pl.name,
+        duration: 0,
+        path: tid,
+        codec: "AUDIO",
+        specs: "Local File",
+        source: "import"
+      } as Track;
+    });
+
     let list = allList;
     if(playlistSearchQuery.trim()){
       const q = playlistSearchQuery.toLowerCase().trim();
-      list = allList.filter(t=> t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q) || t.album.toLowerCase().includes(q));
+      list = allList.filter(t=> (t.title||"").toLowerCase().includes(q) || (t.artist||"").toLowerCase().includes(q) || (t.album||"").toLowerCase().includes(q));
     }
 
     if(winPlaylistEmpty) winPlaylistEmpty.style.display = allList.length ? "none" : "block";
