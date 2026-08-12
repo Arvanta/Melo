@@ -315,8 +315,6 @@ app.innerHTML = `
             <b>Ctrl + O</b><span>Add audio files via file dialog</span>
             <b>Ctrl + Shift + O</b><span>Scan folder via folder dialog</span>
             <b>Ctrl + , / F2</b><span>Open / Close Settings window</span>
-            <b>F12 / Ctrl+Shift+I</b><span>Toggle Developer Tools (DevTools)</span>
-
             <b>Escape</b><span>Close popup menus & visualizer selector</span>
           </div>
         </div>
@@ -329,9 +327,6 @@ app.innerHTML = `
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Synced Lyrics (.lrc) • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
             <a href="https://github.com/Arvanta/Melo" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">github.com/Arvanta/Melo ↗</a>
-            <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--card-border);">
-              <button class="btn small" id="btnOpenDevTools">Toggle DevTools (F12) 🛠️</button>
-            </div>
           </div>
         </div>
       </div>
@@ -367,7 +362,6 @@ app.innerHTML = `
         <div class="menu-sep"></div>
         <button class="menu-item" id="menuThemeToggle">Toggle Light / Dark Theme</button>
         <button class="menu-item" id="menuCustomSkin">Load Custom HTML Skin...</button>
-        <button class="menu-item" id="menuToggleDevTools">Developer Tools (F12)</button>
         <button class="menu-item" id="menuAbout">About Melo 0.3 Beta</button>
       </div>
 
@@ -635,6 +629,7 @@ const showToast: ToastFn = (msg) => {
 
 const audio = new Audio();
 audio.preload = "metadata";
+audio.crossOrigin = "anonymous";
 (window as any).__LUMI_AUDIO__ = audio;
 (window as any).__TOAST__ = showToast;
 
@@ -919,17 +914,6 @@ document.getElementById("menuThemeToggle")?.addEventListener("click", () => {
   applyTheme(theme === "light" ? "dark" : "light");
   appMenu?.classList.remove("open");
 });
-document.getElementById("menuToggleDevTools")?.addEventListener("click", async () => {
-  if (isTauri) {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("toggle_devtools");
-    } catch {}
-  } else {
-    showToast("DevTools toggle requires Tauri desktop runtime");
-  }
-  appMenu?.classList.remove("open");
-});
 document.getElementById("menuAbout")?.addEventListener("click", () => {
   showToast("Melo 0.3 Beta — Tauri 2 + TypeScript + Rust");
   appMenu?.classList.remove("open");
@@ -1058,18 +1042,7 @@ document.getElementById("btnThemeToggle")?.addEventListener("click", () => {
   applyTheme(theme === "light" ? "dark" : "light");
 });
 
-window.addEventListener("keydown", async (e: KeyboardEvent) => {
-  if (e.key === "F12" || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "i")) {
-    e.preventDefault();
-    if (isTauri) {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("toggle_devtools");
-      } catch {}
-    } else {
-      showToast("DevTools shortcut requires Tauri desktop runtime");
-    }
-  }
+window.addEventListener("keydown", (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
     if (e.shiftKey) { e.preventDefault(); addFolderViaDialog(); }
     else { e.preventDefault(); addFilesViaDialog(); }
@@ -1238,17 +1211,6 @@ function setupSettings(toast: ToastFn) {
       } catch {}
     } else {
       toast("Folder selection dialog requires Tauri build");
-    }
-  });
-
-  document.getElementById("btnOpenDevTools")?.addEventListener("click", async () => {
-    if (isTauri) {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("toggle_devtools");
-      } catch {}
-    } else {
-      toast("DevTools requires Tauri desktop runtime");
     }
   });
 }

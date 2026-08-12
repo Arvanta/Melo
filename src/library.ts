@@ -47,6 +47,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   let tab: "tracks"|"playlists"|"recent" = "tracks";
   let search = "";
   let currentPlaylistId: string = localStorage.getItem("melo-currentPlaylist") || playlists[0]?.id || "";
+  let playlistSearchQuery = "";
 
   // ----- library browsing state (Artists / Albums / Genres) -----
   let libTab: "artists"|"albums"|"genres" = "artists";
@@ -261,8 +262,6 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     await withCover(file, t as any);
     return t;
   }
-
-  let playlistSearchQuery = "";
 
   // render only the song list of the current playlist into the playlist window
   function renderPlaylistWindow(){
