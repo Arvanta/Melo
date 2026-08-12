@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<title>Melo Full HTML Skin Example</title>
+<style>
+  /* ===== FULL HTML SKIN - آزادی کامل ===== */
+  /* هر چیزی رو می‌تونی عوض کنی: جای پراگرس‌بار، شکل کاور، موقعیت دکمه‌ها */
+  :root {
+    --card: #0f172a;
+    --accent: #38bdf8;
+    --visualizer: #38bdf8;
+  }
+  .player-card {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+    border: 1px solid #334155 !important;
+    min-height: 180px !important;
+  }
+  /* مثال: پراگرس‌بار بره بالا */
+  .seek-row {
+    position: absolute !important;
+    top: 44px !important;
+    left: 18px !important;
+    right: 18px !important;
+  }
+  /* مثال: کاور گرد و کوچک سمت راست */
+  .cover-wrap {
+    width: 90px !important;
+    height: 90px !important;
+    border-radius: 50% !important;
+    border: 2px solid var(--accent) !important;
+    box-shadow: 0 8px 24px rgba(56,189,248,0.3) !important;
+  }
+  /* مثال: تایتل بزرگتر */
+  .track-title { font-size: 20px !important; color: #f1f5f9 !important; }
+  .track-artist { color: #94a3b8 !important; }
+  /* ویژوالایزر بلندتر */
+  .visualizer-bars { height: 48px !important; gap: 3px !important; }
+  .v-bar { background: linear-gradient(to top, #38bdf8, #818cf8) !important; }
+  /* دکمه پلی مربعی */
+  .transport .play-btn { border-radius: 14px !important; width: 60px !important; height: 60px !important; }
+</style>
+</head>
+<body>
+<!--
+  FULL HTML SKIN: این HTML جایگزین کل .player-card میشه
+  فقط این ID ها رو نگه دار تا همه چی کار کنه:
+  coverImg, coverFallback, trackTitle, trackArtist, trackAlbum, trackCodec, trackSpecs,
+  btnShuffle, btnPrev, btnPlay, iconPlay, iconPause, btnNext, btnRepeat,
+  curTime, durTime, seekBar, volBar, volPct, volIcon, vizBars,
+  appMenuBtn, appMenu, btnToggleLibrary, btnTogglePlaylist, btnToggleEq, btnOpenSettings
+
+  می‌تونی جاشون رو هر جا بذاری، هر شکلی بدی، حتی با grid/flex کاملاً بچینی!
+  اگر این ID ها نباشن، دکمه‌ها کار نمی‌کنن.
+-->
+
+<!-- نکته: اگر این div رو با id="lumi-player" بذاری، فقط داخلش جایگزین میشه -->
+<div id="lumi-player">
+  <div class="player-titlebar" data-tauri-drag-region>
+    <button class="app-name-btn" id="appMenuBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
+      Melo <span class="chev">▾</span>
+    </button>
+    <div id="appMenu" class="app-menu">
+      <div class="menu-label">فایل</div>
+      <button class="menu-item" id="menuAddFile">افزودن فایل...</button>
+      <button class="menu-item" id="menuAddFolder">افزودن پوشه...</button>
+      <div class="menu-sep"></div>
+      <div class="menu-label">پنجره‌ها</div>
+      <button class="menu-item" id="menuToggleLibrary">کتابخانه</button>
+      <button class="menu-item" id="menuTogglePlaylist">پلی‌لیست</button>
+      <button class="menu-item" id="menuToggleEq">اکولایزر</button>
+    </div>
+    <div class="win-controls">
+      <button class="win-btn" aria-label="minimize">—</button>
+      <button class="win-btn" aria-label="maximize">□</button>
+      <button class="win-btn close" aria-label="close">×</button>
+    </div>
+  </div>
+
+  <div class="player-main">
+    <!-- کاور رو می‌تونی هر جا بذاری -->
+    <div class="cover-wrap" id="coverWrap">
+      <img id="coverImg" style="display:none" alt="cover"/>
+      <div id="coverFallback" class="cover-fallback">♪</div>
+    </div>
+
+    <div class="track-info">
+      <div class="track-meta">
+        <div class="track-title" id="trackTitle">The Horizon</div>
+        <div class="track-artist" id="trackArtist">Tycho</div>
+        <div class="track-album" id="trackAlbum">Simulcast</div>
+        <div class="track-format">
+          <span class="badge-flac" id="trackCodec">FLAC</span>
+          <span id="trackSpecs">44.1 kHz · 16 bit</span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button id="btnShuffle" title="Shuffle">⤨</button>
+        <button id="btnPrev" title="Prev">⏮</button>
+        <button id="btnPlay" title="Play/Pause">
+          <span id="iconPause">⏸</span>
+          <span id="iconPlay" style="display:none">▶</span>
+        </button>
+        <button id="btnNext" title="Next">⏭</button>
+        <button id="btnRepeat" title="Repeat">↻</button>
+      </div>
+
+      <!-- پراگرس‌بار رو هر جا بخوای بذار -->
+      <div class="seek-row">
+        <span id="curTime">1:24</span>
+        <input id="seekBar" type="range" class="seek" min="0" max="276" value="84"/>
+        <span id="durTime">4:36</span>
+      </div>
+    </div>
+
+    <div class="right-panel">
+      <div class="right-main">
+        <div class="volume-row">
+          <span id="volIcon">🔊</span>
+          <input id="volBar" type="range" class="vol" min="0" max="100" value="60"/>
+          <span id="volPct">60%</span>
+        </div>
+        <!-- ویژوالایزر - تعداد میله‌ها رو خودت کم/زیاد کن -->
+        <div class="visualizer-bars" id="vizBars">
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+        </div>
+      </div>
+      <div class="side-actions">
+        <button id="btnToggleLibrary" title="کتابخانه">📚</button>
+        <button id="btnTogglePlaylist" title="پلی‌لیست">≡</button>
+        <button id="btnToggleEq" title="اکولایزر">🎛</button>
+        <button id="btnOpenSettings" title="تنظیمات">⚙</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
