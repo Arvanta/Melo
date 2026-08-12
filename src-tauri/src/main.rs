@@ -455,6 +455,26 @@ fn get_audio_devices() -> Result<Vec<String>, String> {
     Ok(vec!["Default".to_string()])
 }
 
+#[tauri::command]
+fn toggle_devtools(window: tauri::WebviewWindow) {
+    #[cfg(feature = "devtools")]
+    {
+        if window.is_devtools_open() {
+            window.close_devtools();
+        } else {
+            window.open_devtools();
+        }
+    }
+}
+
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    #[cfg(feature = "devtools")]
+    {
+        window.open_devtools();
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -493,7 +513,9 @@ fn main() {
             scan_library,
             write_tags,
             get_audio_devices,
-            open_url
+            open_url,
+            toggle_devtools,
+            open_devtools
         ])
         .setup(|app| {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
