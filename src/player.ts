@@ -121,8 +121,8 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   }
 
   let pendingPlay = false;
-  function onUnlocked() {
-    try { getAudioGraph(audio).resume(); } catch {}
+  async function onUnlocked() {
+    try { await getAudioGraph(audio).resume(); } catch {}
     if (!pendingPlay) return;
     pendingPlay = false;
     audio.play().then(() => {
@@ -134,8 +134,8 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   window.addEventListener("pointerdown", onUnlocked);
   window.addEventListener("keydown", onUnlocked);
 
-  function play() {
-    try { getAudioGraph(audio).resume(); } catch {}
+  async function play() {
+    try { await getAudioGraph(audio).resume(); } catch {}
     audio.play().then(() => {
       pendingPlay = false;
       if (iconPlay) iconPlay.style.display = "none";

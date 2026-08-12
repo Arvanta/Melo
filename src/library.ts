@@ -119,10 +119,13 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     }
   });
 
-  // Drag & Drop
+  // Drag & Drop (browser fallback only — inside Tauri, native OS drag-drop is
+  // handled exclusively below via win.onDragDropEvent, since dataTransfer.files
+  // is always empty when Tauri's native drag-drop handling is active)
   document.addEventListener("dragover", e=>{ e.preventDefault(); });
   document.addEventListener("drop", async e=>{
     e.preventDefault();
+    if (isTauriEnv) return;
     const files = Array.from(e.dataTransfer?.files||[]).filter(f=>f.type.startsWith("audio/") || /\.(mp3|flac|wav|ogg|aac|m4a|alac)$/i.test(f.name));
     if(!files.length) return;
     const list0: Track[] = [];
@@ -318,11 +321,18 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
       return;
     }
 
+    const lumiNow = (window as any).LumiPlayer;
+    const nowPlayingId: string | null = lumiNow && lumiNow.queue && lumiNow.queue.length
+      ? (lumiNow.queue[lumiNow.currentIndex]?.id ?? null)
+      : null;
+    const isNowPlaying = !!nowPlayingId && !(lumiNow?.audio?.paused ?? true);
+
     winPlaylistTracks.innerHTML = list.map((t, i)=>{
       const originalIndex = pl.tracks.indexOf(t.id);
+      const playingHere = nowPlayingId === t.id;
       return `
-      <div class="track-row" draggable="true" data-id="${t.id}" data-pl-idx="${originalIndex >= 0 ? originalIndex : i}">
-        <span class="num">${i+1}</span>
+      <div class="track-row ${playingHere ? "active" : ""}" draggable="true" data-id="${t.id}" data-pl-idx="${originalIndex >= 0 ? originalIndex : i}">
+        <span class="num">${playingHere ? (isNowPlaying ? "▶" : "❚❚") : i+1}</span>
         ${t.cover ? `<img class="track-cover-mini" src="${t.cover}" onerror="this.style.display='none'"/>` : `<div class="track-cover-mini cover-default">♪</div>`}
         <div style="flex:1;min-width:0;">
           <div class="t-title">${t.title}</div>
@@ -473,7 +483,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
       let added = 0;
       if(ids.length){
         ids.forEach(id=>{ if(!pl.tracks.includes(id)){ pl.tracks.push(id); added++; } });
-      } else {
+      } else if (!isTauriEnv) {
         const files = Array.from(e.dataTransfer?.files||[]).filter(isAudioFile);
         for(const f of files){
           const t = await fileToTrack(f);
@@ -506,7 +516,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
       if(ids.length){
         list = ids.map(id=> tracks.find(t=>t.id===id)).filter(Boolean) as Track[];
         if(lumi && list.length) toast(`Playback ${list.length} track(s)`);
-      } else {
+      } else if (!isTauriEnv) {
         const files = Array.from(e.dataTransfer?.files||[]).filter(isAudioFile);
         const pl = currentPlaylist();
         let addedToPlaylist = false;

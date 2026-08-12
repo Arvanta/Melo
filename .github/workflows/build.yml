@@ -3,8 +3,16 @@ name: Build Melo
 on:
   push:
     branches: [main, master]
+    paths-ignore:
+      - 'README.md'
+      - 'assets/**'
+      - 'LICENSE'
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - 'README.md'
+      - 'assets/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 # required so tauri-action can create the draft release

@@ -400,7 +400,7 @@ body.tauri-main .player-card {
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* narrow windows: hide the visualizer AND hand its space to the content; drop the divider */
-@media (max-width: 900px) {
+@media (max-width: 560px) {
   .visualizer-bars { display: none; }
   .right-main { display: none; }
   .right-panel { width: auto; border-left: none; padding-left: 0; gap: 0; }
