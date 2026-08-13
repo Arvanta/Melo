@@ -79,15 +79,37 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         const { open } = await import("@tauri-apps/plugin-dialog");
         const selected = await open({ directory:true, multiple:false });
         if(selected){
-          toast("Scanning folder in the background…");
-          // Call Rust command to scan (batches stream in via events; the final
-          // list is merged with dedup as a safety net)
           const { invoke } = await import("@tauri-apps/api/core");
-          const scanned: Track[] = await invoke("scan_library", { path: selected });
-          scanned.forEach(t=> (t as any).source = "scan");
-          addTracks(scanned, true);
-          addToCurrentPlaylist(scanned);
-          render();
+          const { listen } = await import("@tauri-apps/api/event");
+          let total = 0, done = 0, scannedCount = 0;
+          toast("Scanning folder…");
+          const unlistenBatch = await listen("melo:scan-batch", (e: any) => {
+            const batch: Track[] = Array.isArray(e.payload) ? e.payload : [];
+            if (!batch.length) return;
+            batch.forEach(t => (t as any).source = "scan");
+            scannedCount += batch.length;
+            // deferRender=true: just append to in-memory state + Set index,
+            // the expensive save/DOM-rebuild happens throttled via flushDeferred
+            addTracks(batch, false, true);
+            addToCurrentPlaylist(batch, true);
+            flushDeferred();
+          });
+          const unlistenProgress = await listen("melo:scan-progress", (e: any) => {
+            const p = e.payload || {};
+            done = p.done || 0; total = p.total || 0;
+            if (!p.finished && total) toast(`Scanning… ${done}/${total} files`);
+          });
+          try {
+            const scanned: Track[] = await invoke("scan_library", { path: selected });
+            unlistenBatch(); unlistenProgress();
+            flushDeferred();
+            if (isTauriEnv) busEmit("melo:tracks-add", { src: myRole, list: scanned.map(t => ({ ...(t as any), source: "scan" })) });
+            toast(`${scannedCount || scanned.length} track(s) added from folder`);
+          } catch (err) {
+            unlistenBatch(); unlistenProgress();
+            flushDeferred();
+            throw err;
+          }
         }
       } catch(e){ toast("Scanning requires the Tauri build"); }
     } else {
@@ -180,11 +202,19 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     }
   }
 
+  let trackIdSet = new Set(tracks.map(t => t.id));
+
   /** add tracks locally (+ optionally broadcast to the other windows) */
-  function addTracks(list: Track[], broadcast = false){
+  function addTracks(list: Track[], broadcast = false, deferRender = false){
     let changed = false;
-    list.forEach(t=>{ if(!tracks.some(x=>x.id===t.id)){ tracks.push(t); changed = true; } });
-    if (changed) { saveTracks(); render(); renderPlaylistWindow(); }
+    for (const t of list) {
+      if (!trackIdSet.has(t.id)) {
+        tracks.push(t);
+        trackIdSet.add(t.id);
+        changed = true;
+      }
+    }
+    if (changed && !deferRender) { saveTracks(); render(); renderPlaylistWindow(); }
     if (broadcast && isTauriEnv) busEmit("melo:tracks-add", { src: myRole, list });
   }
   busOn("melo:tracks-add", (p: any)=>{
@@ -192,12 +222,14 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   });
 
   /** append tracks to the current playlist (and tell the other windows) */
-  function addToCurrentPlaylist(list: Track[]){
+  function addToCurrentPlaylist(list: Track[], deferRender = false){
     const pl = currentPlaylist();
     if (!pl) return;
     let changed = false;
-    list.forEach(t=>{ if(!pl.tracks.includes(t.id)){ pl.tracks.push(t.id); changed = true; } });
-    if (changed) { savePlaylists(); broadcastPlaylists(); renderPlaylistWindow(); render(); }
+    const existing = new Set(pl.tracks);
+    list.forEach(t=>{ if(!existing.has(t.id)){ pl.tracks.push(t.id); existing.add(t.id); changed = true; } });
+    if (changed && !deferRender) { savePlaylists(); broadcastPlaylists(); renderPlaylistWindow(); render(); }
+    else if (changed) { savePlaylists(); }
   }
 
   /** read full metadata + cover natively (Rust/lofty) for dropped/selected paths */
@@ -553,6 +585,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     const removed = tracks.filter(pred).map(t=>t.id);
     if(!removed.length) return;
     tracks = tracks.filter(t=>!pred(t));
+    removed.forEach(id => trackIdSet.delete(id));
     playlists.forEach(p=>{ p.tracks = p.tracks.filter(id=>!removed.includes(id)); });
     saveTracks(); savePlaylists(); broadcastPlaylists();
     if (isTauriEnv) busEmit("melo:tracks-remove", { src: myRole, ids: removed });
@@ -562,6 +595,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     if (p && p.src !== myRole && Array.isArray(p.ids)) {
       const ids: string[] = p.ids;
       tracks = tracks.filter(t=>!ids.includes(t.id));
+      ids.forEach(id => trackIdSet.delete(id));
       playlists.forEach(pl=>{ pl.tracks = pl.tracks.filter(id=>!ids.includes(id)); });
       render(); renderPlaylistWindow();
     }
@@ -863,16 +897,28 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     const rev = localStorage.getItem("melo-rev") || "";
     if (rev !== lastRev) {
       lastRev = rev;
-      try { const t = JSON.parse(localStorage.getItem("melo-tracks") || "null"); if (Array.isArray(t)) tracks = t; } catch {}
+      try { const t = JSON.parse(localStorage.getItem("melo-tracks") || "null"); if (Array.isArray(t)) { tracks = t; trackIdSet = new Set(tracks.map(x=>x.id)); } } catch {}
       try { const p = JSON.parse(localStorage.getItem("melo-playlists") || "null"); if (Array.isArray(p) && p.length) playlists = p; } catch {}
       render(); renderPlaylistWindow();
     }
   }, 1200);
 
+  // Flushes any tracks added with deferRender=true (used while streaming in a
+  // large folder scan) — persists once and repaints once, instead of doing
+  // a full localStorage write + full library re-render per batch.
+  let flushTimer: any = null;
+  function flushDeferred(){
+    if (flushTimer) return;
+    flushTimer = setTimeout(()=>{
+      flushTimer = null;
+      saveTracks(); render(); renderPlaylistWindow();
+    }, 350);
+  }
+
   // expose
   (window as any).LumiLibrary = {
     get tracks(){return tracks}, get playlists(){return playlists}, render,
-    addTracks, addToCurrentPlaylist, importPaths,
+    addTracks, addToCurrentPlaylist, importPaths, flushDeferred,
     currentPlaylistName: ()=> currentPlaylist()?.name || "Playlist"
   };
 }

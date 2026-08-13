@@ -227,8 +227,8 @@ app.innerHTML = `
           <div class="settings-row">
             <div><div class="label">Crossfade duration</div><div class="desc">Overlap track transitions</div></div>
             <div style="display:flex; align-items:center; gap:8px;">
-              <input type="range" min="0" max="12" value="0" id="setCrossfade" style="width:100px;" />
-              <span id="crossfadeVal" style="font-size:11px; color:var(--text-muted); font-weight:600;">0s</span>
+              <input type="range" min="1" max="5" step="0.5" value="2" id="setCrossfade" style="width:100px;" />
+              <span id="crossfadeVal" style="font-size:11px; color:var(--text-muted); font-weight:600;">2s</span>
             </div>
           </div>
           <div class="settings-row">
@@ -287,6 +287,11 @@ app.innerHTML = `
             <div class="switch on" id="swDynamicTheme" data-key="dynamicTheme"></div>
           </div>
 
+          <div class="settings-row">
+            <div><div class="label">Show Stop button</div><div class="desc">Display a Stop control next to Play/Pause in the player</div></div>
+            <div class="switch" id="swShowStop" data-key="showStopBtn"></div>
+          </div>
+
           <div class="settings-row" style="flex-direction:column; align-items:stretch;">
             <div class="label" style="margin-bottom:4px;">Skins Directory (Disk)</div>
             <div style="font-size:11px; color:var(--text-soft); line-height:1.6; margin-bottom:8px;">
@@ -338,33 +343,7 @@ app.innerHTML = `
   <!-- PLAYER BAR -->
   <div class="player-card" id="playerCard">
     <div class="player-titlebar" data-tauri-drag-region>
-      <button class="app-name-btn" id="appMenuBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
-        Melo <span class="chev">▾</span>
-      </button>
-
-      <!-- App Dropdown Menu -->
-      <div id="appMenu" class="app-menu">
-        <div class="menu-label">Files</div>
-        <button class="menu-item" id="menuAddFile">Add Files... (Ctrl+O)</button>
-        <button class="menu-item" id="menuAddFolder">Scan Folder... (Ctrl+Shift+O)</button>
-        <div class="menu-sep"></div>
-        <div class="menu-label">Windows</div>
-        <button class="menu-item" id="menuToggleLibrary">Library</button>
-        <button class="menu-item" id="menuTogglePlaylist">Playlist</button>
-        <button class="menu-item" id="menuToggleEq">Equalizer</button>
-        <button class="menu-item" id="menuToggleLyrics">Synced Lyrics (.lrc)</button>
-        <button class="menu-item" id="menuToggleSettings">Settings</button>
-        <div class="menu-sep"></div>
-        <div class="menu-label">Skins & Themes</div>
-        <button class="menu-item" id="menuSkinDefault">Skin: Default Melo</button>
-        <button class="menu-item" id="menuSkinCompact">Skin: Minimal Compact</button>
-        <div class="menu-sep"></div>
-        <button class="menu-item" id="menuThemeToggle">Toggle Light / Dark Theme</button>
-        <button class="menu-item" id="menuCustomSkin">Load Custom HTML Skin...</button>
-        <button class="menu-item" id="menuAbout">About Melo 0.3 Beta</button>
-      </div>
-
+      <span class="app-name-static">Melo</span>
       <div class="titlebar-actions">
         <button class="win-btn" id="btnAddFiles" title="Add files (Ctrl+O)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
@@ -418,7 +397,7 @@ app.innerHTML = `
           <button class="icon-btn" id="btnPrev" title="Previous">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20L9 12l10-8z"/><rect x="5" y="4" width="3" height="16" rx="1"/></svg>
           </button>
-          <button class="icon-btn" id="btnStop" title="Stop" style="display:none">
+          <button class="icon-btn" id="btnStop" title="Stop">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>
           </button>
           <button class="play-btn" id="btnPlay" title="Play/Pause (Space)">
@@ -498,7 +477,7 @@ if (isTauri && !urlPanel) {
   document.querySelectorAll(".side-actions .sbtn").forEach(b => b.classList.remove("active"));
   import("@tauri-apps/api/webviewWindow").then(({ WebviewWindow }) => {
     const refresh = async () => {
-      for (const p of ["library", "playlist", "equalizer", "settings"]) {
+      for (const p of ["library", "playlist", "equalizer", "lyrics", "settings"]) {
         try {
           const w = await WebviewWindow.getByLabel("panel-" + p);
           document.getElementById(panelBtnMap[p])?.classList.toggle("active", !!w);
@@ -525,7 +504,10 @@ if (isTauri && !urlPanel) {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
       const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
       const sz = getTargetSize();
-      await mainWin.setSize(new LogicalSize(g?.w ? Math.max(650, g.w) : sz.w, sz.h));
+      const isCompactStartup = sz.w === 780;
+      const startupW = isCompactStartup ? sz.w : (g?.w ? Math.max(650, g.w) : sz.w);
+      await mainWin.setSize(new LogicalSize(startupW, sz.h));
+      await mainWin.setResizable(!isCompactStartup);
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -544,8 +526,13 @@ if (isTauri && !urlPanel) {
       try {
         const sz = await mainWin.innerSize();
         const target = getTargetSize();
+        const isCompact = target.w === 780;
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (sz.width < 650 || sz.height !== target.h) {
+        if (isCompact) {
+          if (sz.width !== target.w || sz.height !== target.h) {
+            await mainWin.setSize(new LogicalSize(target.w, target.h));
+          }
+        } else if (sz.width < 650 || sz.height !== target.h) {
           await mainWin.setSize(new LogicalSize(Math.max(650, sz.width), target.h));
         }
       } catch {}
@@ -562,6 +549,10 @@ if (isTauri && !urlPanel) {
         const targetH = isCompact ? 138 : 240;
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
         await mainWin.setSize(new LogicalSize(targetW, targetH));
+        // Compact Pill is a fixed-size design; lock resizing so the window
+        // can't be dragged wider/taller than the skin's actual artwork,
+        // which previously showed as a visible transparent strip around it.
+        await mainWin.setResizable(!isCompact);
         saveGeo();
       } catch {}
     });
@@ -569,7 +560,7 @@ if (isTauri && !urlPanel) {
     mainWin.onCloseRequested(async (event) => {
       event.preventDefault();
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      for (const p of ["library", "playlist", "equalizer", "settings"]) {
+      for (const p of ["library", "playlist", "equalizer", "lyrics", "settings"]) {
         try {
           const w = await WebviewWindow.getByLabel("panel-" + p);
           if (w) await w.close();
@@ -650,6 +641,12 @@ setInterval(() => {
   const t = localStorage.getItem("lumi-theme");
   if ((t === "light" || t === "dark") && t !== theme) applyThemeLocal(t);
 }, 1000);
+
+// Show/hide the Stop transport button (persists across skin swaps via a body class)
+document.body.classList.toggle("show-stop-btn", localStorage.getItem("melo-pref-showStopBtn") === "1");
+busOn("melo:pref-changed", (p: any) => {
+  if (p && p.key === "showStopBtn") document.body.classList.toggle("show-stop-btn", !!p.value);
+});
 
 // Floating windows toggle & drag/resize
 const winIds = ["win-library", "win-playlist", "win-equalizer", "win-lyrics", "win-settings"];
@@ -873,52 +870,6 @@ window.addEventListener("mouseup", () => {
   }
 });
 
-// App Menu handling
-let appMenuBtn = document.getElementById("appMenuBtn") as HTMLButtonElement | null;
-let appMenu = document.getElementById("appMenu") as HTMLElement | null;
-function toggleMenu() {
-  const open = appMenu?.classList.toggle("open");
-  appMenuBtn?.classList.toggle("open", !!open);
-}
-appMenuBtn?.addEventListener("click", (e) => { e.stopPropagation(); toggleMenu(); });
-document.addEventListener("click", (e) => {
-  if (appMenu && !appMenu.contains(e.target as Node) && e.target !== appMenuBtn) {
-    appMenu.classList.remove("open");
-    appMenuBtn?.classList.remove("open");
-  }
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    appMenu?.classList.remove("open");
-    appMenuBtn?.classList.remove("open");
-  }
-});
-
-document.getElementById("menuCustomSkin")?.addEventListener("click", () => {
-  (document.getElementById("skinUpload") as HTMLInputElement)?.click();
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuSkinDefault")?.addEventListener("click", () => {
-  resetSkin(showToast);
-  const skinSelect = document.getElementById("skinSelect") as HTMLSelectElement | null;
-  if (skinSelect) skinSelect.value = "default";
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuSkinCompact")?.addEventListener("click", () => {
-  applySkinChoice("compact-pill", theme, showToast);
-  const skinSelect = document.getElementById("skinSelect") as HTMLSelectElement | null;
-  if (skinSelect) skinSelect.value = "compact-pill";
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuThemeToggle")?.addEventListener("click", () => {
-  applyTheme(theme === "light" ? "dark" : "light");
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuAbout")?.addEventListener("click", () => {
-  showToast("Melo 0.3 Beta — Tauri 2 + TypeScript + Rust");
-  appMenu?.classList.remove("open");
-});
-
 // Add files / folder dialogs
 async function addFilesViaDialog() {
   const lib = (window as any).LumiLibrary;
@@ -958,7 +909,6 @@ async function addFilesViaDialog() {
       busEmit("melo:play-tracks", { tracks: list, index: 0 });
       showToast(`${list.length} file(s) added`);
     } catch { showToast("Error opening files"); }
-    appMenu?.classList.remove("open");
     return;
   }
   const input = document.createElement("input");
@@ -985,7 +935,6 @@ async function addFilesViaDialog() {
     showToast(`${list.length} file(s) added`);
   };
   input.click();
-  appMenu?.classList.remove("open");
 }
 
 async function addFolderViaDialog() {
@@ -1006,7 +955,6 @@ async function addFolderViaDialog() {
       busEmit("melo:play-tracks", { tracks: list, index: 0 });
       showToast(`${list.length} track(s) added from folder`);
     } catch { showToast("Error scanning folder"); }
-    appMenu?.classList.remove("open");
     return;
   }
   const input = document.createElement("input");
@@ -1033,13 +981,14 @@ async function addFolderViaDialog() {
     showToast(`${list.length} file(s) added from folder`);
   };
   input.click();
-  appMenu?.classList.remove("open");
 }
 
-document.getElementById("btnAddFiles")?.addEventListener("click", addFilesViaDialog);
-document.getElementById("btnAddFolder")?.addEventListener("click", addFolderViaDialog);
-document.getElementById("btnThemeToggle")?.addEventListener("click", () => {
-  applyTheme(theme === "light" ? "dark" : "light");
+document.addEventListener("click", (e) => {
+  const target = (e.target as HTMLElement)?.closest("#btnAddFiles, #btnAddFolder, #btnThemeToggle");
+  if (!target) return;
+  if (target.id === "btnAddFiles") addFilesViaDialog();
+  else if (target.id === "btnAddFolder") addFolderViaDialog();
+  else if (target.id === "btnThemeToggle") applyTheme(theme === "light" ? "dark" : "light");
 });
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -1085,7 +1034,7 @@ function setupSettings(toast: ToastFn) {
   const crossfadeInput = document.getElementById("setCrossfade") as HTMLInputElement | null;
   const crossfadeVal = document.getElementById("crossfadeVal");
   if (crossfadeInput) {
-    const savedCf = localStorage.getItem("melo-pref-crossfade") || "0";
+    const savedCf = localStorage.getItem("melo-pref-crossfade") || "2";
     crossfadeInput.value = savedCf;
     if (crossfadeVal) crossfadeVal.textContent = savedCf + "s";
     crossfadeInput.oninput = () => {
@@ -1235,13 +1184,6 @@ function bindWinControls() {
 bindWinControls();
 
 (window as any).__LUMI_REBIND_MAIN__ = () => {
-  const nb = document.getElementById("appMenuBtn") as HTMLButtonElement | null;
-  const nm = document.getElementById("appMenu") as HTMLElement | null;
-  if (nb && nm) {
-    appMenuBtn = nb;
-    appMenu = nm;
-    nb.onclick = (e: any) => { e.stopPropagation(); nm.classList.toggle("open"); nb.classList.toggle("open", nm.classList.contains("open")); };
-  }
   bindWinControls();
   Object.entries(toggleMap).forEach(([btnId, winId]) => {
     const b = document.getElementById(btnId);
@@ -1282,7 +1224,8 @@ const aboutPop = document.createElement("div");
 aboutPop.id = "aboutPop";
 aboutPop.style.display = "none";
 document.body.appendChild(aboutPop);
-document.getElementById("btnAbout")?.addEventListener("click", (e) => {
+document.addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement)?.closest("#btnAbout")) return;
   e.stopPropagation();
   aboutPop.innerHTML = `
     <div class="about-head">Melo <b>0.3 Beta</b></div>

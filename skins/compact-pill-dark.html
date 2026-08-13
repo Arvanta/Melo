@@ -177,7 +177,7 @@
     width: 100% !important;
     height: 5px !important;
     border-radius: 999px !important;
-    background: linear-gradient(to right, #4db6ac 0%, #4db6ac var(--progress, 35%), #212833 var(--progress, 35%), #212833 100%) !important;
+    background: linear-gradient(to right, var(--accent, #4db6ac) 0%, var(--accent, #4db6ac) var(--progress, 35%), #212833 var(--progress, 35%), #212833 100%) !important;
     outline: none !important;
     cursor: pointer !important;
   }
@@ -309,7 +309,7 @@
         <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
       </button>
-      <button class="icon-btn" id="btnStop" title="Stop" style="display:none">
+      <button class="icon-btn" id="btnStop" title="Stop">
         <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
       </button>
       <button class="icon-btn" id="btnNext" title="Next">
