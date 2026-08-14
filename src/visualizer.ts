@@ -1,6 +1,6 @@
 import { getAudioGraph } from "./audio-graph";
 
-type VizMode = "bars" | "thin" | "line" | "mirror" | "wave";
+type VizMode = "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "bars", label: "Classic Bars" },
@@ -8,6 +8,8 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "line", label: "Spectrum Line" },
   { id: "mirror", label: "Mirror Bars" },
   { id: "wave", label: "Oscilloscope" },
+  { id: "spectrumWave", label: "Spectrum Wave" },
+  { id: "blocks", label: "Block Equalizer" },
 ];
 
 export function setupVisualizer(audio: HTMLAudioElement) {
@@ -229,6 +231,97 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.stroke();
   }
 
+  // Mirrored, connected spectrum around a horizontal centre line.
+  // It follows the form of an audio waveform while still reacting to FFT
+  // energy, and uses the same accent variables as every other mode.
+  function drawSpectrumWave(data: number[], w: number, h: number) {
+    const dpr = dprOf();
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = cssVar("--accent", "#0284c7");
+    const mid = h / 2;
+    const n = data.length;
+    const amp = data.map((v, i) => {
+      // Soften both ends to produce the tapered waveform silhouette.
+      const x = i / Math.max(1, n - 1);
+      const taper = Math.pow(Math.sin(Math.PI * x), 0.28);
+      return Math.max(0.7 * dpr, v * taper * (h * 0.46));
+    });
+
+    const trace = (upper: boolean) => {
+      g2d.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = (i / Math.max(1, n - 1)) * w;
+        const y = mid + (upper ? -amp[i] : amp[i]);
+        if (i === 0) g2d.moveTo(x, y);
+        else {
+          const px = ((i - 1) / Math.max(1, n - 1)) * w;
+          const py = mid + (upper ? -amp[i - 1] : amp[i - 1]);
+          g2d.quadraticCurveTo(px, py, (px + x) / 2, (py + y) / 2);
+        }
+      }
+    };
+
+    // Soft glow behind the waveform.
+    trace(true);
+    for (let i = n - 1; i >= 0; i--) {
+      const x = (i / Math.max(1, n - 1)) * w;
+      g2d.lineTo(x, mid + amp[i]);
+    }
+    g2d.closePath();
+    const fill = g2d.createLinearGradient(0, 0, 0, h);
+    fill.addColorStop(0, c2);
+    fill.addColorStop(0.5, c1);
+    fill.addColorStop(1, c2);
+    g2d.fillStyle = fill;
+    g2d.globalAlpha = 0.3;
+    g2d.fill();
+
+    g2d.globalAlpha = 0.18;
+    g2d.shadowColor = c1;
+    g2d.shadowBlur = 8 * dpr;
+    trace(true); g2d.strokeStyle = c1; g2d.lineWidth = 4 * dpr; g2d.stroke();
+    trace(false); g2d.stroke();
+    g2d.shadowBlur = 0;
+
+    g2d.globalAlpha = 1;
+    trace(true); g2d.strokeStyle = c2; g2d.lineWidth = 1.2 * dpr; g2d.stroke();
+    trace(false); g2d.stroke();
+    g2d.beginPath();
+    g2d.moveTo(0, mid); g2d.lineTo(w, mid);
+    g2d.strokeStyle = c1; g2d.globalAlpha = 0.45;
+    g2d.lineWidth = 0.8 * dpr; g2d.stroke();
+    g2d.globalAlpha = 1;
+  }
+
+  // Quantized square-cell equalizer. Each frequency column is built from
+  // discrete blocks instead of a continuous bar.
+  function drawBlocks(data: number[], w: number, h: number) {
+    const dpr = dprOf();
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = cssVar("--accent", "#0284c7");
+    const cols = data.length;
+    const rows = 8;
+    const colGap = Math.max(1 * dpr, w * 0.0035);
+    const rowGap = Math.max(1 * dpr, h * 0.025);
+    const cellW = Math.max(1, (w - colGap * (cols - 1)) / cols);
+    const cellH = Math.max(1, (h - rowGap * (rows - 1)) / rows);
+    const grad = g2d.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, c2);
+    grad.addColorStop(1, c1);
+    g2d.fillStyle = grad;
+
+    for (let i = 0; i < cols; i++) {
+      const lit = Math.max(1, Math.min(rows, Math.round(data[i] * rows)));
+      const x = i * (cellW + colGap);
+      for (let r = 0; r < lit; r++) {
+        const y = h - (r + 1) * cellH - r * rowGap;
+        g2d.globalAlpha = 0.58 + 0.42 * ((r + 1) / rows);
+        g2d.fillRect(x, y, cellW, cellH);
+      }
+    }
+    g2d.globalAlpha = 1;
+  }
+
   function drawWave() {
     const w = canvas.width, h = canvas.height;
     const dpr = dprOf();
@@ -271,12 +364,19 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       drawWave();
       return;
     }
-    const n = mode === "bars" ? 16 : mode === "thin" ? 56 : mode === "line" ? 64 : 24;
+    const n = mode === "bars" ? 16
+      : mode === "thin" ? 56
+      : mode === "line" ? 64
+      : mode === "spectrumWave" ? 72
+      : mode === "blocks" ? 22
+      : 24;
     const data = getLevels(n);
     if (mode === "bars") drawBars(data, w, h, 0.34);
     else if (mode === "thin") drawBars(data, w, h, 0.32);
     else if (mode === "line") drawLine(data, w, h);
     else if (mode === "mirror") drawMirror(data, w, h);
+    else if (mode === "spectrumWave") drawSpectrumWave(data, w, h);
+    else if (mode === "blocks") drawBlocks(data, w, h);
   }
 
   function loop() {

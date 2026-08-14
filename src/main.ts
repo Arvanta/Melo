@@ -690,7 +690,6 @@ async function openPanelWindow(panel: string) {
     skipTaskbar: true
   });
   btn?.classList.add("active");
-  busEmit("melo:theme", theme);
 }
 
 busOn("melo:panel-closed", (role: any) => {
@@ -1044,7 +1043,6 @@ function setupSettings(toast: ToastFn) {
       if (queue && queue[curIdx]) {
         applyDynamicAmbientTheme(isNowOn ? queue[curIdx].cover : null);
       }
-      toast(isNowOn ? "Dynamic theme enabled" : "Dynamic theme disabled");
     };
   }
 
