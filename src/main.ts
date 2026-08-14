@@ -614,6 +614,11 @@ audio.crossOrigin = "anonymous";
 (window as any).__TOAST__ = showToast;
 
 // Theme logic
+// Dynamic Album Artwork Theme is enabled by default on fresh installs and
+// after resetting settings. An explicit user choice of "0" is still honored.
+if (localStorage.getItem("melo-dynamic-theme") === null) {
+  localStorage.setItem("melo-dynamic-theme", "1");
+}
 let theme: "light" | "dark" = (localStorage.getItem("lumi-theme") as any) || "dark";
 function applyThemeLocal(t: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", t);
