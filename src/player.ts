@@ -165,6 +165,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   window.addEventListener("keydown", onUnlocked);
   busOn("melo:pref-changed", (p: any) => {
     if (p && p.key === "replayGainGlobal") applyReplayGain();
+    if (p && p.key === "showStopBtn") syncStopButtonVisibility(!!p.value);
   });
 
   // Secondary windows can be opened at any time. Reply with the current
@@ -294,6 +295,13 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     audio.volume = computeTargetVolume();
   }
 
+  function syncStopButtonVisibility(enabled = localStorage.getItem("melo-pref-showStopBtn") === "1") {
+    const stop = document.getElementById("btnStop") as HTMLButtonElement | null;
+    if (!stop) return;
+    // Inline !important wins over all skin rules, including compact skins.
+    stop.style.setProperty("display", enabled ? "inline-flex" : "none", "important");
+  }
+
   function bindDOM() {
     btnPlay = document.getElementById("btnPlay") as HTMLButtonElement;
     iconPlay = document.getElementById("iconPlay") as HTMLElement;
@@ -303,6 +311,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     btnShuffle = document.getElementById("btnShuffle") as HTMLButtonElement;
     btnRepeat = document.getElementById("btnRepeat") as HTMLButtonElement;
     btnStop = document.getElementById("btnStop") as HTMLButtonElement | null;
+    syncStopButtonVisibility();
     seekBar = document.getElementById("seekBar") as HTMLInputElement;
     volBar = document.getElementById("volBar") as HTMLInputElement;
     curTime = document.getElementById("curTime") as HTMLElement;

@@ -309,7 +309,10 @@ app.innerHTML = `
   <!-- PLAYER BAR -->
   <div class="player-card" id="playerCard">
     <div class="player-titlebar" data-tauri-drag-region>
-      <span class="app-name-static">Melo</span>
+      <span class="app-name-static">
+        <svg class="app-brand-mark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
+        Melo
+      </span>
       <div class="titlebar-actions">
         <button class="win-btn" id="btnAddFiles" title="Add files (Ctrl+O)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
@@ -1233,4 +1236,4 @@ if (isTauri && urlPanel) {
   }, 400);
 }
 
-showToast("Melo 0.3 Beta is ready");
+if (!urlPanel) showToast("Melo 0.3 Beta is ready");

@@ -39,9 +39,10 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   }
   .player-card {
     background: var(--card) !important;
-    border: 1px solid var(--card-border) !important;
+    border: none !important;
     border-radius: 24px !important;
     box-shadow: none !important;
+    clip-path: inset(0 round 24px) !important;
     padding: 10px 18px 12px 18px !important;
     width: 100% !important;
     height: 100% !important;
@@ -141,9 +142,10 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
-    min-width: 130px !important;
-    max-width: 200px !important;
-    flex-shrink: 0 !important;
+    width: 180px !important;
+    min-width: 180px !important;
+    max-width: 180px !important;
+    flex: 0 0 180px !important;
   }
   .track-title {
     font-size: 17.5px !important;
@@ -239,9 +241,6 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   .transport button svg, .transport .icon-btn svg { width: 16px !important; height: 16px !important; }
   .transport .play-btn { width: 32px !important; height: 32px !important; }
   .transport .play-btn svg { width: 20px !important; height: 20px !important; }
-
-  .transport #btnStop { display: none !important; }
-  body.show-stop-btn .transport #btnStop { display: grid !important; }
 
   /* Hidden audio support elements (kept for JS event listeners) */
   .hidden-helper { display: none !important; }
@@ -378,9 +377,10 @@ const COMPACT_PILL_DARK = `<!doctype html>
   }
   .player-card {
     background: var(--card) !important;
-    border: 1px solid var(--card-border) !important;
+    border: none !important;
     border-radius: 24px !important;
     box-shadow: none !important;
+    clip-path: inset(0 round 24px) !important;
     padding: 10px 18px 12px 18px !important;
     width: 100% !important;
     height: 100% !important;
@@ -480,9 +480,10 @@ const COMPACT_PILL_DARK = `<!doctype html>
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
-    min-width: 130px !important;
-    max-width: 200px !important;
-    flex-shrink: 0 !important;
+    width: 180px !important;
+    min-width: 180px !important;
+    max-width: 180px !important;
+    flex: 0 0 180px !important;
   }
   .track-title {
     font-size: 17.5px !important;
@@ -578,9 +579,6 @@ const COMPACT_PILL_DARK = `<!doctype html>
   .transport button svg, .transport .icon-btn svg { width: 16px !important; height: 16px !important; }
   .transport .play-btn { width: 32px !important; height: 32px !important; }
   .transport .play-btn svg { width: 20px !important; height: 20px !important; }
-
-  .transport #btnStop { display: none !important; }
-  body.show-stop-btn .transport #btnStop { display: grid !important; }
 
   /* Hidden audio support elements (kept for JS event listeners) */
   .hidden-helper { display: none !important; }
@@ -762,6 +760,8 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
 }
 
 export function resetSkin(toast?: (m: string) => void, broadcast = true) {
+  document.documentElement.classList.remove("compact-skin-active");
+  document.body.classList.remove("compact-skin-active");
   if (customStyleEl) { customStyleEl.remove(); customStyleEl = null; }
   if (customFrame) { customFrame.remove(); customFrame = null; }
   const playerCard = document.getElementById("playerCard") as HTMLElement;
@@ -838,13 +838,25 @@ export async function applySkinChoice(skinChoice: string, currentTheme: "light" 
   }
 
   let targetFile = skinChoice;
-  if (skinChoice === "compact-pill" || skinChoice.startsWith("compact-pill")) {
+  const isCompact = skinChoice === "compact-pill" || skinChoice.startsWith("compact-pill");
+  document.documentElement.classList.toggle("compact-skin-active", isCompact);
+  document.body.classList.toggle("compact-skin-active", isCompact);
+  if (isCompact) {
     targetFile = currentTheme === "dark" ? "compact-pill-dark.html" : "compact-pill-light.html";
   } else if (!targetFile.endsWith(".html") && !targetFile.endsWith(".htm")) {
     targetFile = targetFile + ".html";
   }
 
-  const success = await loadSkinFromDisk(targetFile, toast);
+  // Built-in compact skins are loaded from this build's embedded copy.
+  // This prevents an old skin file left in AppData by an earlier install
+  // from silently overriding layout and bug fixes in a newer version.
+  let success = false;
+  if (isCompact && EMBEDDED_SKINS[targetFile]) {
+    applyCustomSkin(EMBEDDED_SKINS[targetFile], toast);
+    success = true;
+  } else {
+    success = await loadSkinFromDisk(targetFile, toast);
+  }
   if (success) {
     localStorage.setItem("melo-active-skin-id", skinChoice);
     if (broadcast) busEmit("melo:skin-changed", skinChoice);
