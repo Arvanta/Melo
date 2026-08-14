@@ -378,7 +378,10 @@ body.tauri-main .player-card {
    enforced minWidth (see tauri.conf.json / panel `mins` map) so content
    never needs a horizontal scrollbar — it simply can't get narrower */
 html, body { overflow-x: hidden; }
-body, .app-shell { min-width: 640px; }
+/* The 640px floor belongs only to the main player. Secondary windows have
+   their own smaller native minimums and must remain fluid down to them. */
+body.tauri-main,
+body.tauri-main .app-shell { min-width: 640px; }
 body.tauri-main .player-card { overflow: hidden; }
 
 /* brand + quick-add icons in the titlebar (menu removed) */
@@ -523,3 +526,150 @@ body.compact-skin-active .player-card {
   clip-path: inset(0 round 24px) !important;
 }
 .app-brand-mark { flex-shrink: 0; color: var(--accent); }
+
+
+/* ===== Responsive secondary OS windows ===== */
+html.panel-window,
+body.panel-window {
+  width: 100%;
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden !important;
+}
+.panel-window #app,
+.panel-window .panel-root,
+.panel-window .panel-titlebar,
+.panel-window .panel-body {
+  width: 100%;
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow-x: hidden !important;
+}
+.panel-window .panel-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-window .panel-titlebar .win-controls {
+  flex: 0 0 auto;
+}
+.panel-window .panel-body > *,
+.panel-window .float-body > * {
+  max-width: 100%;
+  min-width: 0;
+}
+.panel-window input,
+.panel-window select,
+.panel-window textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+.panel-window .search-wrap,
+.panel-window .library-stats-row,
+.panel-window .tabs,
+.panel-window .chip-row,
+.panel-window .lib-crumb,
+.panel-window .playlist-toolbar,
+.panel-window .playlist-footer-actions {
+  min-width: 0;
+  max-width: 100%;
+}
+.panel-window .track-row,
+.panel-window .lib-item,
+.panel-window .playlist-item {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.panel-window .track-row > div,
+.panel-window .lib-item > div,
+.panel-window .playlist-item > div {
+  min-width: 0;
+}
+.panel-window .track-row .t-title,
+.panel-window .track-row .t-artist,
+.panel-window .lib-item .t-title,
+.panel-window .lib-item .t-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-window .track-row .t-dur {
+  flex: 0 0 auto;
+  min-width: 30px;
+}
+.panel-window .track-row .btn {
+  flex: 0 0 auto;
+}
+.panel-window .playlist-toolbar #playlistSearchInput {
+  flex: 1 1 150px !important;
+  width: 0 !important;
+}
+.panel-window .playlist-toolbar #playlistSortSelect {
+  flex: 0 1 110px;
+  width: 110px !important;
+}
+.panel-window .playlist-footer-actions > .btn.block {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .panel-window .panel-titlebar {
+    padding-left: 9px;
+  }
+  .panel-window .panel-titlebar .win-btn {
+    width: 27px;
+  }
+  .panel-window .search-wrap {
+    padding-left: 9px !important;
+    padding-right: 9px !important;
+  }
+  .panel-window .search-wrap svg { left: 18px; }
+  .panel-window .tabs { padding-left: 7px; padding-right: 7px; }
+  .panel-window .track-row,
+  .panel-window .lib-item {
+    padding-left: 8px;
+    padding-right: 8px;
+    gap: 7px;
+  }
+  .panel-window .track-cover-mini {
+    width: 28px;
+    height: 28px;
+  }
+  .panel-window .track-row .num { min-width: 14px; }
+  .panel-window .playlist-toolbar {
+    gap: 5px !important;
+  }
+  .panel-window .playlist-toolbar #playlistSortSelect {
+    flex-basis: 100px;
+    width: 100px !important;
+    font-size: 10.5px !important;
+  }
+  .panel-window .playlist-footer-actions .btn {
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+  .panel-window .tag-editor-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .panel-window .settings-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 360px) {
+  .panel-window .track-row .t-dur { display: none; }
+  .panel-window .playlist-toolbar {
+    flex-wrap: wrap;
+  }
+  .panel-window .playlist-toolbar #playlistSearchInput,
+  .panel-window .playlist-toolbar #playlistSortSelect {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+}

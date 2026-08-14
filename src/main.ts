@@ -41,13 +41,13 @@ app.innerHTML = `
           <button class="tab" data-libtab="albums">Albums</button>
           <button class="tab" data-libtab="genres">Genres</button>
         </div>
-        <div style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
+        <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
           <span id="libraryStats">0 tracks • 0 artists • 0 albums</span>
         </div>
         <div id="trackList" style="display:flex; flex-direction:column; flex:1; overflow:auto;"></div>
         <div id="tagEditor" style="display:none; margin:8px 10px 0; background:var(--track-bg); border-radius:10px; padding:12px; gap:10px; flex-direction:column; border:1px solid var(--card-border); flex-shrink:0;">
           <div style="font-weight:600; font-size:12px;">Metadata Editor</div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div class="tag-editor-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
             <label class="col" style="gap:4px; font-size:11px;">Title<input id="tagTitle" class="search-input" style="padding-left:10px;" /></label>
             <label class="col" style="gap:4px; font-size:11px;">Artist<input id="tagArtist" class="search-input" style="padding-left:10px;" /></label>
             <label class="col" style="gap:4px; font-size:11px;">Album<input id="tagAlbum" class="search-input" style="padding-left:10px;" /></label>
@@ -87,7 +87,7 @@ app.innerHTML = `
         </div>
       </div>
       <div class="float-body" style="padding:8px; display:flex; flex-direction:column; gap:6px;">
-        <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+        <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
           <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="flex:1; height:26px; font-size:11px; padding-left:8px;" />
           <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; width:110px;" title="Sort tracks">
             <option value="default">Sort: Default</option>
@@ -102,7 +102,7 @@ app.innerHTML = `
         <div id="winPlaylistEmpty" style="display:none; border:1px dashed var(--card-border); border-radius:10px; padding:16px 10px; background:var(--track-bg); text-align:center; font-size:11px; color:var(--text-muted); line-height:1.8;">
           Playlist is empty<br/>Drag tracks from Library or drop audio files here
         </div>
-        <div style="display:flex; gap:6px; flex-shrink:0;">
+        <div class="playlist-footer-actions" style="display:flex; gap:6px; flex-shrink:0;">
           <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the current playlist">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
             Clear
@@ -426,6 +426,10 @@ app.innerHTML = `
 `;
 
 const urlPanel = new URLSearchParams(location.search).get("panel");
+if (urlPanel) {
+  document.documentElement.classList.add("panel-window", `panel-${urlPanel}`);
+  document.body.classList.add("panel-window", `panel-${urlPanel}`);
+}
 
 // Tauri: secondary OS windows render a single panel full-size (real native windows)
 if (isTauri && urlPanel) {
