@@ -73,42 +73,53 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   render();
   renderQueue();
 
+  async function scanFolder(path: string, opts: { silent?: boolean } = {}): Promise<number> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    let total = 0, done = 0, scannedCount = 0;
+    if (!opts.silent) toast("Scanning folder…");
+    const unlistenBatch = await listen("melo:scan-batch", (e: any) => {
+      const batch: Track[] = Array.isArray(e.payload) ? e.payload : [];
+      if (!batch.length) return;
+      batch.forEach(t => (t as any).source = "scan");
+      scannedCount += batch.length;
+      // deferRender=true: just append to in-memory state + Set index,
+      // the expensive save/DOM-rebuild happens throttled via flushDeferred
+      addTracks(batch, false, true);
+      addToCurrentPlaylist(batch, true);
+      flushDeferred();
+    });
+    const unlistenProgress = await listen("melo:scan-progress", (e: any) => {
+      const p = e.payload || {};
+      done = p.done || 0; total = p.total || 0;
+      if (!opts.silent && !p.finished && total) toast(`Scanning… ${done}/${total} files`);
+    });
+    try {
+      const scanned: Track[] = await invoke("scan_library", { path });
+      unlistenBatch(); unlistenProgress();
+      flushDeferred();
+      if (isTauriEnv) busEmit("melo:tracks-add", { src: myRole, list: scanned.map(t => ({ ...(t as any), source: "scan" })) });
+      if (!opts.silent) toast(`${scannedCount || scanned.length} track(s) added from folder`);
+      return scannedCount || scanned.length;
+    } catch (err) {
+      unlistenBatch(); unlistenProgress();
+      flushDeferred();
+      throw err;
+    }
+  }
+
   btnScan?.addEventListener("click", async ()=>{
     if((window as any).__TAURI__){
       try{
         const { open } = await import("@tauri-apps/plugin-dialog");
         const selected = await open({ directory:true, multiple:false });
         if(selected){
-          const { invoke } = await import("@tauri-apps/api/core");
-          const { listen } = await import("@tauri-apps/api/event");
-          let total = 0, done = 0, scannedCount = 0;
-          toast("Scanning folder…");
-          const unlistenBatch = await listen("melo:scan-batch", (e: any) => {
-            const batch: Track[] = Array.isArray(e.payload) ? e.payload : [];
-            if (!batch.length) return;
-            batch.forEach(t => (t as any).source = "scan");
-            scannedCount += batch.length;
-            // deferRender=true: just append to in-memory state + Set index,
-            // the expensive save/DOM-rebuild happens throttled via flushDeferred
-            addTracks(batch, false, true);
-            addToCurrentPlaylist(batch, true);
-            flushDeferred();
-          });
-          const unlistenProgress = await listen("melo:scan-progress", (e: any) => {
-            const p = e.payload || {};
-            done = p.done || 0; total = p.total || 0;
-            if (!p.finished && total) toast(`Scanning… ${done}/${total} files`);
-          });
-          try {
-            const scanned: Track[] = await invoke("scan_library", { path: selected });
-            unlistenBatch(); unlistenProgress();
-            flushDeferred();
-            if (isTauriEnv) busEmit("melo:tracks-add", { src: myRole, list: scanned.map(t => ({ ...(t as any), source: "scan" })) });
-            toast(`${scannedCount || scanned.length} track(s) added from folder`);
-          } catch (err) {
-            unlistenBatch(); unlistenProgress();
-            flushDeferred();
-            throw err;
+          await scanFolder(selected as string);
+          const watched: string[] = JSON.parse(localStorage.getItem("melo-watched-folders") || "[]");
+          if (!watched.includes(selected as string)) {
+            watched.push(selected as string);
+            localStorage.setItem("melo-watched-folders", JSON.stringify(watched));
+            document.dispatchEvent(new CustomEvent("melo:watched-folders-changed"));
           }
         }
       } catch(e){ toast("Scanning requires the Tauri build"); }
@@ -764,15 +775,27 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         const shown = q ? names.filter(n=>n.toLowerCase().includes(q)) : names;
         html = shown.map(n=>{
           const c = LT.filter(t=>t.artist===n).length;
-          return `<div class="lib-item" data-artist="${esc(n)}"><div class="lib-avatar">${esc((n[0]||"?").toUpperCase())}</div><div style="flex:1;min-width:0;"><div class="t-title">${esc(n)}</div><div class="t-artist">${c} track(s)</div></div><span class="chev-r">›</span></div>`;
+          const cover = LT.find(t=>t.artist===n && t.cover)?.cover;
+          const avatar = cover
+            ? `<div class="lib-avatar" style="background-image:url('${esc(cover)}')"></div>`
+            : `<div class="lib-avatar">${esc((n[0]||"?").toUpperCase())}</div>`;
+          return `<div class="lib-item" data-artist="${esc(n)}">${avatar}<div style="flex:1;min-width:0;"><div class="t-title">${esc(n)}</div><div class="t-artist">${c} track(s)</div></div><span class="chev-r">›</span></div>`;
         }).join("") || `<div style="padding:30px;text-align:center;color:var(--text-muted);">No artists found.</div>`;
       } else {
         const at = LT.filter(t=>t.artist===selArtist);
         const albums = [...new Set(at.map(t=>t.album))].sort((a,b)=>a.localeCompare(b));
         const list = selAlbum ? at.filter(t=>t.album===selAlbum) : at;
-        html = `<div class="lib-crumb"><button class="btn small" data-back="artists">‹ Artists</button><b>${esc(selArtist)}</b></div>
+        const artistCover = at.find(t=>t.cover)?.cover;
+        const crumbAvatar = artistCover
+          ? `<div class="lib-avatar" style="background-image:url('${esc(artistCover)}')"></div>`
+          : `<div class="lib-avatar">${esc((selArtist[0]||"?").toUpperCase())}</div>`;
+        html = `<div class="lib-crumb"><button class="btn small" data-back="artists">‹ Artists</button>${crumbAvatar}<b>${esc(selArtist)}</b></div>
           <div class="chip-row"><button class="chip ${!selAlbum?"active":""}" data-album="">All albums</button>` +
-          albums.map(a=>`<button class="chip ${selAlbum===a?"active":""}" data-album="${esc(a)}">${esc(a)}</button>`).join("") +
+          albums.map(a=>{
+            const albumCover = at.find(t=>t.album===a && t.cover)?.cover;
+            const thumb = albumCover ? `<span class="chip-thumb" style="background-image:url('${esc(albumCover)}')"></span>` : "";
+            return `<button class="chip ${selAlbum===a?"active":""}" data-album="${esc(a)}">${thumb}${esc(a)}</button>`;
+          }).join("") +
           `</div>` + trackRows(q ? list.filter(t=>(t.title+t.album).toLowerCase().includes(q)) : list);
       }
     } else if (libTab === "albums") {
@@ -783,12 +806,20 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         html = shown.map(k=>{
           const [a, al] = k.split("\x00");
           const c = LT.filter(t=>t.artist===a&&t.album===al).length;
-          return `<div class="lib-item" data-albumkey="${esc(k)}"><div class="lib-avatar">💿</div><div style="flex:1;min-width:0;"><div class="t-title">${esc(al)}</div><div class="t-artist">${esc(a)} • ${c} track(s)</div></div><span class="chev-r">›</span></div>`;
+          const cover = LT.find(t=>t.artist===a && t.album===al && t.cover)?.cover;
+          const avatar = cover
+            ? `<div class="lib-avatar lib-avatar-album" style="background-image:url('${esc(cover)}')"></div>`
+            : `<div class="lib-avatar lib-avatar-album">💿</div>`;
+          return `<div class="lib-item" data-albumkey="${esc(k)}">${avatar}<div style="flex:1;min-width:0;"><div class="t-title">${esc(al)}</div><div class="t-artist">${esc(a)} • ${c} track(s)</div></div><span class="chev-r">›</span></div>`;
         }).join("") || `<div style="padding:30px;text-align:center;color:var(--text-muted);">No albums found.</div>`;
       } else {
         const [a, al] = selAlbumKey.split("\x00");
         const list = LT.filter(t=>t.artist===a&&t.album===al);
-        html = `<div class="lib-crumb"><button class="btn small" data-back="albums">‹ Albums</button><b>${esc(al)}</b><span class="t-artist" style="margin-left:8px;">${esc(a)}</span></div>` +
+        const albumCover = list.find(t=>t.cover)?.cover;
+        const crumbAvatar = albumCover
+          ? `<div class="lib-avatar lib-avatar-album" style="background-image:url('${esc(albumCover)}')"></div>`
+          : `<div class="lib-avatar lib-avatar-album">💿</div>`;
+        html = `<div class="lib-crumb"><button class="btn small" data-back="albums">‹ Albums</button>${crumbAvatar}<b>${esc(al)}</b><span class="t-artist" style="margin-left:8px;">${esc(a)}</span></div>` +
           trackRows(q ? list.filter(t=>t.title.toLowerCase().includes(q)) : list);
       }
     } else { // genres
@@ -915,10 +946,26 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     }, 350);
   }
 
+  async function rescanWatchedFolders(silent = true) {
+    if (localStorage.getItem("melo-pref-autoScan") === "0") return;
+    if (!isTauriEnv) return;
+    const watched: string[] = JSON.parse(localStorage.getItem("melo-watched-folders") || "[]");
+    for (const folder of watched) {
+      try { await scanFolder(folder, { silent }); } catch {}
+    }
+  }
+  busOn("melo:request-scan-folder", (p: any) => {
+    if (p?.path) scanFolder(p.path).catch(() => {});
+  });
+
+  // Re-check watched folders for new files shortly after boot, then every 10 minutes.
+  setTimeout(() => rescanWatchedFolders(true), 5000);
+  setInterval(() => rescanWatchedFolders(true), 10 * 60 * 1000);
+
   // expose
   (window as any).LumiLibrary = {
     get tracks(){return tracks}, get playlists(){return playlists}, render,
-    addTracks, addToCurrentPlaylist, importPaths, flushDeferred,
+    addTracks, addToCurrentPlaylist, importPaths, flushDeferred, scanFolder, rescanWatchedFolders,
     currentPlaylistName: ()=> currentPlaylist()?.name || "Playlist"
   };
 }

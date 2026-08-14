@@ -7,6 +7,8 @@ import { setupLyrics } from "./lyrics";
 import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
 import { busEmit, busOn, isTauri } from "./bus";
+import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
+import type { Track } from "./types";
 
 type ToastFn = (msg: string) => void;
 
@@ -190,30 +192,26 @@ app.innerHTML = `
       </div>
       <div class="float-body" style="padding:0; overflow:auto;">
         <div class="settings-tabs" id="settingsTabs">
-          <button class="settings-tab active" data-stab="general"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>General</button>
-          <button class="settings-tab" data-stab="playback"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z"/></svg>Playback</button>
-          <button class="settings-tab" data-stab="library"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>Library</button>
-          <button class="settings-tab" data-stab="appearance"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>Appearance & Skin</button>
-          <button class="settings-tab" data-stab="shortcuts"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>Shortcuts</button>
-          <button class="settings-tab" data-stab="about"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>About</button>
+          <button class="settings-tab active" data-stab="general"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>${t("settings.tabs.general")}</button>
+          <button class="settings-tab" data-stab="playback"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z"/></svg>${t("settings.tabs.playback")}</button>
+          <button class="settings-tab" data-stab="library"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>${t("settings.tabs.library")}</button>
+          <button class="settings-tab" data-stab="appearance"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>${t("settings.tabs.appearance")}</button>
+          <button class="settings-tab" data-stab="shortcuts"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>${t("settings.tabs.shortcuts")}</button>
+          <button class="settings-tab" data-stab="about"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>${t("settings.tabs.about")}</button>
         </div>
 
         <!-- GENERAL TAB -->
         <div class="settings-section active" data-panel="general">
           <div class="settings-row">
-            <div><div class="label">Language</div><div class="desc">Interface language</div></div>
-            <select class="settings-select" id="setLanguage"><option value="en">English</option><option value="fa">Persian</option><option value="de">Deutsch</option></select>
+            <div><div class="label">${t("settings.general.language.label")}</div><div class="desc">${t("settings.general.language.desc")}</div></div>
+            <select class="settings-select" id="setLanguage">${AVAILABLE_LOCALES.map(l => `<option value="${l.code}">${l.nativeName}</option>`).join("")}</select>
           </div>
           <div class="settings-row">
-            <div><div class="label">Launch at Windows startup</div><div class="desc">Run automatically when system boots</div></div>
-            <div class="switch" id="swAutoStart" data-key="autoStart"></div>
-          </div>
-          <div class="settings-row">
-            <div><div class="label">Close to system tray</div><div class="desc">Minimize to system tray on window close</div></div>
+            <div><div class="label">${t("settings.general.tray.label")}</div><div class="desc">${t("settings.general.tray.desc")}</div></div>
             <div class="switch on" id="swTray" data-key="tray"></div>
           </div>
           <div class="settings-row">
-            <div><div class="label">Resume playback on reopen</div><div class="desc">Continue playback of previous track</div></div>
+            <div><div class="label">${t("settings.general.resume.label")}</div><div class="desc">${t("settings.general.resume.desc")}</div></div>
             <div class="switch on" id="swResume" data-key="resume"></div>
           </div>
         </div>
@@ -221,42 +219,40 @@ app.innerHTML = `
         <!-- PLAYBACK TAB -->
         <div class="settings-section" data-panel="playback">
           <div class="settings-row">
-            <div><div class="label">Gapless playback</div><div class="desc">Seamless transition with no pause between tracks</div></div>
-            <div class="switch on" data-key="gapless"></div>
+            <div><div class="label">${t("settings.playback.gapless.label")}</div><div class="desc">${t("settings.playback.gapless.desc")}</div></div>
+            <div class="switch on" id="swGapless" data-key="gapless"></div>
           </div>
           <div class="settings-row">
-            <div><div class="label">Crossfade duration</div><div class="desc">Overlap track transitions</div></div>
+            <div><div class="label">${t("settings.playback.crossfade.label")}</div><div class="desc">${t("settings.playback.crossfade.desc")}</div></div>
             <div style="display:flex; align-items:center; gap:8px;">
               <input type="range" min="1" max="5" step="0.5" value="2" id="setCrossfade" style="width:100px;" />
               <span id="crossfadeVal" style="font-size:11px; color:var(--text-muted); font-weight:600;">2s</span>
             </div>
           </div>
           <div class="settings-row">
-            <div><div class="label">ReplayGain normalization</div><div class="desc">Equalize track volume levels automatically</div></div>
-            <div class="switch on" data-key="replayGainGlobal"></div>
+            <div><div class="label">${t("settings.playback.replaygain.label")}</div><div class="desc">${t("settings.playback.replaygain.desc")}</div></div>
+            <div class="switch on" id="swReplayGain" data-key="replayGainGlobal"></div>
           </div>
           <div class="settings-row">
-            <div><div class="label">Fade out on pause</div><div class="desc">Smooth 0.3s fade-out on pause</div></div>
-            <div class="switch" data-key="fadePause"></div>
+            <div><div class="label">${t("settings.playback.fadepause.label")}</div><div class="desc">${t("settings.playback.fadepause.desc")}</div></div>
+            <div class="switch" id="swFadePause" data-key="fadePause"></div>
           </div>
         </div>
 
         <!-- LIBRARY TAB -->
         <div class="settings-section" data-panel="library">
           <div class="settings-row">
-            <div><div class="label">Auto-scan folders</div><div class="desc">Watch and ingest file changes automatically</div></div>
-            <div class="switch on" data-key="autoScan"></div>
+            <div><div class="label">${t("settings.library.autoscan.label")}</div><div class="desc">${t("settings.library.autoscan.desc")}</div></div>
+            <div class="switch on" id="swAutoScan" data-key="autoScan"></div>
           </div>
           <div class="settings-row">
-            <div><div class="label">Supported audio formats</div><div class="desc">FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS</div></div>
+            <div><div class="label">${t("settings.library.formats.label")}</div><div class="desc">${t("settings.library.formats.desc")}</div></div>
             <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Full bit-depth support</div>
           </div>
           <div class="settings-row" style="flex-direction:column; align-items:stretch;">
-            <div class="label" style="margin-bottom:6px;">Music folders</div>
-            <div style="display:flex; gap:6px;">
-              <input class="search-input" value="C:\\Music" id="setMusicFolder" style="flex:1; padding-left:10px;" readonly />
-              <button class="btn small" id="btnChooseFolder">Browse</button>
-            </div>
+            <div class="label" style="margin-bottom:6px;">${t("settings.library.folders.label")}</div>
+            <div id="watchedFoldersList" style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px;"></div>
+            <button class="btn small" id="btnChooseFolder" style="align-self:flex-start;">+ Add folder</button>
           </div>
         </div>
 
@@ -288,7 +284,7 @@ app.innerHTML = `
           </div>
 
           <div class="settings-row">
-            <div><div class="label">Show Stop button</div><div class="desc">Display a Stop control next to Play/Pause in the player</div></div>
+            <div><div class="label">${t("settings.appearance.showstop.label")}</div><div class="desc">${t("settings.appearance.showstop.desc")}</div></div>
             <div class="switch" id="swShowStop" data-key="showStopBtn"></div>
           </div>
 
@@ -559,6 +555,10 @@ if (isTauri && !urlPanel) {
 
     mainWin.onCloseRequested(async (event) => {
       event.preventDefault();
+      const trayEnabled = localStorage.getItem("melo-pref-tray") !== "0";
+      if (trayEnabled) {
+        try { await mainWin.hide(); return; } catch {}
+      }
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       for (const p of ["library", "playlist", "equalizer", "lyrics", "settings"]) {
         try {
@@ -1046,11 +1046,10 @@ function setupSettings(toast: ToastFn) {
 
   const langSelect = document.getElementById("setLanguage") as HTMLSelectElement | null;
   if (langSelect) {
-    const savedLang = localStorage.getItem("melo-pref-lang") || "en";
-    langSelect.value = savedLang;
-    langSelect.onchange = () => {
-      localStorage.setItem("melo-pref-lang", langSelect.value);
-      toast(`Language set to ${langSelect.options[langSelect.selectedIndex].text}`);
+    langSelect.value = getLocaleCode();
+    langSelect.onchange = async () => {
+      await setLocale(langSelect.value);
+      toast(`Language set to ${langSelect.options[langSelect.selectedIndex].text} — restart Melo to fully apply`);
     };
   }
 
@@ -1147,15 +1146,52 @@ function setupSettings(toast: ToastFn) {
     setTimeout(() => location.reload(), 600);
   });
 
+  function renderWatchedFolders() {
+    const list = document.getElementById("watchedFoldersList");
+    if (!list) return;
+    const watched: string[] = JSON.parse(localStorage.getItem("melo-watched-folders") || "[]");
+    if (!watched.length) {
+      list.innerHTML = `<div style="font-size:11px; color:var(--text-muted);">No folders added yet</div>`;
+      return;
+    }
+    list.innerHTML = watched.map((f, i) => `
+      <div style="display:flex; align-items:center; gap:6px; background:var(--track-bg); border-radius:8px; padding:6px 8px;">
+        <span style="flex:1; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:ltr; text-align:left;" title="${f}">${f}</span>
+        <button class="btn small ghost" data-remove-folder="${i}" title="Remove">×</button>
+      </div>`).join("");
+    list.querySelectorAll("[data-remove-folder]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt((btn as HTMLElement).dataset.removeFolder!, 10);
+        const w: string[] = JSON.parse(localStorage.getItem("melo-watched-folders") || "[]");
+        w.splice(idx, 1);
+        localStorage.setItem("melo-watched-folders", JSON.stringify(w));
+        renderWatchedFolders();
+      });
+    });
+  }
+  renderWatchedFolders();
+  document.addEventListener("melo:watched-folders-changed", renderWatchedFolders);
+
   document.getElementById("btnChooseFolder")?.addEventListener("click", async () => {
     if (isTauri) {
       try {
         const { open } = await import("@tauri-apps/plugin-dialog");
         const sel = await open({ directory: true });
         if (sel) {
-          (document.getElementById("setMusicFolder") as HTMLInputElement).value = sel as string;
-          localStorage.setItem("melo-pref-music-folder", sel as string);
-          toast("Music folder updated");
+          const lib = (window as any).LumiLibrary;
+          if (lib?.scanFolder) {
+            await lib.scanFolder(sel as string);
+          } else {
+            // Settings may run in its own panel window without direct
+            // library access — ask whichever window has it to scan instead.
+            busEmit("melo:request-scan-folder", { path: sel });
+          }
+          const watched: string[] = JSON.parse(localStorage.getItem("melo-watched-folders") || "[]");
+          if (!watched.includes(sel as string)) {
+            watched.push(sel as string);
+            localStorage.setItem("melo-watched-folders", JSON.stringify(watched));
+          }
+          renderWatchedFolders();
         }
       } catch {}
     } else {
@@ -1254,7 +1290,7 @@ if (isTauri && urlPanel) {
   if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
   else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
   else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
-  else if (urlPanel === "settings") setupSettings(showToast);
+  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); }
 } else {
   setupPlayer(audio, showToast);
   setupLibrary(audio, showToast);
@@ -1263,6 +1299,25 @@ if (isTauri && urlPanel) {
   setupLyrics(audio, showToast);
   setupSkinEngine(showToast);
   setupSettings(showToast);
+  initLocale();
+
+  // Resume playback on reopen: restore the last-played track, paused, at
+  // the position it was left at. Only runs once, shortly after boot, so the
+  // library has had a chance to load from localStorage first.
+  setTimeout(() => {
+    if (localStorage.getItem("melo-pref-resume") === "0") return;
+    try {
+      const state = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
+      const lib = (window as any).LumiLibrary;
+      const p = (window as any).LumiPlayer;
+      if (!state?.trackId || !lib || !p) return;
+      const allTracks = lib.tracks as Track[];
+      const idx = allTracks.findIndex(t => t.id === state.trackId);
+      if (idx === -1) return;
+      p.queue = allTracks;
+      p.loadTrack(idx, false, state.position || 0);
+    } catch {}
+  }, 400);
 }
 
 showToast("Melo 0.3 Beta is ready");

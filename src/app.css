@@ -408,6 +408,13 @@ body.tauri-main .player-card { overflow: hidden; }
   background: linear-gradient(135deg, #8fb9e8, #d6b8e0);
   color: white; display: grid; place-items: center;
   font-weight: 700; font-size: 14px; flex-shrink: 0;
+  background-size: cover; background-position: center;
+}
+.lib-avatar.lib-avatar-album { border-radius: 8px; }
+.chip-thumb {
+  width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+  background: var(--track-bg); background-size: cover; background-position: center;
+  margin-right: 5px; vertical-align: -3px; display: inline-block;
 }
 #btnStop { display: none; }
 body.show-stop-btn #btnStop { display: inline-flex; }
@@ -416,7 +423,8 @@ body.show-stop-btn #btnStop { display: inline-flex; }
   padding: 8px 12px; border-bottom: 1px solid var(--card-border);
   font-size: 12.5px;
 }
-.chip-row { display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; flex-wrap: nowrap; }
+.lib-crumb .lib-avatar { width: 28px; height: 28px; }
+.chip-row { display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; flex-wrap: nowrap; align-items: center; }
 
 /* library right-click context menu */
 .ctx-menu {
