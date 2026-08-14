@@ -14,6 +14,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<title>Melo Skin - Minimal Compact (Light)</title>
 <style>
   :root {
     --card: #ffffff;
@@ -29,7 +30,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   body {
     margin: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: transparent !important;
+    background: transparent;
     color: var(--text);
     overflow: hidden;
     height: 100vh;
@@ -40,19 +41,20 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     background: var(--card) !important;
     border: 1px solid var(--card-border) !important;
     border-radius: 24px !important;
-    box-shadow: var(--shadow) !important;
+    box-shadow: none !important;
     padding: 10px 18px 12px 18px !important;
     width: 100% !important;
-    height: 100vh !important;
-    min-height: 100vh !important;
-    max-height: 100vh !important;
+    height: 100% !important;
+    min-height: 135px !important;
+    max-height: 145px !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
     position: relative !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
   }
+  
+  /* Top Bar */
   .player-titlebar {
     position: relative !important;
     height: 24px !important;
@@ -63,6 +65,8 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     -webkit-app-region: drag !important;
     user-select: none !important;
   }
+  
+  /* Top-Left: Brand + Action Buttons in ordered compact row */
   .titlebar-left {
     display: flex !important;
     align-items: center !important;
@@ -76,6 +80,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     border-radius: 6px; cursor: pointer; letter-spacing: 0.02em;
   }
   .app-name-btn:hover { background: var(--track-bg); }
+  
   .mini-btn {
     width: 22px; height: 22px; border-radius: 5px; border: none;
     background: transparent; color: var(--text-soft); display: grid;
@@ -85,6 +90,8 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   .mini-btn:hover { background: var(--track-bg); color: var(--text); }
   .mini-btn.active { color: var(--accent); background: rgba(91, 146, 165, 0.15); font-weight: bold; }
   .mini-sep { width: 1px; height: 12px; background: var(--card-border); margin: 0 2px; }
+
+  /* Top-Right: Window Controls (NO MAXIMIZE) */
   .win-controls {
     display: flex !important;
     gap: 2px !important;
@@ -98,6 +105,8 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   }
   .win-btn:hover { background: var(--track-bg) !important; color: var(--text) !important; }
   .win-btn.close:hover { background: #ef4444 !important; color: white !important; }
+
+  /* Main Streamlined Player Row */
   .player-main {
     display: flex !important;
     align-items: center !important;
@@ -106,6 +115,8 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     margin-top: 0 !important;
     min-height: 0 !important;
   }
+
+  /* Circular Album Art */
   .cover-col {
     display: flex !important;
     align-items: center !important;
@@ -124,6 +135,8 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   }
   .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cover-fallback { width: 100%; height: 100%; display: grid; place-items: center; background: linear-gradient(135deg, #a5b4fc, #67e8f9); color: white; font-size: 24px; }
+
+  /* Track Title & Artist */
   .track-info {
     display: flex !important;
     flex-direction: column !important;
@@ -150,6 +163,8 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     margin-top: 3px !important;
   }
   .track-album, .track-format { display: none !important; }
+
+  /* Center Sleek Seeker */
   .seek-center {
     flex: 1 !important;
     display: flex !important;
@@ -166,6 +181,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   }
   .time-label.cur { text-align: right !important; }
   .time-label.dur { text-align: left !important; }
+  
   .seek-row { flex: 1 !important; display: flex !important; align-items: center !important; }
   input[type="range"].seek {
     -webkit-appearance: none !important;
@@ -173,7 +189,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     width: 100% !important;
     height: 5px !important;
     border-radius: 999px !important;
-    background: linear-gradient(to right, #5b92a5 0%, #5b92a5 var(--progress, 35%), #e5e7eb var(--progress, 35%), #e5e7eb 100%) !important;
+    background: linear-gradient(to right, var(--accent, #5b92a5) 0%, var(--accent, #5b92a5) var(--progress, 35%), #e5e7eb var(--progress, 35%), #e5e7eb 100%) !important;
     outline: none !important;
     cursor: pointer !important;
   }
@@ -189,6 +205,8 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     transition: transform 0.1s !important;
   }
   input[type="range"].seek::-webkit-slider-thumb:hover { transform: scale(1.2) !important; }
+
+  /* Right Transport Controls */
   .transport {
     display: flex !important;
     align-items: center !important;
@@ -221,12 +239,18 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   .transport button svg, .transport .icon-btn svg { width: 16px !important; height: 16px !important; }
   .transport .play-btn { width: 32px !important; height: 32px !important; }
   .transport .play-btn svg { width: 20px !important; height: 20px !important; }
+
+  .transport #btnStop { display: none !important; }
+  body.show-stop-btn .transport #btnStop { display: grid !important; }
+
+  /* Hidden audio support elements (kept for JS event listeners) */
   .hidden-helper { display: none !important; }
 </style>
 </head>
 <body>
 <div id="lumi-player">
   <div class="player-titlebar" data-tauri-drag-region>
+    <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
       <button class="app-name-btn" id="appMenuBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
@@ -255,13 +279,23 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
       <button class="mini-btn" id="btnOpenSettings" title="Settings">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
+      <div class="mini-sep"></div>
+      <button class="mini-btn" id="btnShuffle" title="Shuffle (S)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20l8-8"/><path d="M21 3l-8 8"/><path d="M16 21h5v-5"/><path d="M4 4l5 5"/><path d="M9 15l-5 5"/></svg>
+      </button>
+      <button class="mini-btn" id="btnRepeat" title="Repeat (R)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </button>
     </div>
+
+    <!-- Top-Right: Window Controls (NO MAXIMIZE) -->
     <div class="win-controls">
       <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
       <button class="win-btn close" aria-label="close" title="Close">×</button>
     </div>
   </div>
 
+  <!-- Main Streamlined Content Row -->
   <div class="player-main">
     <div class="cover-col">
       <div class="cover-wrap" id="coverWrap">
@@ -287,9 +321,6 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     </div>
 
     <div class="transport">
-      <button class="icon-btn" id="btnShuffle" title="Shuffle (S)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20l8-8"/><path d="M21 3l-8 8"/><path d="M16 21h5v-5"/><path d="M4 4l5 5"/><path d="M9 15l-5 5"/></svg>
-      </button>
       <button class="icon-btn" id="btnPrev" title="Previous">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
       </button>
@@ -297,15 +328,16 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
         <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
       </button>
+      <button class="icon-btn" id="btnStop" title="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
       <button class="icon-btn" id="btnNext" title="Next">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-      </button>
-      <button class="icon-btn" id="btnRepeat" title="Repeat (R)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
       </button>
     </div>
   </div>
 
+  <!-- Hidden volume & visualizer placeholders for player bindings -->
   <div class="hidden-helper">
     <input id="volBar" type="range" min="0" max="100" value="60"/>
     <span id="volIcon">🔊</span>
@@ -314,12 +346,14 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   </div>
 </div>
 </body>
-</html>`;
+</html>
+`;
 
 const COMPACT_PILL_DARK = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<title>Melo Skin - Minimal Compact (Dark)</title>
 <style>
   :root {
     --card: #151b23;
@@ -335,7 +369,7 @@ const COMPACT_PILL_DARK = `<!doctype html>
   body {
     margin: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: transparent !important;
+    background: transparent;
     color: var(--text);
     overflow: hidden;
     height: 100vh;
@@ -346,19 +380,20 @@ const COMPACT_PILL_DARK = `<!doctype html>
     background: var(--card) !important;
     border: 1px solid var(--card-border) !important;
     border-radius: 24px !important;
-    box-shadow: var(--shadow) !important;
+    box-shadow: none !important;
     padding: 10px 18px 12px 18px !important;
     width: 100% !important;
-    height: 100vh !important;
-    min-height: 100vh !important;
-    max-height: 100vh !important;
+    height: 100% !important;
+    min-height: 135px !important;
+    max-height: 145px !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
     position: relative !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
   }
+  
+  /* Top Bar */
   .player-titlebar {
     position: relative !important;
     height: 24px !important;
@@ -369,6 +404,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
     -webkit-app-region: drag !important;
     user-select: none !important;
   }
+  
+  /* Top-Left: Brand + Action Buttons in ordered compact row */
   .titlebar-left {
     display: flex !important;
     align-items: center !important;
@@ -382,6 +419,7 @@ const COMPACT_PILL_DARK = `<!doctype html>
     border-radius: 6px; cursor: pointer; letter-spacing: 0.02em;
   }
   .app-name-btn:hover { background: var(--track-bg); }
+  
   .mini-btn {
     width: 22px; height: 22px; border-radius: 5px; border: none;
     background: transparent; color: var(--text-soft); display: grid;
@@ -391,6 +429,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
   .mini-btn:hover { background: var(--track-bg); color: var(--text); }
   .mini-btn.active { color: var(--accent); background: rgba(77, 182, 172, 0.2); font-weight: bold; }
   .mini-sep { width: 1px; height: 12px; background: var(--card-border); margin: 0 2px; }
+
+  /* Top-Right: Window Controls (NO MAXIMIZE) */
   .win-controls {
     display: flex !important;
     gap: 2px !important;
@@ -404,6 +444,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
   }
   .win-btn:hover { background: var(--track-bg) !important; color: var(--text) !important; }
   .win-btn.close:hover { background: #ef4444 !important; color: white !important; }
+
+  /* Main Streamlined Player Row */
   .player-main {
     display: flex !important;
     align-items: center !important;
@@ -412,6 +454,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
     margin-top: 0 !important;
     min-height: 0 !important;
   }
+
+  /* Circular Album Art */
   .cover-col {
     display: flex !important;
     align-items: center !important;
@@ -430,6 +474,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
   }
   .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cover-fallback { width: 100%; height: 100%; display: grid; place-items: center; background: linear-gradient(135deg, #1e293b, #0f766e); color: #5eead4; font-size: 24px; }
+
+  /* Track Title & Artist */
   .track-info {
     display: flex !important;
     flex-direction: column !important;
@@ -456,6 +502,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
     margin-top: 3px !important;
   }
   .track-album, .track-format { display: none !important; }
+
+  /* Center Sleek Seeker */
   .seek-center {
     flex: 1 !important;
     display: flex !important;
@@ -472,6 +520,7 @@ const COMPACT_PILL_DARK = `<!doctype html>
   }
   .time-label.cur { text-align: right !important; }
   .time-label.dur { text-align: left !important; }
+
   .seek-row { flex: 1 !important; display: flex !important; align-items: center !important; }
   input[type="range"].seek {
     -webkit-appearance: none !important;
@@ -479,7 +528,7 @@ const COMPACT_PILL_DARK = `<!doctype html>
     width: 100% !important;
     height: 5px !important;
     border-radius: 999px !important;
-    background: linear-gradient(to right, #4db6ac 0%, #4db6ac var(--progress, 35%), #212833 var(--progress, 35%), #212833 100%) !important;
+    background: linear-gradient(to right, var(--accent, #4db6ac) 0%, var(--accent, #4db6ac) var(--progress, 35%), #212833 var(--progress, 35%), #212833 100%) !important;
     outline: none !important;
     cursor: pointer !important;
   }
@@ -495,6 +544,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
     transition: transform 0.1s !important;
   }
   input[type="range"].seek::-webkit-slider-thumb:hover { transform: scale(1.2) !important; }
+
+  /* Right Transport Controls */
   .transport {
     display: flex !important;
     align-items: center !important;
@@ -527,12 +578,18 @@ const COMPACT_PILL_DARK = `<!doctype html>
   .transport button svg, .transport .icon-btn svg { width: 16px !important; height: 16px !important; }
   .transport .play-btn { width: 32px !important; height: 32px !important; }
   .transport .play-btn svg { width: 20px !important; height: 20px !important; }
+
+  .transport #btnStop { display: none !important; }
+  body.show-stop-btn .transport #btnStop { display: grid !important; }
+
+  /* Hidden audio support elements (kept for JS event listeners) */
   .hidden-helper { display: none !important; }
 </style>
 </head>
 <body>
 <div id="lumi-player">
   <div class="player-titlebar" data-tauri-drag-region>
+    <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
       <button class="app-name-btn" id="appMenuBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
@@ -561,13 +618,23 @@ const COMPACT_PILL_DARK = `<!doctype html>
       <button class="mini-btn" id="btnOpenSettings" title="Settings">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
+      <div class="mini-sep"></div>
+      <button class="mini-btn" id="btnShuffle" title="Shuffle (S)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20l8-8"/><path d="M21 3l-8 8"/><path d="M16 21h5v-5"/><path d="M4 4l5 5"/><path d="M9 15l-5 5"/></svg>
+      </button>
+      <button class="mini-btn" id="btnRepeat" title="Repeat (R)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </button>
     </div>
+
+    <!-- Top-Right: Window Controls (NO MAXIMIZE) -->
     <div class="win-controls">
       <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
       <button class="win-btn close" aria-label="close" title="Close">×</button>
     </div>
   </div>
 
+  <!-- Main Streamlined Content Row -->
   <div class="player-main">
     <div class="cover-col">
       <div class="cover-wrap" id="coverWrap">
@@ -593,9 +660,6 @@ const COMPACT_PILL_DARK = `<!doctype html>
     </div>
 
     <div class="transport">
-      <button class="icon-btn" id="btnShuffle" title="Shuffle (S)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20l8-8"/><path d="M21 3l-8 8"/><path d="M16 21h5v-5"/><path d="M4 4l5 5"/><path d="M9 15l-5 5"/></svg>
-      </button>
       <button class="icon-btn" id="btnPrev" title="Previous">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
       </button>
@@ -603,15 +667,16 @@ const COMPACT_PILL_DARK = `<!doctype html>
         <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
       </button>
+      <button class="icon-btn" id="btnStop" title="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
       <button class="icon-btn" id="btnNext" title="Next">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-      </button>
-      <button class="icon-btn" id="btnRepeat" title="Repeat (R)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
       </button>
     </div>
   </div>
 
+  <!-- Hidden volume & visualizer placeholders for player bindings -->
   <div class="hidden-helper">
     <input id="volBar" type="range" min="0" max="100" value="60"/>
     <span id="volIcon">🔊</span>
@@ -620,7 +685,8 @@ const COMPACT_PILL_DARK = `<!doctype html>
   </div>
 </div>
 </body>
-</html>`;
+</html>
+`;
 
 const EMBEDDED_SKINS: Record<string, string> = {
   "compact-pill-light.html": COMPACT_PILL_LIGHT,

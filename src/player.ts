@@ -9,7 +9,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   let btnStop: HTMLButtonElement | null = null;
   let seekBar: HTMLInputElement, volBar: HTMLInputElement, curTime: HTMLElement, durTime: HTMLElement, volPct: HTMLElement;
   let trackTitle: HTMLElement, trackArtist: HTMLElement, trackAlbum: HTMLElement, trackCodec: HTMLElement, trackSpecs: HTMLElement;
-  let coverImg: HTMLImageElement, coverFallback: HTMLElement, replayGainToggle: HTMLInputElement;
+  let coverImg: HTMLImageElement, coverFallback: HTMLElement;
 
   let queue: Track[] = [];
   let currentIndex = 0;
@@ -138,8 +138,16 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
     if (autoplay) play();
 
+    // Keep a small durable snapshot as a race-free fallback for a Lyrics
+    // window created after this event. Cover art is omitted to avoid filling
+    // localStorage with a large data URL.
+    try {
+      const { cover: _cover, ...trackSnapshot } = t as any;
+      localStorage.setItem("melo-current-track", JSON.stringify(trackSnapshot));
+    } catch {}
     window.dispatchEvent(new CustomEvent("lumi:trackChange", { detail: t }));
     busEmit("melo:track-changed", t);
+    busEmit("melo:playback-state", { track: t, currentTime: audio.currentTime || 0, paused: audio.paused });
   }
 
   let pendingPlay = false;
@@ -156,10 +164,19 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   window.addEventListener("pointerdown", onUnlocked);
   window.addEventListener("keydown", onUnlocked);
   busOn("melo:pref-changed", (p: any) => {
-    if (p && p.key === "replayGainGlobal" && replayGainToggle) {
-      replayGainToggle.checked = !!p.value;
-      applyReplayGain();
-    }
+    if (p && p.key === "replayGainGlobal") applyReplayGain();
+  });
+
+  // Secondary windows can be opened at any time. Reply with the current
+  // track and playback position instead of requiring them to be open when
+  // the original track-changed event fires.
+  busOn("melo:request-playback-state", () => {
+    const track = queue[currentIndex] || null;
+    busEmit("melo:playback-state", { track, currentTime: audio.currentTime || 0, paused: audio.paused });
+  });
+  busOn("melo:seek-playback", (seconds: any) => {
+    const value = Number(seconds);
+    if (Number.isFinite(value) && value >= 0) audio.currentTime = value;
   });
 
   let fadeRAF: number | null = null;
@@ -267,7 +284,8 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     const t = queue[currentIndex];
     if (!volBar) return 1;
     const baseVol = parseInt(volBar.value, 10) / 100;
-    const gainDb = replayGainToggle && replayGainToggle.checked ? t?.replayGain ?? 0 : 0;
+    const replayGainEnabled = localStorage.getItem("melo-pref-replayGainGlobal") !== "0";
+    const gainDb = replayGainEnabled ? t?.replayGain ?? 0 : 0;
     const linear = Math.pow(10, gainDb / 20);
     return Math.min(1, Math.max(0, baseVol * linear));
   }
@@ -297,7 +315,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     trackSpecs = document.getElementById("trackSpecs") as HTMLElement;
     coverImg = document.getElementById("coverImg") as HTMLImageElement;
     coverFallback = document.getElementById("coverFallback") as HTMLElement;
-    replayGainToggle = document.getElementById("replayGainToggle") as HTMLInputElement;
 
     if (btnPlay) btnPlay.onclick = togglePlay;
     if (btnStop) btnStop.onclick = stop;
@@ -342,14 +359,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       };
     }
 
-    if (replayGainToggle) {
-      replayGainToggle.checked = localStorage.getItem("melo-pref-replayGainGlobal") !== "0";
-      replayGainToggle.onchange = () => {
-        localStorage.setItem("melo-pref-replayGainGlobal", replayGainToggle.checked ? "1" : "0");
-        document.getElementById("swReplayGain")?.classList.toggle("on", replayGainToggle.checked);
-        applyReplayGain();
-      };
-    }
     updateSeekBackground();
     updateVolBackground();
 
@@ -371,6 +380,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   bindDOM();
 
   audio.addEventListener("timeupdate", () => {
+    busEmit("melo:playback-position", audio.currentTime || 0);
     if (!isSeeking && seekBar && curTime) {
       seekBar.value = String(Math.floor(audio.currentTime));
       curTime.textContent = formatTime(audio.currentTime);

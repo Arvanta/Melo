@@ -291,11 +291,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     mode = m;
     levels = [];
     localStorage.setItem("melo-viz-mode", m);
-    if (!silent) {
-      const toast = (window as any).__TOAST__;
-      const label = VIZ_MODES.find((x) => x.id === m)?.label;
-      if (toast && label) toast(`Visualizer: ${label}`);
-    }
+    // Mode changes are intentionally silent; the selected item is already
+    // indicated in the visualizer menu.
   }
 
   function buildMenu() {

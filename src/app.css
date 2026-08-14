@@ -328,14 +328,22 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
   flex-direction: column;
   background: var(--card);
   color: var(--text);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 .panel-titlebar {
   height: 40px; flex-shrink: 0;
-  display: flex; align-items: center; gap: 8px;
-  padding: 0 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 6px 0 12px;
   border-bottom: 1px solid var(--card-border);
   font-size: 12.5px; font-weight: 600;
+  user-select: none;
+  -webkit-app-region: drag;
 }
+.panel-title { display:flex; align-items:center; gap:8px; min-width:0; -webkit-app-region:drag; }
+.panel-titlebar .win-controls { display:flex; gap:3px; -webkit-app-region:no-drag; }
+.panel-titlebar .win-btn { width:30px; height:26px; }
 .panel-body {
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
@@ -348,7 +356,7 @@ body.tauri-main #app { background: transparent !important; }
 body.tauri-main .desktop { display: none !important; }
 body.tauri-main .app-shell { padding: 0; gap: 0; height: 100vh; min-height: 100vh; background: transparent !important; }
 body.tauri-main .player-card {
-  border: none; border-radius: var(--radius); box-shadow: var(--shadow);
+  border: none; border-radius: var(--radius); box-shadow: none;
   height: 100vh; min-height: 100vh; max-height: 100vh;
   width: 100%; padding: 12px 20px 14px 20px; box-sizing: border-box; overflow: hidden;
 }
@@ -361,7 +369,7 @@ body.tauri-main .player-card {
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* narrow windows: hide the visualizer AND hand its space to the content; drop the divider */
-@media (max-width: 560px) {
+@media (max-width: 800px) {
   .visualizer-bars { display: none; }
   .right-main { display: none; }
   .right-panel { width: auto; border-left: none; padding-left: 0; gap: 0; }
@@ -495,3 +503,5 @@ html, body, .app-shell, .player-card, .float-win, .panel-root, .track-row, .lib-
   -webkit-user-select: none; user-select: none;
 }
 input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
+
+html:has(.panel-root), body:has(.panel-root) { background: transparent !important; background-color: transparent !important; }

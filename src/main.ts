@@ -43,7 +43,6 @@ app.innerHTML = `
         </div>
         <div style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
           <span id="libraryStats">0 tracks • 0 artists • 0 albums</span>
-          <label class="row" style="gap:4px; cursor:pointer; font-size:11px;"><input type="checkbox" id="replayGainToggle" checked /><span>ReplayGain</span></label>
         </div>
         <div id="trackList" style="display:flex; flex-direction:column; flex:1; overflow:auto;"></div>
         <div id="tagEditor" style="display:none; margin:8px 10px 0; background:var(--track-bg); border-radius:10px; padding:12px; gap:10px; flex-direction:column; border:1px solid var(--card-border); flex-shrink:0;">
@@ -158,12 +157,12 @@ app.innerHTML = `
       <div class="resize-handle" data-resize="win-equalizer">◢</div>
     </div>
 
-    <!-- SYNCED LYRICS WINDOW -->
+    <!-- LYRICS WINDOW -->
     <div class="float-win" id="win-lyrics" style="left:740px; top:12px; width:340px; height:460px; z-index:3;">
       <div class="float-header" data-drag="win-lyrics">
         <div class="float-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          Synced Lyrics (.lrc)
+          Lyric
         </div>
         <div class="float-actions">
           <button class="float-btn" data-close="win-lyrics" title="Hide">—</button>
@@ -296,7 +295,7 @@ app.innerHTML = `
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
             <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.3 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
-            Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Synced Lyrics (.lrc) • Dynamic Ambient Theme<br/>
+            Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
             <a href="https://github.com/Arvanta/Melo" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">github.com/Arvanta/Melo ↗</a>
           </div>
@@ -402,7 +401,7 @@ app.innerHTML = `
           <button class="sbtn active" id="btnToggleEq" title="Equalizer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14h3v7H3zM9 10h3v11H9zM15 6h3v15h-3z"/></svg>
           </button>
-          <button class="sbtn active" id="btnToggleLyrics" title="Synced Lyrics (.lrc)">
+          <button class="sbtn active" id="btnToggleLyrics" title="Lyric">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </button>
           <button class="sbtn" id="btnOpenSettings" title="Settings">
@@ -432,7 +431,14 @@ if (isTauri && urlPanel) {
   const bodyHtml = winEl?.querySelector(".float-body")?.innerHTML || "";
   app.innerHTML = `
 <div class="panel-root">
-  <div class="panel-titlebar">${titleHtml}</div>
+  <div class="panel-titlebar" data-tauri-drag-region>
+    <div class="panel-title" data-tauri-drag-region>${titleHtml}</div>
+    <div class="win-controls">
+      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+      <button class="win-btn" aria-label="maximize" title="Maximize / Restore">□</button>
+      <button class="win-btn close" aria-label="close" title="Close">×</button>
+    </div>
+  </div>
   <div class="panel-body">${bodyHtml}</div>
   <div id="toast" class="toast"></div>
 </div>`;
@@ -657,7 +663,7 @@ async function openPanelWindow(panel: string) {
   if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
   const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
   const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
-  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Synced Lyrics", settings: "Settings" };
+  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
   const sz = sizes[panel] || [420, 520];
   let geo: any = null;
   try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
@@ -666,7 +672,9 @@ async function openPanelWindow(panel: string) {
     title: titles[panel] || panel,
     width: geo?.w || sz[0], height: geo?.h || sz[1], minWidth: (mins[panel] || [360, 360])[0], minHeight: (mins[panel] || [360, 360])[1],
     ...(geo?.x != null ? { x: geo.x, y: geo.y } : { center: true }),
-    decorations: true,
+    decorations: false,
+    transparent: true,
+    shadow: false,
     skipTaskbar: true
   });
   btn?.classList.add("active");
