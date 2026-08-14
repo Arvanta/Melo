@@ -1242,4 +1242,4 @@ if (isTauri && urlPanel) {
   }, 400);
 }
 
-if (!urlPanel) showToast("Melo 0.3 Beta is ready");
+

@@ -673,3 +673,15 @@ body.panel-window {
     width: 100% !important;
   }
 }
+
+
+/* Rows inside scrollable flex lists must keep their intrinsic height. Without
+   this, a large library makes flexbox shrink every row to fit the viewport,
+   causing covers and text to overlap instead of scrolling vertically. */
+#trackList > .lib-item,
+#trackList > .track-row,
+#winPlaylistTracks > .track-row,
+#winPlaylistTracks > .playlist-item {
+  flex: 0 0 auto;
+  min-height: 0;
+}
