@@ -17,15 +17,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   let repeatMode: RepeatMode = "off";
   let isSeeking = false;
 
-  // Secondary element used for gapless preloading and crossfade overlap.
-  // It plays natively (not routed through the WebAudio EQ graph) so it can
-  // simply run alongside the primary <audio> element during a transition.
-  const audioB = new Audio();
-  audioB.preload = "auto";
-  audioB.crossOrigin = "anonymous";
-  let crossfading = false;
-  let preloadedForIndex = -1;
-
   function computeNextIndex(): number | null {
     if (!queue.length) return null;
     if (repeatMode === "one") return currentIndex;
@@ -39,15 +30,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       else return null;
     }
     return nxt;
-  }
-
-  async function preloadNext() {
-    if (localStorage.getItem("melo-pref-gapless") === "0") return;
-    const nxt = computeNextIndex();
-    if (nxt === null || nxt === preloadedForIndex || !queue[nxt]) return;
-    preloadedForIndex = nxt;
-    audioB.src = await resolveSrc(queue[nxt].path);
-    audioB.load();
   }
 
   (window as any).__LUMI_QUEUE__ = queue;
@@ -158,10 +140,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
     window.dispatchEvent(new CustomEvent("lumi:trackChange", { detail: t }));
     busEmit("melo:track-changed", t);
-
-    crossfading = false;
-    preloadedForIndex = -1;
-    preloadNext();
   }
 
   let pendingPlay = false;
@@ -398,7 +376,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       curTime.textContent = formatTime(audio.currentTime);
       updateSeekBackground();
     }
-    maybeStartCrossfade();
     saveResumeStateThrottled();
   });
 
@@ -413,97 +390,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
         localStorage.setItem("melo-resume-state", JSON.stringify({ trackId: t.id, position: audio.currentTime }));
       } catch {}
     }, 4000);
-  }
-
-  function maybeStartCrossfade() {
-    if (crossfading) return;
-    if (localStorage.getItem("melo-pref-gapless") === "0") return;
-    if (repeatMode === "one") return;
-    const dur = audio.duration;
-    if (!isFinite(dur) || dur <= 0) return;
-    const cfSeconds = parseFloat(localStorage.getItem("melo-pref-crossfade") || "2");
-    if (dur - audio.currentTime > cfSeconds) return;
-    const nxt = computeNextIndex();
-    if (nxt === null || !queue[nxt]) return;
-    startCrossfade(nxt, cfSeconds);
-  }
-
-  async function startCrossfade(nextIdx: number, seconds: number) {
-    crossfading = true;
-    try {
-      if (preloadedForIndex !== nextIdx) {
-        audioB.src = await resolveSrc(queue[nextIdx].path);
-        audioB.load();
-      }
-      const target = computeTargetVolume();
-      audioB.volume = 0;
-      await audioB.play().catch(() => {});
-      const startVol = audio.volume;
-      const t0 = performance.now();
-      const ms = seconds * 1000;
-      const step = (now: number) => {
-        const p = Math.min(1, (now - t0) / ms);
-        audio.volume = startVol * (1 - p);
-        audioB.volume = target * p;
-        if (p < 1 && crossfading) requestAnimationFrame(step);
-        else finishCrossfade(nextIdx);
-      };
-      requestAnimationFrame(step);
-    } catch {
-      crossfading = false;
-    }
-  }
-
-  function finishCrossfade(nextIdx: number) {
-    if (!crossfading) return;
-    crossfading = false;
-    // Hand playback back to the primary (EQ'd) audio element: swap it to the
-    // track that was just crossfaded in, at the same position audioB reached,
-    // then silently stop the secondary element.
-    const resumeAt = audioB.currentTime;
-    currentIndex = nextIdx;
-    const t = queue[nextIdx];
-    resolveSrc(t.path).then((src) => {
-      audio.src = src;
-      audio.load();
-      const onReady = () => {
-        audio.removeEventListener("loadedmetadata", onReady);
-        try { audio.currentTime = resumeAt; } catch {}
-        audio.volume = computeTargetVolume();
-        audio.play().catch(() => {});
-        audioB.pause();
-        audioB.currentTime = 0;
-      };
-      audio.addEventListener("loadedmetadata", onReady);
-    });
-
-    if (trackTitle) trackTitle.textContent = t.title || "Unknown Title";
-    if (trackArtist) trackArtist.textContent = t.artist || "Unknown Artist";
-    if (trackAlbum) trackAlbum.textContent = t.album || "";
-    if (trackCodec) trackCodec.textContent = t.codec || "AUDIO";
-    if (trackSpecs) trackSpecs.textContent = t.specs || "";
-    if (t.cover && coverImg) {
-      coverImg.src = t.cover;
-      coverImg.style.display = "block";
-      if (coverFallback) coverFallback.style.display = "none";
-    } else {
-      if (coverImg) coverImg.style.display = "none";
-      if (coverFallback) coverFallback.style.display = "grid";
-    }
-    applyDynamicAmbientTheme(t.cover || null);
-    document.querySelectorAll(".track-row").forEach((el, i) => {
-      el.classList.toggle("active", queue[i]?.id === t.id);
-    });
-    if ("mediaSession" in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: t.title, artist: t.artist, album: t.album,
-        artwork: t.cover ? [{ src: t.cover, sizes: "512x512", type: "image/jpeg" }] : [],
-      });
-    }
-    window.dispatchEvent(new CustomEvent("lumi:trackChange", { detail: t }));
-    busEmit("melo:track-changed", t);
-    preloadedForIndex = -1;
-    preloadNext();
   }
 
   audio.addEventListener("loadedmetadata", () => {

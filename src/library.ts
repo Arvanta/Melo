@@ -73,11 +73,11 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   render();
   renderQueue();
 
-  async function scanFolder(path: string, opts: { silent?: boolean } = {}): Promise<number> {
+  async function scanFolder(path: string): Promise<number> {
     const { invoke } = await import("@tauri-apps/api/core");
     const { listen } = await import("@tauri-apps/api/event");
     let total = 0, done = 0, scannedCount = 0;
-    if (!opts.silent) toast("Scanning folder…");
+    toast("Scanning folder…");
     const unlistenBatch = await listen("melo:scan-batch", (e: any) => {
       const batch: Track[] = Array.isArray(e.payload) ? e.payload : [];
       if (!batch.length) return;
@@ -92,14 +92,14 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     const unlistenProgress = await listen("melo:scan-progress", (e: any) => {
       const p = e.payload || {};
       done = p.done || 0; total = p.total || 0;
-      if (!opts.silent && !p.finished && total) toast(`Scanning… ${done}/${total} files`);
+      if (!p.finished && total) toast(`Scanning… ${done}/${total} files`);
     });
     try {
       const scanned: Track[] = await invoke("scan_library", { path });
       unlistenBatch(); unlistenProgress();
       flushDeferred();
       if (isTauriEnv) busEmit("melo:tracks-add", { src: myRole, list: scanned.map(t => ({ ...(t as any), source: "scan" })) });
-      if (!opts.silent) toast(`${scannedCount || scanned.length} track(s) added from folder`);
+      toast(`${scannedCount || scanned.length} track(s) added from folder`);
       return scannedCount || scanned.length;
     } catch (err) {
       unlistenBatch(); unlistenProgress();
@@ -115,12 +115,6 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         const selected = await open({ directory:true, multiple:false });
         if(selected){
           await scanFolder(selected as string);
-          const watched: string[] = JSON.parse(localStorage.getItem("melo-watched-folders") || "[]");
-          if (!watched.includes(selected as string)) {
-            watched.push(selected as string);
-            localStorage.setItem("melo-watched-folders", JSON.stringify(watched));
-            document.dispatchEvent(new CustomEvent("melo:watched-folders-changed"));
-          }
         }
       } catch(e){ toast("Scanning requires the Tauri build"); }
     } else {
@@ -946,26 +940,10 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     }, 350);
   }
 
-  async function rescanWatchedFolders(silent = true) {
-    if (localStorage.getItem("melo-pref-autoScan") === "0") return;
-    if (!isTauriEnv) return;
-    const watched: string[] = JSON.parse(localStorage.getItem("melo-watched-folders") || "[]");
-    for (const folder of watched) {
-      try { await scanFolder(folder, { silent }); } catch {}
-    }
-  }
-  busOn("melo:request-scan-folder", (p: any) => {
-    if (p?.path) scanFolder(p.path).catch(() => {});
-  });
-
-  // Re-check watched folders for new files shortly after boot, then every 10 minutes.
-  setTimeout(() => rescanWatchedFolders(true), 5000);
-  setInterval(() => rescanWatchedFolders(true), 10 * 60 * 1000);
-
   // expose
   (window as any).LumiLibrary = {
     get tracks(){return tracks}, get playlists(){return playlists}, render,
-    addTracks, addToCurrentPlaylist, importPaths, flushDeferred, scanFolder, rescanWatchedFolders,
+    addTracks, addToCurrentPlaylist, importPaths, flushDeferred, scanFolder,
     currentPlaylistName: ()=> currentPlaylist()?.name || "Playlist"
   };
 }

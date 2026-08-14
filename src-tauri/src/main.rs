@@ -347,48 +347,52 @@ fn get_cli_tracks() -> Vec<Track> {
 }
 
 #[tauri::command]
-fn scan_library(path: String, app: tauri::AppHandle) -> Result<Vec<Track>, String> {
-    use rayon::prelude::*;
-    use tauri::Emitter;
-    let root = Path::new(&path);
-    if !root.exists() {
-        return Err("Path does not exist".to_string());
-    }
-
-    if root.is_file() {
-        if supported_ext(root) {
-            if let Some(t) = parse_track(root) {
-                return Ok(vec![t]);
-            }
+async fn scan_library(path: String, app: tauri::AppHandle) -> Result<Vec<Track>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use rayon::prelude::*;
+        use tauri::Emitter;
+        let root = Path::new(&path);
+        if !root.exists() {
+            return Err("Path does not exist".to_string());
         }
-        return Ok(Vec::new());
-    }
 
-    let entries: Vec<_> = WalkDir::new(root)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && supported_ext(e.path()))
-        .collect();
+        if root.is_file() {
+            if supported_ext(root) {
+                if let Some(t) = parse_track(root) {
+                    return Ok(vec![t]);
+                }
+            }
+            return Ok(Vec::new());
+        }
 
-    let total = entries.len();
-    let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": 0, "total": total }));
-    let mut tracks: Vec<Track> = Vec::new();
-    for chunk in entries.chunks(25) {
-        let batch: Vec<Track> = chunk
-            .par_iter()
-            .filter_map(|entry| parse_track(entry.path()))
+        let entries: Vec<_> = WalkDir::new(root)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file() && supported_ext(e.path()))
             .collect();
-        let done = tracks.len() + batch.len();
-        let _ = app.emit("melo:scan-batch", &batch);
-        let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": done, "total": total }));
-        tracks.extend(batch);
-    }
-    let _ = app.emit(
-        "melo:scan-progress",
-        serde_json::json!({ "done": total, "total": total, "finished": true }),
-    );
-    Ok(tracks)
+
+        let total = entries.len();
+        let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": 0, "total": total }));
+        let mut tracks: Vec<Track> = Vec::new();
+        for chunk in entries.chunks(25) {
+            let batch: Vec<Track> = chunk
+                .par_iter()
+                .filter_map(|entry| parse_track(entry.path()))
+                .collect();
+            let done = tracks.len() + batch.len();
+            let _ = app.emit("melo:scan-batch", &batch);
+            let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": done, "total": total }));
+            tracks.extend(batch);
+        }
+        let _ = app.emit(
+            "melo:scan-progress",
+            serde_json::json!({ "done": total, "total": total, "finished": true }),
+        );
+        Ok(tracks)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

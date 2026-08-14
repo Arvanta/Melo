@@ -7,7 +7,6 @@
   },
   "settings.tabs.general": "General",
   "settings.tabs.playback": "Playback",
-  "settings.tabs.library": "Library",
   "settings.tabs.appearance": "Appearance & Skin",
   "settings.tabs.shortcuts": "Shortcuts",
   "settings.tabs.about": "About",
@@ -19,20 +18,10 @@
   "settings.general.resume.label": "Resume playback on reopen",
   "settings.general.resume.desc": "Continue playback of the previous track where you left off",
 
-  "settings.playback.gapless.label": "Gapless playback",
-  "settings.playback.gapless.desc": "Seamless transition with no pause between tracks",
-  "settings.playback.crossfade.label": "Crossfade duration",
-  "settings.playback.crossfade.desc": "Overlap track transitions",
   "settings.playback.replaygain.label": "ReplayGain normalization",
   "settings.playback.replaygain.desc": "Equalize track volume levels automatically",
   "settings.playback.fadepause.label": "Fade out on pause",
   "settings.playback.fadepause.desc": "Smooth 0.3s fade-out on pause, fade back in on resume",
-
-  "settings.library.autoscan.label": "Auto-scan folders",
-  "settings.library.autoscan.desc": "Periodically rescan your added music folders for new files",
-  "settings.library.formats.label": "Supported audio formats",
-  "settings.library.formats.desc": "FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS",
-  "settings.library.folders.label": "Music folders",
 
   "settings.appearance.showstop.label": "Show Stop button",
   "settings.appearance.showstop.desc": "Display a Stop control next to Play/Pause in the player"
