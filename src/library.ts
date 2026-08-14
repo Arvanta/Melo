@@ -32,6 +32,7 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   const libraryStats = document.getElementById("libraryStats") as HTMLElement;
   const btnScan = document.getElementById("btn-scan") as HTMLButtonElement;
   const btnExport = document.getElementById("btn-export-playlist") as HTMLButtonElement;
+  const btnClearPlaylist = document.getElementById("btn-clear-playlist") as HTMLButtonElement | null;
   const btnNewPlaylist = document.getElementById("btn-new-playlist") as HTMLButtonElement;
   const queueListEl = document.getElementById("queueList") as HTMLElement;
   const tagEditor = document.getElementById("tagEditor") as HTMLElement;
@@ -217,6 +218,14 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
         tracks.push(t);
         trackIdSet.add(t.id);
         changed = true;
+      } else {
+        const existing = tracks.find(x => x.id === t.id);
+        if (existing) {
+          const oldCover = existing.cover;
+          Object.assign(existing, t);
+          if (!t.cover && oldCover) existing.cover = oldCover;
+          changed = true;
+        }
       }
     }
     if (changed && !deferRender) { saveTracks(); render(); renderPlaylistWindow(); }
@@ -474,6 +483,16 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
   }
 
   playlistSelect?.addEventListener("change", ()=> setCurrentPlaylist(playlistSelect.value));
+
+  btnClearPlaylist?.addEventListener("click", ()=>{
+    const pl = currentPlaylist();
+    if (!pl || !pl.tracks.length) return;
+    pl.tracks = [];
+    savePlaylists();
+    broadcastPlaylists();
+    renderPlaylistWindow();
+    render();
+  });
 
   btnExport?.addEventListener("click", ()=>{
     const pl = currentPlaylist();
@@ -922,7 +941,17 @@ export function setupLibrary(audio: HTMLAudioElement, toast: (m:string)=>void){
     const rev = localStorage.getItem("melo-rev") || "";
     if (rev !== lastRev) {
       lastRev = rev;
-      try { const t = JSON.parse(localStorage.getItem("melo-tracks") || "null"); if (Array.isArray(t)) { tracks = t; trackIdSet = new Set(tracks.map(x=>x.id)); } } catch {}
+      try {
+        const t = JSON.parse(localStorage.getItem("melo-tracks") || "null");
+        if (Array.isArray(t)) {
+          const currentById = new Map(tracks.map(x => [x.id, x]));
+          tracks = t.map((incoming: Track) => {
+            const current = currentById.get(incoming.id);
+            return !incoming.cover && current?.cover ? { ...incoming, cover: current.cover } : incoming;
+          });
+          trackIdSet = new Set(tracks.map(x=>x.id));
+        }
+      } catch {}
       try { const p = JSON.parse(localStorage.getItem("melo-playlists") || "null"); if (Array.isArray(p) && p.length) playlists = p; } catch {}
       render(); renderPlaylistWindow();
     }

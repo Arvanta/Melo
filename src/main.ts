@@ -102,10 +102,16 @@ app.innerHTML = `
         <div id="winPlaylistEmpty" style="display:none; border:1px dashed var(--card-border); border-radius:10px; padding:16px 10px; background:var(--track-bg); text-align:center; font-size:11px; color:var(--text-muted); line-height:1.8;">
           Playlist is empty<br/>Drag tracks from Library or drop audio files here
         </div>
-        <button class="btn small block" id="btn-export-playlist" style="flex-shrink:0;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export M3U (current list)
-        </button>
+        <div style="display:flex; gap:6px; flex-shrink:0;">
+          <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the current playlist">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
+            Clear
+          </button>
+          <button class="btn small block" id="btn-export-playlist">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export M3U
+          </button>
+        </div>
       </div>
       <div class="resize-handle" data-resize="win-playlist">◢</div>
     </div>
@@ -504,12 +510,11 @@ if (isTauri && !urlPanel) {
         const target = getTargetSize();
         const isCompact = target.w === 780;
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (isCompact) {
-          if (sz.width !== target.w || sz.height !== target.h) {
-            await mainWin.setSize(new LogicalSize(target.w, target.h));
+        if (!isCompact) {
+          const logical = sz.toLogical(await mainWin.scaleFactor());
+          if (logical.width < 650 || logical.height !== target.h) {
+            await mainWin.setSize(new LogicalSize(Math.max(650, logical.width), target.h));
           }
-        } else if (sz.width < 650 || sz.height !== target.h) {
-          await mainWin.setSize(new LogicalSize(Math.max(650, sz.width), target.h));
         }
       } catch {}
       saveGeo();
@@ -1008,7 +1013,6 @@ function setupSettings(toast: ToastFn) {
       sw.classList.toggle("on");
       const on = sw.classList.contains("on");
       localStorage.setItem("melo-pref-" + key, on ? "1" : "0");
-      toast(on ? "Enabled" : "Disabled");
       busEmit("melo:pref-changed", { key, value: on });
     };
   });
