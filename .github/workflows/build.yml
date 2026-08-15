@@ -53,10 +53,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: "Melo v__VERSION__"
+          releaseName: "v__VERSION__ Beta"
           releaseBody: "Automated build of Melo for Windows"
           releaseDraft: true
-          prerelease: false
+          prerelease: true
           args: --target x86_64-pc-windows-msvc
 
       - name: Upload artifact (msi/exe)

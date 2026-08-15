@@ -7,6 +7,8 @@ import { setupLyrics } from "./lyrics";
 import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
 import { busEmit, busOn, isTauri } from "./bus";
+import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
+import type { Track } from "./types";
 
 type ToastFn = (msg: string) => void;
 
@@ -25,12 +27,8 @@ app.innerHTML = `
           Library
         </div>
         <div class="float-actions">
-          <button class="float-btn" data-close="win-library" title="Hide">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2" y1="6" x2="10" y2="6" stroke-linecap="round"/></svg>
-          </button>
-          <button class="float-btn close" data-close="win-library" title="Close">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke-linecap="round"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke-linecap="round"/></svg>
-          </button>
+          <button class="float-btn" data-close="win-library" title="Hide">—</button>
+          <button class="float-btn close" data-close="win-library" title="Close">×</button>
         </div>
       </div>
       <div class="float-body" style="padding:0; display:flex; flex-direction:column;">
@@ -43,23 +41,13 @@ app.innerHTML = `
           <button class="tab" data-libtab="albums">Albums</button>
           <button class="tab" data-libtab="genres">Genres</button>
         </div>
-        <div style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
+        <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
           <span id="libraryStats">0 tracks • 0 artists • 0 albums</span>
-          <label class="row" style="gap:4px; cursor:pointer; font-size:11px;"><input type="checkbox" id="replayGainToggle" checked /><span>ReplayGain</span></label>
-        </div>
-        <div id="libScanProgressWrap" style="display:none; padding:6px 12px; background:var(--track-bg); border-bottom:1px solid var(--card-border); flex-direction:column; gap:4px; flex-shrink:0;">
-          <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px;">
-            <span id="libScanStatusText" style="color:var(--text-soft); font-weight:600;">Scanning files: 0 / 0</span>
-            <span id="libScanStatusPct" style="color:var(--accent); font-weight:700;">0%</span>
-          </div>
-          <div style="width:100%; height:4px; background:var(--card-border); border-radius:2px; overflow:hidden;">
-            <div id="libScanProgressBar" style="width:0%; height:100%; background:var(--accent); transition:width 0.15s ease;"></div>
-          </div>
         </div>
         <div id="trackList" style="display:flex; flex-direction:column; flex:1; overflow:auto;"></div>
         <div id="tagEditor" style="display:none; margin:8px 10px 0; background:var(--track-bg); border-radius:10px; padding:12px; gap:10px; flex-direction:column; border:1px solid var(--card-border); flex-shrink:0;">
           <div style="font-weight:600; font-size:12px;">Metadata Editor</div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div class="tag-editor-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
             <label class="col" style="gap:4px; font-size:11px;">Title<input id="tagTitle" class="search-input" style="padding-left:10px;" /></label>
             <label class="col" style="gap:4px; font-size:11px;">Artist<input id="tagArtist" class="search-input" style="padding-left:10px;" /></label>
             <label class="col" style="gap:4px; font-size:11px;">Album<input id="tagAlbum" class="search-input" style="padding-left:10px;" /></label>
@@ -75,13 +63,9 @@ app.innerHTML = `
         <div id="playlistList" style="display:none;"></div>
         <div id="queueList" style="display:none;"></div>
         <div style="padding:10px; border-top:1px solid var(--card-border); display:flex; gap:6px; flex-shrink:0;">
-          <button class="btn small block" id="btn-scan" style="flex:1;">
+          <button class="btn small block" id="btn-scan">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>
             Scan Folder
-          </button>
-          <button class="btn small" id="btn-clear-library" title="Clear entire library database" style="color:#ef4444; border-color:rgba(239,68,68,0.3);">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Clear
           </button>
         </div>
       </div>
@@ -96,18 +80,14 @@ app.innerHTML = `
           Playlist
         </div>
         <div class="float-actions">
-          <select id="playlistSelect" class="settings-select" style="height:24px; font-size:11px; padding:2px 6px; max-width:120px;" title="Current playlist"></select>
-          <button class="btn small ghost" id="btn-new-playlist" style="padding:2px 6px; height:22px; font-size:11px;">+ New</button>
-          <button class="float-btn" data-close="win-playlist" title="Hide">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2" y1="6" x2="10" y2="6" stroke-linecap="round"/></svg>
-          </button>
-          <button class="float-btn close" data-close="win-playlist" title="Close">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke-linecap="round"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke-linecap="round"/></svg>
-          </button>
+          <button class="float-btn" data-close="win-playlist" title="Hide">—</button>
+          <button class="float-btn close" data-close="win-playlist">×</button>
         </div>
       </div>
       <div class="float-body" style="padding:8px; display:flex; flex-direction:column; gap:6px;">
-        <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+        <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap;">
+          <select id="playlistSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; flex:1 1 140px;" title="Current playlist"></select>
+          <button class="btn small ghost" id="btn-new-playlist" style="height:26px; font-size:11px;">+ New</button>
           <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="flex:1; height:26px; font-size:11px; padding-left:8px;" />
           <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; width:110px;" title="Sort tracks">
             <option value="default">Sort: Default</option>
@@ -122,10 +102,16 @@ app.innerHTML = `
         <div id="winPlaylistEmpty" style="display:none; border:1px dashed var(--card-border); border-radius:10px; padding:16px 10px; background:var(--track-bg); text-align:center; font-size:11px; color:var(--text-muted); line-height:1.8;">
           Playlist is empty<br/>Drag tracks from Library or drop audio files here
         </div>
-        <button class="btn small block" id="btn-export-playlist" style="flex-shrink:0;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export M3U (current list)
-        </button>
+        <div class="playlist-footer-actions" style="display:flex; gap:6px; flex-shrink:0;">
+          <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the current playlist">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
+            Clear
+          </button>
+          <button class="btn small block" id="btn-export-playlist">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export M3U
+          </button>
+        </div>
       </div>
       <div class="resize-handle" data-resize="win-playlist">◢</div>
     </div>
@@ -138,12 +124,8 @@ app.innerHTML = `
           Equalizer
         </div>
         <div class="float-actions">
-          <button class="float-btn" data-close="win-equalizer" title="Hide">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2" y1="6" x2="10" y2="6" stroke-linecap="round"/></svg>
-          </button>
-          <button class="float-btn close" data-close="win-equalizer" title="Close">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke-linecap="round"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke-linecap="round"/></svg>
-          </button>
+          <button class="float-btn" data-close="win-equalizer">—</button>
+          <button class="float-btn close" data-close="win-equalizer">×</button>
         </div>
       </div>
       <div class="float-body" style="padding:10px 12px; display:flex; flex-direction:column; gap:8px;">
@@ -181,20 +163,16 @@ app.innerHTML = `
       <div class="resize-handle" data-resize="win-equalizer">◢</div>
     </div>
 
-    <!-- SYNCED LYRICS WINDOW -->
+    <!-- LYRICS WINDOW -->
     <div class="float-win" id="win-lyrics" style="left:740px; top:12px; width:340px; height:460px; z-index:3;">
       <div class="float-header" data-drag="win-lyrics">
         <div class="float-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          Synced Lyrics (.lrc)
+          Lyric
         </div>
         <div class="float-actions">
-          <button class="float-btn" data-close="win-lyrics" title="Hide">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2" y1="6" x2="10" y2="6" stroke-linecap="round"/></svg>
-          </button>
-          <button class="float-btn close" data-close="win-lyrics" title="Close">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke-linecap="round"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke-linecap="round"/></svg>
-          </button>
+          <button class="float-btn" data-close="win-lyrics" title="Hide">—</button>
+          <button class="float-btn close" data-close="win-lyrics">×</button>
         </div>
       </div>
       <div class="float-body" style="padding:10px; display:flex; flex-direction:column;">
@@ -214,37 +192,30 @@ app.innerHTML = `
         </div>
         <div class="float-actions">
           <button class="btn small" id="btn-settings-reset" style="height:22px; padding:2px 8px; font-size:11px;">Reset</button>
-          <button class="float-btn close" data-close="win-settings" title="Close">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke-linecap="round"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke-linecap="round"/></svg>
-          </button>
+          <button class="float-btn close" data-close="win-settings">×</button>
         </div>
       </div>
       <div class="float-body" style="padding:0; overflow:auto;">
         <div class="settings-tabs" id="settingsTabs">
-          <button class="settings-tab active" data-stab="general"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>General</button>
-          <button class="settings-tab" data-stab="playback"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z"/></svg>Playback</button>
-          <button class="settings-tab" data-stab="library"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>Library</button>
-          <button class="settings-tab" data-stab="appearance"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>Appearance & Skin</button>
-          <button class="settings-tab" data-stab="shortcuts"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>Shortcuts</button>
-          <button class="settings-tab" data-stab="about"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>About</button>
+          <button class="settings-tab active" data-stab="general"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>${t("settings.tabs.general")}</button>
+          <button class="settings-tab" data-stab="playback"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z"/></svg>${t("settings.tabs.playback")}</button>
+          <button class="settings-tab" data-stab="appearance"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>${t("settings.tabs.appearance")}</button>
+          <button class="settings-tab" data-stab="shortcuts"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>${t("settings.tabs.shortcuts")}</button>
+          <button class="settings-tab" data-stab="about"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>${t("settings.tabs.about")}</button>
         </div>
 
         <!-- GENERAL TAB -->
         <div class="settings-section active" data-panel="general">
           <div class="settings-row">
-            <div><div class="label">Language</div><div class="desc">Interface language</div></div>
-            <select class="settings-select" id="setLanguage"><option value="en">English</option><option value="fa">Persian</option><option value="de">Deutsch</option></select>
+            <div><div class="label">${t("settings.general.language.label")}</div><div class="desc">${t("settings.general.language.desc")}</div></div>
+            <select class="settings-select" id="setLanguage">${AVAILABLE_LOCALES.map(l => `<option value="${l.code}">${l.nativeName}</option>`).join("")}</select>
           </div>
           <div class="settings-row">
-            <div><div class="label">Launch at Windows startup</div><div class="desc">Run automatically when system boots</div></div>
-            <div class="switch" id="swAutoStart" data-key="autoStart"></div>
-          </div>
-          <div class="settings-row">
-            <div><div class="label">Close to system tray</div><div class="desc">Minimize to system tray on window close</div></div>
+            <div><div class="label">${t("settings.general.tray.label")}</div><div class="desc">${t("settings.general.tray.desc")}</div></div>
             <div class="switch on" id="swTray" data-key="tray"></div>
           </div>
           <div class="settings-row">
-            <div><div class="label">Resume playback on reopen</div><div class="desc">Continue playback of previous track</div></div>
+            <div><div class="label">${t("settings.general.resume.label")}</div><div class="desc">${t("settings.general.resume.desc")}</div></div>
             <div class="switch on" id="swResume" data-key="resume"></div>
           </div>
         </div>
@@ -252,42 +223,12 @@ app.innerHTML = `
         <!-- PLAYBACK TAB -->
         <div class="settings-section" data-panel="playback">
           <div class="settings-row">
-            <div><div class="label">Gapless playback</div><div class="desc">Seamless transition with no pause between tracks</div></div>
-            <div class="switch on" data-key="gapless"></div>
+            <div><div class="label">${t("settings.playback.replaygain.label")}</div><div class="desc">${t("settings.playback.replaygain.desc")}</div></div>
+            <div class="switch on" id="swReplayGain" data-key="replayGainGlobal"></div>
           </div>
           <div class="settings-row">
-            <div><div class="label">Crossfade duration</div><div class="desc">Overlap track transitions</div></div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <input type="range" min="0" max="12" value="0" id="setCrossfade" style="width:100px;" />
-              <span id="crossfadeVal" style="font-size:11px; color:var(--text-muted); font-weight:600;">0s</span>
-            </div>
-          </div>
-          <div class="settings-row">
-            <div><div class="label">ReplayGain normalization</div><div class="desc">Equalize track volume levels automatically</div></div>
-            <div class="switch on" data-key="replayGainGlobal"></div>
-          </div>
-          <div class="settings-row">
-            <div><div class="label">Fade out on pause</div><div class="desc">Smooth 0.3s fade-out on pause</div></div>
-            <div class="switch" data-key="fadePause"></div>
-          </div>
-        </div>
-
-        <!-- LIBRARY TAB -->
-        <div class="settings-section" data-panel="library">
-          <div class="settings-row">
-            <div><div class="label">Auto-scan folders</div><div class="desc">Watch and ingest file changes automatically</div></div>
-            <div class="switch on" data-key="autoScan"></div>
-          </div>
-          <div class="settings-row">
-            <div><div class="label">Supported audio formats</div><div class="desc">FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS</div></div>
-            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Full bit-depth support</div>
-          </div>
-          <div class="settings-row" style="flex-direction:column; align-items:stretch;">
-            <div class="label" style="margin-bottom:6px;">Music folders</div>
-            <div style="display:flex; gap:6px;">
-              <input class="search-input" value="C:\\Music" id="setMusicFolder" style="flex:1; padding-left:10px;" readonly />
-              <button class="btn small" id="btnChooseFolder">Browse</button>
-            </div>
+            <div><div class="label">${t("settings.playback.fadepause.label")}</div><div class="desc">${t("settings.playback.fadepause.desc")}</div></div>
+            <div class="switch" id="swFadePause" data-key="fadePause"></div>
           </div>
         </div>
 
@@ -318,6 +259,11 @@ app.innerHTML = `
             <div class="switch on" id="swDynamicTheme" data-key="dynamicTheme"></div>
           </div>
 
+          <div class="settings-row">
+            <div><div class="label">${t("settings.appearance.showstop.label")}</div><div class="desc">${t("settings.appearance.showstop.desc")}</div></div>
+            <div class="switch" id="swShowStop" data-key="showStopBtn"></div>
+          </div>
+
           <div class="settings-row" style="flex-direction:column; align-items:stretch;">
             <div class="label" style="margin-bottom:4px;">Skins Directory (Disk)</div>
             <div style="font-size:11px; color:var(--text-soft); line-height:1.6; margin-bottom:8px;">
@@ -346,7 +292,6 @@ app.innerHTML = `
             <b>Ctrl + O</b><span>Add audio files via file dialog</span>
             <b>Ctrl + Shift + O</b><span>Scan folder via folder dialog</span>
             <b>Ctrl + , / F2</b><span>Open / Close Settings window</span>
-            <b>F12 / Ctrl+Shift+I</b><span>Toggle Developer Tools (DevTools)</span>
             <b>Escape</b><span>Close popup menus & visualizer selector</span>
           </div>
         </div>
@@ -356,12 +301,9 @@ app.innerHTML = `
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
             <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.4.0 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
-            Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Synced Lyrics (.lrc) • Dynamic Ambient Theme<br/>
+            Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
             <a href="https://github.com/Arvanta/Melo" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">github.com/Arvanta/Melo ↗</a>
-            <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--card-border);">
-              <button class="btn small" id="btnOpenDevTools">Toggle DevTools (F12) 🛠️</button>
-            </div>
           </div>
         </div>
       </div>
@@ -373,34 +315,10 @@ app.innerHTML = `
   <!-- PLAYER BAR -->
   <div class="player-card" id="playerCard">
     <div class="player-titlebar" data-tauri-drag-region>
-      <button class="app-name-btn" id="appMenuBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
-        Melo <span class="chev">▾</span>
-      </button>
-
-      <!-- App Dropdown Menu -->
-      <div id="appMenu" class="app-menu">
-        <div class="menu-label">Files</div>
-        <button class="menu-item" id="menuAddFile">Add Files... (Ctrl+O)</button>
-        <button class="menu-item" id="menuAddFolder">Scan Folder... (Ctrl+Shift+O)</button>
-        <div class="menu-sep"></div>
-        <div class="menu-label">Windows</div>
-        <button class="menu-item" id="menuToggleLibrary">Library</button>
-        <button class="menu-item" id="menuTogglePlaylist">Playlist</button>
-        <button class="menu-item" id="menuToggleEq">Equalizer</button>
-        <button class="menu-item" id="menuToggleLyrics">Synced Lyrics (.lrc)</button>
-        <button class="menu-item" id="menuToggleSettings">Settings</button>
-        <div class="menu-sep"></div>
-        <div class="menu-label">Skins & Themes</div>
-        <button class="menu-item" id="menuSkinDefault">Skin: Default Melo</button>
-        <button class="menu-item" id="menuSkinCompact">Skin: Minimal Compact</button>
-        <div class="menu-sep"></div>
-        <button class="menu-item" id="menuThemeToggle">Toggle Light / Dark Theme</button>
-        <button class="menu-item" id="menuCustomSkin">Load Custom HTML Skin...</button>
-        <button class="menu-item" id="menuToggleDevTools">Developer Tools (F12)</button>
-        <button class="menu-item" id="menuAbout">About Melo 0.4.0 Beta</button>
-      </div>
-
+      <span class="app-name-static">
+        <svg class="app-brand-mark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
+        Melo
+      </span>
       <div class="titlebar-actions">
         <button class="win-btn" id="btnAddFiles" title="Add files (Ctrl+O)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
@@ -416,12 +334,8 @@ app.innerHTML = `
         </button>
       </div>
       <div class="win-controls">
-        <button class="win-btn" aria-label="minimize" title="Minimize">
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2" y1="6" x2="10" y2="6" stroke-linecap="round"/></svg>
-        </button>
-        <button class="win-btn close" aria-label="close" title="Close">
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke-linecap="round"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke-linecap="round"/></svg>
-        </button>
+        <button class="win-btn" aria-label="minimize">—</button>
+        <button class="win-btn close" aria-label="close">×</button>
       </div>
     </div>
 
@@ -458,8 +372,8 @@ app.innerHTML = `
           <button class="icon-btn" id="btnPrev" title="Previous">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20L9 12l10-8z"/><rect x="5" y="4" width="3" height="16" rx="1"/></svg>
           </button>
-          <button class="icon-btn" id="btnStop" title="Stop" style="display:none; justify-content:center; align-items:center;">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+          <button class="icon-btn" id="btnStop" title="Stop">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>
           </button>
           <button class="play-btn" id="btnPlay" title="Play/Pause (Space)">
             <svg id="iconPause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
@@ -496,7 +410,7 @@ app.innerHTML = `
           <button class="sbtn active" id="btnToggleEq" title="Equalizer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14h3v7H3zM9 10h3v11H9zM15 6h3v15h-3z"/></svg>
           </button>
-          <button class="sbtn active" id="btnToggleLyrics" title="Synced Lyrics (.lrc)">
+          <button class="sbtn active" id="btnToggleLyrics" title="Lyric">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </button>
           <button class="sbtn" id="btnOpenSettings" title="Settings">
@@ -512,6 +426,10 @@ app.innerHTML = `
 `;
 
 const urlPanel = new URLSearchParams(location.search).get("panel");
+if (urlPanel) {
+  document.documentElement.classList.add("panel-window", `panel-${urlPanel}`);
+  document.body.classList.add("panel-window", `panel-${urlPanel}`);
+}
 
 // Tauri: secondary OS windows render a single panel full-size (real native windows)
 if (isTauri && urlPanel) {
@@ -526,7 +444,14 @@ if (isTauri && urlPanel) {
   const bodyHtml = winEl?.querySelector(".float-body")?.innerHTML || "";
   app.innerHTML = `
 <div class="panel-root">
-  <div class="panel-titlebar">${titleHtml}</div>
+  <div class="panel-titlebar" data-tauri-drag-region>
+    <div class="panel-title" data-tauri-drag-region>${titleHtml}</div>
+    <div class="win-controls">
+      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+      <button class="win-btn" aria-label="maximize" title="Maximize / Restore">□</button>
+      <button class="win-btn close" aria-label="close" title="Close">×</button>
+    </div>
+  </div>
   <div class="panel-body">${bodyHtml}</div>
   <div id="toast" class="toast"></div>
 </div>`;
@@ -538,7 +463,7 @@ if (isTauri && !urlPanel) {
   document.querySelectorAll(".side-actions .sbtn").forEach(b => b.classList.remove("active"));
   import("@tauri-apps/api/webviewWindow").then(({ WebviewWindow }) => {
     const refresh = async () => {
-      for (const p of ["library", "playlist", "equalizer", "settings"]) {
+      for (const p of ["library", "playlist", "equalizer", "lyrics", "settings"]) {
         try {
           const w = await WebviewWindow.getByLabel("panel-" + p);
           document.getElementById(panelBtnMap[p])?.classList.toggle("active", !!w);
@@ -565,7 +490,10 @@ if (isTauri && !urlPanel) {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
       const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
       const sz = getTargetSize();
-      await mainWin.setSize(new LogicalSize(g?.w ? Math.max(650, g.w) : sz.w, sz.h));
+      const isCompactStartup = sz.w === 780;
+      const startupW = isCompactStartup ? sz.w : (g?.w ? Math.max(650, g.w) : sz.w);
+      await mainWin.setSize(new LogicalSize(startupW, sz.h));
+      await mainWin.setResizable(!isCompactStartup);
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -584,9 +512,13 @@ if (isTauri && !urlPanel) {
       try {
         const sz = await mainWin.innerSize();
         const target = getTargetSize();
+        const isCompact = target.w === 780;
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (sz.width < 650 || sz.height !== target.h) {
-          await mainWin.setSize(new LogicalSize(Math.max(650, sz.width), target.h));
+        if (!isCompact) {
+          const logical = sz.toLogical(await mainWin.scaleFactor());
+          if (logical.width < 650 || logical.height !== target.h) {
+            await mainWin.setSize(new LogicalSize(Math.max(650, logical.width), target.h));
+          }
         }
       } catch {}
       saveGeo();
@@ -602,14 +534,22 @@ if (isTauri && !urlPanel) {
         const targetH = isCompact ? 138 : 240;
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
         await mainWin.setSize(new LogicalSize(targetW, targetH));
+        // Compact Pill is a fixed-size design; lock resizing so the window
+        // can't be dragged wider/taller than the skin's actual artwork,
+        // which previously showed as a visible transparent strip around it.
+        await mainWin.setResizable(!isCompact);
         saveGeo();
       } catch {}
     });
 
     mainWin.onCloseRequested(async (event) => {
       event.preventDefault();
+      const trayEnabled = localStorage.getItem("melo-pref-tray") !== "0";
+      if (trayEnabled) {
+        try { await mainWin.hide(); return; } catch {}
+      }
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      for (const p of ["library", "playlist", "equalizer", "settings"]) {
+      for (const p of ["library", "playlist", "equalizer", "lyrics", "settings"]) {
         try {
           const w = await WebviewWindow.getByLabel("panel-" + p);
           if (w) await w.close();
@@ -624,27 +564,24 @@ if (isTauri && !urlPanel) {
     try {
       const cliTracks: any[] = await invoke("get_cli_tracks");
       if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-        const lib = (window as any).LumiLibrary;
-        const player = (window as any).LumiPlayer;
-        cliTracks.forEach((t: any) => t.source = "import");
-        lib?.addTracks(cliTracks, true);
-        lib?.replaceCurrentPlaylist(cliTracks);
-        if (player) player.queue = [...cliTracks];
-        busEmit("melo:play-tracks", { tracks: cliTracks, index: 0 });
+        setTimeout(async () => {
+          const lib = (window as any).LumiLibrary;
+          const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
+          const imported = await lib?.importPaths(paths, true) || [];
+          if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+        }, 350);
       }
     } catch {}
   });
 
   busOn("melo:open-files", (cliTracks: any) => {
     if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-      const lib = (window as any).LumiLibrary;
-      const player = (window as any).LumiPlayer;
-      cliTracks.forEach((t: any) => t.source = "import");
-      lib?.addTracks(cliTracks, true);
-      lib?.replaceCurrentPlaylist(cliTracks);
-      if (player) player.queue = [...cliTracks];
-      showToast(`Playing ${cliTracks[0].title}`);
-      busEmit("melo:play-tracks", { tracks: cliTracks, index: 0 });
+      const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
+      setTimeout(async () => {
+        const lib = (window as any).LumiLibrary;
+        const imported = await lib?.importPaths(paths, true) || [];
+        if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+      }, 100);
     }
   });
 }
@@ -661,10 +598,16 @@ const showToast: ToastFn = (msg) => {
 
 const audio = new Audio();
 audio.preload = "metadata";
+audio.crossOrigin = "anonymous";
 (window as any).__LUMI_AUDIO__ = audio;
 (window as any).__TOAST__ = showToast;
 
 // Theme logic
+// Dynamic Album Artwork Theme is enabled by default on fresh installs and
+// after resetting settings. An explicit user choice of "0" is still honored.
+if (localStorage.getItem("melo-dynamic-theme") === null) {
+  localStorage.setItem("melo-dynamic-theme", "1");
+}
 let theme: "light" | "dark" = (localStorage.getItem("lumi-theme") as any) || "dark";
 function applyThemeLocal(t: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", t);
@@ -681,6 +624,12 @@ setInterval(() => {
   const t = localStorage.getItem("lumi-theme");
   if ((t === "light" || t === "dark") && t !== theme) applyThemeLocal(t);
 }, 1000);
+
+// Show/hide the Stop transport button (persists across skin swaps via a body class)
+document.body.classList.toggle("show-stop-btn", localStorage.getItem("melo-pref-showStopBtn") === "1");
+busOn("melo:pref-changed", (p: any) => {
+  if (p && p.key === "showStopBtn") document.body.classList.toggle("show-stop-btn", !!p.value);
+});
 
 // Floating windows toggle & drag/resize
 const winIds = ["win-library", "win-playlist", "win-equalizer", "win-lyrics", "win-settings"];
@@ -720,7 +669,7 @@ async function openPanelWindow(panel: string) {
   if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
   const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
   const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
-  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Synced Lyrics", settings: "Settings" };
+  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
   const sz = sizes[panel] || [420, 520];
   let geo: any = null;
   try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
@@ -729,11 +678,12 @@ async function openPanelWindow(panel: string) {
     title: titles[panel] || panel,
     width: geo?.w || sz[0], height: geo?.h || sz[1], minWidth: (mins[panel] || [360, 360])[0], minHeight: (mins[panel] || [360, 360])[1],
     ...(geo?.x != null ? { x: geo.x, y: geo.y } : { center: true }),
-    decorations: true,
+    decorations: false,
+    transparent: true,
+    shadow: false,
     skipTaskbar: true
   });
   btn?.classList.add("active");
-  busEmit("melo:theme", theme);
 }
 
 busOn("melo:panel-closed", (role: any) => {
@@ -904,63 +854,6 @@ window.addEventListener("mouseup", () => {
   }
 });
 
-// App Menu handling
-let appMenuBtn = document.getElementById("appMenuBtn") as HTMLButtonElement | null;
-let appMenu = document.getElementById("appMenu") as HTMLElement | null;
-function toggleMenu() {
-  const open = appMenu?.classList.toggle("open");
-  appMenuBtn?.classList.toggle("open", !!open);
-}
-appMenuBtn?.addEventListener("click", (e) => { e.stopPropagation(); toggleMenu(); });
-document.addEventListener("click", (e) => {
-  if (appMenu && !appMenu.contains(e.target as Node) && e.target !== appMenuBtn) {
-    appMenu.classList.remove("open");
-    appMenuBtn?.classList.remove("open");
-  }
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    appMenu?.classList.remove("open");
-    appMenuBtn?.classList.remove("open");
-  }
-});
-
-document.getElementById("menuCustomSkin")?.addEventListener("click", () => {
-  (document.getElementById("skinUpload") as HTMLInputElement)?.click();
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuSkinDefault")?.addEventListener("click", () => {
-  resetSkin(showToast);
-  const skinSelect = document.getElementById("skinSelect") as HTMLSelectElement | null;
-  if (skinSelect) skinSelect.value = "default";
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuSkinCompact")?.addEventListener("click", () => {
-  applySkinChoice("compact-pill", theme, showToast);
-  const skinSelect = document.getElementById("skinSelect") as HTMLSelectElement | null;
-  if (skinSelect) skinSelect.value = "compact-pill";
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuThemeToggle")?.addEventListener("click", () => {
-  applyTheme(theme === "light" ? "dark" : "light");
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuToggleDevTools")?.addEventListener("click", async () => {
-  if (isTauri) {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("toggle_devtools");
-    } catch {}
-  } else {
-    showToast("DevTools toggle requires Tauri desktop runtime");
-  }
-  appMenu?.classList.remove("open");
-});
-document.getElementById("menuAbout")?.addEventListener("click", () => {
-  showToast("Melo 0.4.0 Beta — Tauri 2 + TypeScript + Rust");
-  appMenu?.classList.remove("open");
-});
-
 // Add files / folder dialogs
 async function addFilesViaDialog() {
   const lib = (window as any).LumiLibrary;
@@ -971,36 +864,12 @@ async function addFilesViaDialog() {
       const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
-      const { invoke } = await import("@tauri-apps/api/core");
-      const list: any[] = [];
-      for (const p of paths) {
-        try {
-          const scanned: any[] = await invoke("scan_library", { path: p });
-          if (scanned && scanned.length) {
-            scanned.forEach((t: any) => t.source = "import");
-            list.push(...scanned);
-          } else {
-            const leaf = p.replace(/^.*[\\/]/, "");
-            const dot = leaf.lastIndexOf(".");
-            const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
-            const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
-            list.push({ id: p, title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: p, codec: ext, specs: "Local File", source: "import" });
-          }
-        } catch {
-          const leaf = p.replace(/^.*[\\/]/, "");
-          const dot = leaf.lastIndexOf(".");
-          const stem = dot > 0 ? leaf.slice(0, dot) : leaf;
-          const ext = dot > 0 ? leaf.slice(dot + 1).toUpperCase() : "AUDIO";
-          list.push({ id: p, title: stem, artist: "Unknown Artist", album: "Single", duration: 0, path: p, codec: ext, specs: "Local File", source: "import" });
-        }
+      const list: any[] = await lib?.importPaths(paths, true) || [];
+      if (list.length) {
+        busEmit("melo:play-tracks", { tracks: list, index: 0 });
+        showToast(`${list.length} file(s) added`);
       }
-      lib?.addTracks(list, true);
-      lib?.replaceCurrentPlaylist(list);
-      if (player) player.queue = [...list];
-      busEmit("melo:play-tracks", { tracks: list, index: 0 });
-      showToast(`${list.length} file(s) added`);
     } catch { showToast("Error opening files"); }
-    appMenu?.classList.remove("open");
     return;
   }
   const input = document.createElement("input");
@@ -1021,13 +890,12 @@ async function addFilesViaDialog() {
       list.push(t);
     }
     lib?.addTracks(list, true);
-    lib?.replaceCurrentPlaylist(list);
-    if (player) player.queue = [...list];
+    lib?.addToCurrentPlaylist(list);
+    list.forEach(t => player?.queue.push(t));
     busEmit("melo:play-tracks", { tracks: list, index: 0 });
     showToast(`${list.length} file(s) added`);
   };
   input.click();
-  appMenu?.classList.remove("open");
 }
 
 async function addFolderViaDialog() {
@@ -1039,16 +907,8 @@ async function addFolderViaDialog() {
       const sel = await open({ directory: true });
       if (!sel) return;
       const folder = sel as string;
-      const { invoke } = await import("@tauri-apps/api/core");
-      const tracks: any[] = await invoke("scan_library", { path: folder });
-      const list = tracks.map((t: any) => ({ ...t, source: "import" }));
-      lib?.addTracks(list, true);
-      lib?.replaceCurrentPlaylist(list);
-      if (player) player.queue = [...list];
-      busEmit("melo:play-tracks", { tracks: list, index: 0 });
-      showToast(`${list.length} track(s) added from folder`);
+      await lib?.scanFolder(folder);
     } catch { showToast("Error scanning folder"); }
-    appMenu?.classList.remove("open");
     return;
   }
   const input = document.createElement("input");
@@ -1069,33 +929,23 @@ async function addFolderViaDialog() {
       list.push(t);
     }
     lib?.addTracks(list, true);
-    lib?.replaceCurrentPlaylist(list);
-    if (player) player.queue = [...list];
+    lib?.addToCurrentPlaylist(list);
+    list.forEach(t => player?.queue.push(t));
     busEmit("melo:play-tracks", { tracks: list, index: 0 });
     showToast(`${list.length} file(s) added from folder`);
   };
   input.click();
-  appMenu?.classList.remove("open");
 }
 
-document.getElementById("btnAddFiles")?.addEventListener("click", addFilesViaDialog);
-document.getElementById("btnAddFolder")?.addEventListener("click", addFolderViaDialog);
-document.getElementById("btnThemeToggle")?.addEventListener("click", () => {
-  applyTheme(theme === "light" ? "dark" : "light");
+document.addEventListener("click", (e) => {
+  const target = (e.target as HTMLElement)?.closest("#btnAddFiles, #btnAddFolder, #btnThemeToggle");
+  if (!target) return;
+  if (target.id === "btnAddFiles") addFilesViaDialog();
+  else if (target.id === "btnAddFolder") addFolderViaDialog();
+  else if (target.id === "btnThemeToggle") applyTheme(theme === "light" ? "dark" : "light");
 });
 
-window.addEventListener("keydown", async (e: KeyboardEvent) => {
-  if (e.key === "F12" || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "i")) {
-    e.preventDefault();
-    if (isTauri) {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("toggle_devtools");
-      } catch {}
-    } else {
-      showToast("DevTools shortcut requires Tauri desktop runtime");
-    }
-  }
+window.addEventListener("keydown", (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
     if (e.shiftKey) { e.preventDefault(); addFolderViaDialog(); }
     else { e.preventDefault(); addFilesViaDialog(); }
@@ -1130,31 +980,16 @@ function setupSettings(toast: ToastFn) {
       sw.classList.toggle("on");
       const on = sw.classList.contains("on");
       localStorage.setItem("melo-pref-" + key, on ? "1" : "0");
-      toast(on ? "Enabled" : "Disabled");
       busEmit("melo:pref-changed", { key, value: on });
     };
   });
 
-  const crossfadeInput = document.getElementById("setCrossfade") as HTMLInputElement | null;
-  const crossfadeVal = document.getElementById("crossfadeVal");
-  if (crossfadeInput) {
-    const savedCf = localStorage.getItem("melo-pref-crossfade") || "0";
-    crossfadeInput.value = savedCf;
-    if (crossfadeVal) crossfadeVal.textContent = savedCf + "s";
-    crossfadeInput.oninput = () => {
-      const v = crossfadeInput.value;
-      if (crossfadeVal) crossfadeVal.textContent = v + "s";
-      localStorage.setItem("melo-pref-crossfade", v);
-    };
-  }
-
   const langSelect = document.getElementById("setLanguage") as HTMLSelectElement | null;
   if (langSelect) {
-    const savedLang = localStorage.getItem("melo-pref-lang") || "en";
-    langSelect.value = savedLang;
-    langSelect.onchange = () => {
-      localStorage.setItem("melo-pref-lang", langSelect.value);
-      toast(`Language set to ${langSelect.options[langSelect.selectedIndex].text}`);
+    langSelect.value = getLocaleCode();
+    langSelect.onchange = async () => {
+      await setLocale(langSelect.value);
+      toast(`Language set to ${langSelect.options[langSelect.selectedIndex].text} — restart Melo to fully apply`);
     };
   }
 
@@ -1172,7 +1007,6 @@ function setupSettings(toast: ToastFn) {
       if (queue && queue[curIdx]) {
         applyDynamicAmbientTheme(isNowOn ? queue[curIdx].cover : null);
       }
-      toast(isNowOn ? "Dynamic theme enabled" : "Dynamic theme disabled");
     };
   }
 
@@ -1250,33 +1084,6 @@ function setupSettings(toast: ToastFn) {
     toast("Settings reset — reloading...");
     setTimeout(() => location.reload(), 600);
   });
-
-  document.getElementById("btnChooseFolder")?.addEventListener("click", async () => {
-    if (isTauri) {
-      try {
-        const { open } = await import("@tauri-apps/plugin-dialog");
-        const sel = await open({ directory: true });
-        if (sel) {
-          (document.getElementById("setMusicFolder") as HTMLInputElement).value = sel as string;
-          localStorage.setItem("melo-pref-music-folder", sel as string);
-          toast("Music folder updated");
-        }
-      } catch {}
-    } else {
-      toast("Folder selection dialog requires Tauri build");
-    }
-  });
-
-  document.getElementById("btnOpenDevTools")?.addEventListener("click", async () => {
-    if (isTauri) {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("toggle_devtools");
-      } catch {}
-    } else {
-      toast("DevTools requires Tauri desktop runtime");
-    }
-  });
 }
 
 function bindWinControls() {
@@ -1299,13 +1106,6 @@ function bindWinControls() {
 bindWinControls();
 
 (window as any).__LUMI_REBIND_MAIN__ = () => {
-  const nb = document.getElementById("appMenuBtn") as HTMLButtonElement | null;
-  const nm = document.getElementById("appMenu") as HTMLElement | null;
-  if (nb && nm) {
-    appMenuBtn = nb;
-    appMenu = nm;
-    nb.onclick = (e: any) => { e.stopPropagation(); nm.classList.toggle("open"); nb.classList.toggle("open", nm.classList.contains("open")); };
-  }
   bindWinControls();
   Object.entries(toggleMap).forEach(([btnId, winId]) => {
     const b = document.getElementById(btnId);
@@ -1315,12 +1115,29 @@ bindWinControls();
   });
 };
 
+// background scan progress bar
+const scanBar = document.createElement("div");
+scanBar.id = "scanBar";
+document.body.appendChild(scanBar);
+let scanHideTimer: any = 0;
+busOn("melo:scan-progress", (p: any) => {
+  if (!p) return;
+  const pct = p.total ? Math.round((p.done / p.total) * 100) : 100;
+  scanBar.style.opacity = "1";
+  scanBar.style.width = pct + "%";
+  clearTimeout(scanHideTimer);
+  if (p.finished || (p.total && p.done >= p.total)) {
+    scanHideTimer = setTimeout(() => { scanBar.style.opacity = "0"; scanBar.style.width = "0"; }, 800);
+  }
+});
+
 // About popup
 const aboutPop = document.createElement("div");
 aboutPop.id = "aboutPop";
 aboutPop.style.display = "none";
 document.body.appendChild(aboutPop);
-document.getElementById("btnAbout")?.addEventListener("click", (e) => {
+document.addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement)?.closest("#btnAbout")) return;
   e.stopPropagation();
   aboutPop.innerHTML = `
     <div class="about-head">Melo <b>0.4.0 Beta</b></div>
@@ -1349,7 +1166,7 @@ if (isTauri && urlPanel) {
   if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
   else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
   else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
-  else if (urlPanel === "settings") setupSettings(showToast);
+  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); }
 } else {
   setupPlayer(audio, showToast);
   setupLibrary(audio, showToast);
@@ -1358,6 +1175,24 @@ if (isTauri && urlPanel) {
   setupLyrics(audio, showToast);
   setupSkinEngine(showToast);
   setupSettings(showToast);
+  initLocale();
+
+  // Resume playback on reopen: restore the last-played track, paused, at
+  // the position it was left at. Only runs once, shortly after boot, so the
+  // library has had a chance to load from localStorage first.
+  setTimeout(async () => {
+    if (localStorage.getItem("melo-pref-resume") === "0") return;
+    try {
+      const state = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
+      const lib = (window as any).LumiLibrary;
+      const p = (window as any).LumiPlayer;
+      if (!state?.trackId || !lib || !p) return;
+      const track = await lib.getTrack(state.trackId);
+      if (!track) return;
+      p.queue = [track];
+      p.loadTrack(0, false, state.position || 0);
+    } catch {}
+  }, 500);
 }
 
-showToast("Melo 0.4.0 Beta is ready");
+

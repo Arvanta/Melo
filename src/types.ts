@@ -7,7 +7,7 @@ export type Track = {
   year: number;
   duration: number; // seconds
   path: string; // file path or object URL
-  cover?: string; // data url or http
+  cover?: string; // asset URL or cached artwork file path
   codec: string; // FLAC, MP3 etc
   specs: string; // 44.1 kHz...
   source?: "scan" | "import";

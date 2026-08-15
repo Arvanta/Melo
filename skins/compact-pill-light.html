@@ -27,9 +27,10 @@
   }
   .player-card {
     background: var(--card) !important;
-    border: 1px solid var(--card-border) !important;
+    border: none !important;
     border-radius: 24px !important;
-    box-shadow: var(--shadow) !important;
+    box-shadow: none !important;
+    clip-path: inset(0 round 24px) !important;
     padding: 10px 18px 12px 18px !important;
     width: 100% !important;
     height: 100% !important;
@@ -129,9 +130,10 @@
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
-    min-width: 130px !important;
-    max-width: 200px !important;
-    flex-shrink: 0 !important;
+    width: 180px !important;
+    min-width: 180px !important;
+    max-width: 180px !important;
+    flex: 0 0 180px !important;
   }
   .track-title {
     font-size: 17.5px !important;
@@ -177,7 +179,7 @@
     width: 100% !important;
     height: 5px !important;
     border-radius: 999px !important;
-    background: linear-gradient(to right, #5b92a5 0%, #5b92a5 var(--progress, 35%), #e5e7eb var(--progress, 35%), #e5e7eb 100%) !important;
+    background: linear-gradient(to right, var(--accent, #5b92a5) 0%, var(--accent, #5b92a5) var(--progress, 35%), #e5e7eb var(--progress, 35%), #e5e7eb 100%) !important;
     outline: none !important;
     cursor: pointer !important;
   }
@@ -261,19 +263,25 @@
       <button class="mini-btn" id="btnToggleEq" title="Equalizer">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14h3v7H3zM9 10h3v11H9zM15 6h3v15h-3z"/></svg>
       </button>
+      <button class="mini-btn" id="btnToggleLyrics" title="Lyric">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
       <button class="mini-btn" id="btnOpenSettings" title="Settings">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      <div class="mini-sep"></div>
+      <button class="mini-btn" id="btnShuffle" title="Shuffle (S)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20l8-8"/><path d="M21 3l-8 8"/><path d="M16 21h5v-5"/><path d="M4 4l5 5"/><path d="M9 15l-5 5"/></svg>
+      </button>
+      <button class="mini-btn" id="btnRepeat" title="Repeat (R)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
       </button>
     </div>
 
     <!-- Top-Right: Window Controls (NO MAXIMIZE) -->
     <div class="win-controls">
-      <button class="win-btn" aria-label="minimize" title="Minimize">
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2" y1="6" x2="10" y2="6" stroke-linecap="round"/></svg>
-      </button>
-      <button class="win-btn close" aria-label="close" title="Close">
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5" stroke-linecap="round"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5" stroke-linecap="round"/></svg>
-      </button>
+      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+      <button class="win-btn close" aria-label="close" title="Close">×</button>
     </div>
   </div>
 
@@ -303,9 +311,6 @@
     </div>
 
     <div class="transport">
-      <button class="icon-btn" id="btnShuffle" title="Shuffle (S)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="M4 20l8-8"/><path d="M21 3l-8 8"/><path d="M16 21h5v-5"/><path d="M4 4l5 5"/><path d="M9 15l-5 5"/></svg>
-      </button>
       <button class="icon-btn" id="btnPrev" title="Previous">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
       </button>
@@ -313,14 +318,11 @@
         <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
       </button>
-      <button class="icon-btn" id="btnStop" title="Stop" style="display:none">
+      <button class="icon-btn" id="btnStop" title="Stop">
         <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
       </button>
       <button class="icon-btn" id="btnNext" title="Next">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-      </button>
-      <button class="icon-btn" id="btnRepeat" title="Repeat (R)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
       </button>
     </div>
   </div>
