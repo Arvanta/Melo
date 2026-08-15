@@ -1,8 +1,8 @@
 {
   "name": "melo",
   "private": true,
-  "version": "0.3.0",
-  "description": "Melo - Modern Windows Music Player (Tauri + TypeScript + Rust)",
+  "version": "0.4.0",
+  "description": "Melo - Modern Windows Music Player",
   "type": "module",
   "scripts": {
     "dev": "vite",

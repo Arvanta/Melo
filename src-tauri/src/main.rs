@@ -126,7 +126,6 @@ fn parse_track(p: &Path) -> Option<Track> {
             .map(|m| m.as_str().to_string())
             .unwrap_or_else(|| "image/jpeg".to_string());
         let data = pic.data();
-        // Limit cover payload to 250KB to keep localStorage fast and prevent QuotaExceededError
         if data.len() > 300_000 {
             return None;
         }
@@ -144,6 +143,66 @@ fn parse_track(p: &Path) -> Option<Track> {
         duration,
         path: p.to_string_lossy().to_string(),
         cover,
+        codec,
+        specs,
+        replay_gain,
+    })
+}
+
+// Fast metadata parser for bulk library scanning — skips heavy base64 cover extraction
+fn parse_track_fast(p: &Path) -> Option<Track> {
+    let tagged = lofty::probe::Probe::open(p).ok()?.read().ok()?;
+    let tag = tagged.primary_tag().or(tagged.first_tag());
+
+    let title = tag
+        .and_then(|t| t.title().map(|s| s.to_string()))
+        .unwrap_or_else(|| {
+            p.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Unknown")
+                .to_string()
+        });
+
+    let artist = tag
+        .and_then(|t| t.artist().map(|s| s.to_string()))
+        .unwrap_or_else(|| "Unknown Artist".to_string());
+
+    let album = tag
+        .and_then(|t| t.album().map(|s| s.to_string()))
+        .unwrap_or_else(|| "Unknown Album".to_string());
+
+    let genre = tag
+        .and_then(|t| t.genre().map(|s| s.to_string()))
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let year = tag.and_then(|t| t.year()).unwrap_or(0);
+
+    let props = tagged.properties();
+    let duration = props.duration().as_secs_f64();
+
+    let codec = codec_from_ext(p);
+    let specs = format!(
+        "{} · {:.1} kHz · {} bit",
+        codec,
+        props.sample_rate().unwrap_or(44100) as f32 / 1000.0,
+        props.bit_depth().unwrap_or(16)
+    );
+
+    let replay_gain = tag.and_then(|t| {
+        t.get_string(&lofty::tag::ItemKey::ReplayGainTrackGain)
+            .and_then(|s| s.trim().trim_end_matches(" dB").parse::<f32>().ok())
+    });
+
+    Some(Track {
+        id: p.to_string_lossy().to_string(),
+        title,
+        artist,
+        album,
+        genre,
+        year,
+        duration,
+        path: p.to_string_lossy().to_string(),
+        cover: None, // Lazy-loaded on demand during playback
         codec,
         specs,
         replay_gain,
@@ -347,52 +406,71 @@ fn get_cli_tracks() -> Vec<Track> {
 }
 
 #[tauri::command]
-async fn scan_library(path: String, app: tauri::AppHandle) -> Result<Vec<Track>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        use rayon::prelude::*;
-        use tauri::Emitter;
-        let root = Path::new(&path);
-        if !root.exists() {
-            return Err("Path does not exist".to_string());
-        }
+fn get_track_cover(path: String) -> Option<String> {
+    let p = Path::new(&path);
+    let tagged = lofty::probe::Probe::open(p).ok()?.read().ok()?;
+    let tag = tagged.primary_tag().or(tagged.first_tag())?;
+    let pics = tag.pictures();
+    if pics.is_empty() {
+        return None;
+    }
+    let pic = &pics[0];
+    let mime = pic
+        .mime_type()
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| "image/jpeg".to_string());
+    let data = pic.data();
+    if data.len() > 600_000 {
+        return None;
+    }
+    let b64 = base64::engine::general_purpose::STANDARD.encode(data);
+    Some(format!("data:{};base64,{}", mime, b64))
+}
 
-        if root.is_file() {
-            if supported_ext(root) {
-                if let Some(t) = parse_track(root) {
-                    return Ok(vec![t]);
-                }
+#[tauri::command]
+fn scan_library(path: String, app: tauri::AppHandle) -> Result<Vec<Track>, String> {
+    use rayon::prelude::*;
+    use tauri::Emitter;
+    let root = Path::new(&path);
+    if !root.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    if root.is_file() {
+        if supported_ext(root) {
+            if let Some(t) = parse_track_fast(root) {
+                return Ok(vec![t]);
             }
-            return Ok(Vec::new());
         }
+        return Ok(Vec::new());
+    }
 
-        let entries: Vec<_> = WalkDir::new(root)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file() && supported_ext(e.path()))
+    let entries: Vec<_> = WalkDir::new(root)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file() && supported_ext(e.path()))
+        .collect();
+
+    let total = entries.len();
+    let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": 0, "total": total, "finished": false }));
+    let mut tracks: Vec<Track> = Vec::with_capacity(total);
+    // Process in batches of 100 for lightweight streaming and UI smoothness
+    for chunk in entries.chunks(100) {
+        let batch: Vec<Track> = chunk
+            .par_iter()
+            .filter_map(|entry| parse_track_fast(entry.path()))
             .collect();
-
-        let total = entries.len();
-        let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": 0, "total": total }));
-        let mut tracks: Vec<Track> = Vec::new();
-        for chunk in entries.chunks(25) {
-            let batch: Vec<Track> = chunk
-                .par_iter()
-                .filter_map(|entry| parse_track(entry.path()))
-                .collect();
-            let done = tracks.len() + batch.len();
-            let _ = app.emit("melo:scan-batch", &batch);
-            let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": done, "total": total }));
-            tracks.extend(batch);
-        }
-        let _ = app.emit(
-            "melo:scan-progress",
-            serde_json::json!({ "done": total, "total": total, "finished": true }),
-        );
-        Ok(tracks)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+        let done = tracks.len() + batch.len();
+        let _ = app.emit("melo:scan-batch", &batch);
+        let _ = app.emit("melo:scan-progress", serde_json::json!({ "done": done, "total": total, "finished": done == total }));
+        tracks.extend(batch);
+    }
+    let _ = app.emit(
+        "melo:scan-progress",
+        serde_json::json!({ "done": total, "total": total, "finished": true }),
+    );
+    Ok(tracks)
 }
 
 #[tauri::command]
@@ -459,6 +537,26 @@ fn get_audio_devices() -> Result<Vec<String>, String> {
     Ok(vec!["Default".to_string()])
 }
 
+#[tauri::command]
+fn toggle_devtools(window: tauri::WebviewWindow) {
+    #[cfg(feature = "devtools")]
+    {
+        if window.is_devtools_open() {
+            window.close_devtools();
+        } else {
+            window.open_devtools();
+        }
+    }
+}
+
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    #[cfg(feature = "devtools")]
+    {
+        window.open_devtools();
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -490,6 +588,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_cli_tracks,
             get_track_lyrics,
+            get_track_cover,
             list_installed_skins,
             read_skin_file,
             save_custom_skin_file,
@@ -497,7 +596,9 @@ fn main() {
             scan_library,
             write_tags,
             get_audio_devices,
-            open_url
+            open_url,
+            toggle_devtools,
+            open_devtools
         ])
         .setup(|app| {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};

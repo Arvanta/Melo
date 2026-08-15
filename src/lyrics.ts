@@ -55,7 +55,6 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
   let currentParsed: { isSynced: boolean; lines: LyricLine[]; raw: string } = { isSynced: false, lines: [], raw: "" };
   let currentTrackId: string | null = null;
   let activeIndex = -1;
-  let playbackTime = 0;
 
   async function fetchLyricsForTrack(track: Track): Promise<string | null> {
     if (track.lyrics && track.lyrics.trim().length > 0) {
@@ -73,9 +72,7 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
 
   async function loadTrackLyrics(track: Track | null) {
     if (!track) {
-      currentTrackId = null;
       currentParsed = { isSynced: false, lines: [], raw: "" };
-      if (lyricsTitle) lyricsTitle.textContent = "No track playing";
       renderLyrics();
       return;
     }
@@ -113,12 +110,8 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
         el.style.cursor = "pointer";
         el.title = `Seek to ${Math.floor(line.time / 60)}:${Math.floor(line.time % 60).toString().padStart(2, "0")}`;
         el.addEventListener("click", () => {
-          busEmit("melo:seek-playback", line.time);
-          // Browser/demo mode shares the actual audio element.
-          if (!(window as any).__TAURI__) {
-            audio.currentTime = line.time;
-            audio.play().catch(() => {});
-          }
+          audio.currentTime = line.time;
+          audio.play().catch(() => {});
         });
       }
 
@@ -128,7 +121,7 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
 
   function updateActiveLine() {
     if (!lyricsContainer || !currentParsed.isSynced || !currentParsed.lines.length) return;
-    const curTime = (window as any).__TAURI__ ? playbackTime : audio.currentTime;
+    const curTime = audio.currentTime;
 
     let targetIndex = -1;
     for (let i = 0; i < currentParsed.lines.length; i++) {
@@ -165,31 +158,12 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
   busOn("melo:track-changed", (t: any) => {
     loadTrackLyrics(t);
   });
-  busOn("melo:playback-state", (state: any) => {
-    if (!state) return;
-    playbackTime = Number(state.currentTime) || 0;
-    if (state.track && state.track.id !== currentTrackId) loadTrackLyrics(state.track);
-    else updateActiveLine();
-  });
-  busOn("melo:playback-position", (seconds: any) => {
-    playbackTime = Number(seconds) || 0;
-    updateActiveLine();
-  });
 
-  // Initial load works even when this window was closed during track import.
+  // initial load
   const queue = (window as any).__LUMI_QUEUE__;
   if (Array.isArray(queue) && queue.length > 0) {
-    loadTrackLyrics(queue[(window as any).LumiPlayer?.currentIndex || 0]);
-  } else {
-    try {
-      const saved = JSON.parse(localStorage.getItem("melo-current-track") || "null");
-      if (saved) loadTrackLyrics(saved);
-    } catch {}
+    loadTrackLyrics(queue[0]);
   }
-  // Tauri event listeners are registered asynchronously, so request twice
-  // to eliminate a creation-time race without polling continuously.
-  busEmit("melo:request-playback-state");
-  setTimeout(() => busEmit("melo:request-playback-state"), 250);
 
   (window as any).LumiLyrics = { loadTrackLyrics, parseLRC };
 }

@@ -1,10 +1,10 @@
-# Melo — Modern Windows Music Player (Tauri + TypeScript + Rust)
+# Melo — Modern Windows Music Player
 
 A lightweight, native-feeling desktop music player built with **Tauri 2**, **TypeScript** and **Rust**.
 The main window is a compact player card; the Library, Playlist, Equalizer, Synced Lyrics and Settings each open as
 **independent native OS windows** that stay in sync with the player.
 
-Version: **0.3 Beta** • License: **GPL-3.0**
+Version: **0.4.0 Beta** • License: **GPL-3.0**
 
 ![Melo — main player window](assets/main-window.png)
 
@@ -13,7 +13,7 @@ Version: **0.3 Beta** • License: **GPL-3.0**
 | Area | Details |
 |------|---------|
 | **Formats** | MP3, FLAC, WAV, AAC, OGG, ALAC/OPUS — metadata & covers read natively via Rust (`lofty`) |
-| **Playback** | Play/Pause, Stop, Next/Prev, seek bar, volume under the cover, Shuffle, Repeat (Off/All/One). Keys: Space, ←/→, M, S, R, ↑/↓ |
+| **Playback** | Play/Pause, Stop, Next/Prev, seek bar, volume under the cover, Shuffle, Repeat (Off/All/One). Keys: Space, ←/→, M, S, R, ↑/↓, Mouse Wheel volume |
 | **Playlist Management** | Multiple playlists, **Drag & Drop reordering**, in-playlist **search/filter**, **sorting** (by Title, Artist, Album, Duration), M3U export |
 | **Synced Lyrics** | Real-time synchronized lyrics support (**`.lrc` files** and embedded tags), smooth active line highlighting, auto-scroll, and click-to-seek |
 | **Dynamic Ambient Theme** | Automatically extracts vibrant dominant colors from album artwork to dynamically colorize the accent, visualizer, and ambient glows (toggleable in Settings) |
@@ -22,6 +22,7 @@ Version: **0.3 Beta** • License: **GPL-3.0**
 | **Multi-window** | Library / Playlist / Equalizer / Lyrics / Settings open as real OS windows, synced via the event bus |
 | **Equalizer** | 10 bands (31 Hz – 16 kHz), 12 presets + Reset button, persistent state across restarts |
 | **Skins from Disk** | Loads skins directly from the `skins/` installation folder; instant live reload via Refresh button (🔄) and explorer opener |
+| **High-Scale Performance** | 60FPS Virtual Scrolling engine + IndexedDB storage engine for fast libraries with 50,000+ tracks |
 
 ## 🖥️ Build for Windows (GitHub Actions)
 
@@ -29,16 +30,16 @@ Version: **0.3 Beta** • License: **GPL-3.0**
    ```bash
    git init
    git add .
-   git commit -m "Melo 0.3 Beta"
+   git commit -m "Melo 0.4.0 Beta"
    git branch -M main
    git remote add origin https://github.com/Arvanta/Melo.git
    git push -u origin main
    ```
 2. The `Build Melo` workflow runs automatically on push (or via **Actions → Run workflow**).
 3. Get the installers:
-   - **Releases** → draft release `Melo v0.3.0` (contains `Melo_0.3.0_x64-setup.exe` and the `.msi`) — publish to keep it permanent.
+   - **Releases** → draft release `Melo v0.4.0` (contains `Melo_0.4.0_x64-setup.exe` and the `.msi`) — publish to keep it permanent.
    - **Actions → run → Artifacts → melo-windows** (zip with the same installers).
-4. Install `Melo_0.3.0_x64-setup.exe` (installs to standard `C:\Program Files\Melo`).
+4. Install `Melo_0.4.0_x64-setup.exe` (installs to standard `C:\Program Files\Melo`).
 
 ## 🌐 Web Demo / Local Development
 

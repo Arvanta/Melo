@@ -9,28 +9,13 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   let btnStop: HTMLButtonElement | null = null;
   let seekBar: HTMLInputElement, volBar: HTMLInputElement, curTime: HTMLElement, durTime: HTMLElement, volPct: HTMLElement;
   let trackTitle: HTMLElement, trackArtist: HTMLElement, trackAlbum: HTMLElement, trackCodec: HTMLElement, trackSpecs: HTMLElement;
-  let coverImg: HTMLImageElement, coverFallback: HTMLElement;
+  let coverImg: HTMLImageElement, coverFallback: HTMLElement, replayGainToggle: HTMLInputElement;
 
   let queue: Track[] = [];
   let currentIndex = 0;
   let isShuffle = false;
   let repeatMode: RepeatMode = "off";
   let isSeeking = false;
-
-  function computeNextIndex(): number | null {
-    if (!queue.length) return null;
-    if (repeatMode === "one") return currentIndex;
-    let nxt = currentIndex + 1;
-    if (isShuffle) {
-      nxt = Math.floor(Math.random() * queue.length);
-      if (nxt === currentIndex && queue.length > 1) nxt = (nxt + 1) % queue.length;
-    }
-    if (nxt >= queue.length) {
-      if (repeatMode === "all") nxt = 0;
-      else return null;
-    }
-    return nxt;
-  }
 
   (window as any).__LUMI_QUEUE__ = queue;
   (window as any).__LUMI_SET_QUEUE__ = (q: Track[]) => {
@@ -70,7 +55,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     return p;
   }
 
-  async function loadTrack(idx: number, autoplay = true, seekTo?: number) {
+  async function loadTrack(idx: number, autoplay = true) {
     if (!queue.length) return;
     if (idx < 0) idx = queue.length - 1;
     if (idx >= queue.length) idx = 0;
@@ -82,19 +67,24 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
     audio.src = await resolveSrc(t.path);
     audio.load();
-    if (seekTo && seekTo > 0) {
-      const onMeta = () => {
-        audio.removeEventListener("loadedmetadata", onMeta);
-        try { audio.currentTime = seekTo; } catch {}
-      };
-      audio.addEventListener("loadedmetadata", onMeta);
-    }
 
     if (trackTitle) trackTitle.textContent = t.title || "Unknown Title";
     if (trackArtist) trackArtist.textContent = t.artist || "Unknown Artist";
     if (trackAlbum) trackAlbum.textContent = t.album || "";
     if (trackCodec) trackCodec.textContent = t.codec || "AUDIO";
     if (trackSpecs) trackSpecs.textContent = t.specs || "";
+
+    // Lazy load cover art from disk if not already cached
+    if (!t.cover && t.path && isTauri) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const coverData: string | null = await invoke("get_track_cover", { path: t.path });
+        if (coverData) {
+          t.cover = coverData;
+          busEmit("melo:cover-loaded", { id: t.id, path: t.path, cover: coverData });
+        }
+      } catch {}
+    }
 
     if (t.cover && coverImg) {
       coverImg.src = t.cover;
@@ -138,21 +128,13 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
     if (autoplay) play();
 
-    // Keep a small durable snapshot as a race-free fallback for a Lyrics
-    // window created after this event. Cover art is omitted to avoid filling
-    // localStorage with a large data URL.
-    try {
-      const { cover: _cover, ...trackSnapshot } = t as any;
-      localStorage.setItem("melo-current-track", JSON.stringify(trackSnapshot));
-    } catch {}
     window.dispatchEvent(new CustomEvent("lumi:trackChange", { detail: t }));
     busEmit("melo:track-changed", t);
-    busEmit("melo:playback-state", { track: t, currentTime: audio.currentTime || 0, paused: audio.paused });
   }
 
   let pendingPlay = false;
-  async function onUnlocked() {
-    try { await getAudioGraph(audio).resume(); } catch {}
+  function onUnlocked() {
+    try { getAudioGraph(audio).resume(); } catch {}
     if (!pendingPlay) return;
     pendingPlay = false;
     audio.play().then(() => {
@@ -163,50 +145,14 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
   window.addEventListener("pointerdown", onUnlocked);
   window.addEventListener("keydown", onUnlocked);
-  busOn("melo:pref-changed", (p: any) => {
-    if (p && p.key === "replayGainGlobal") applyReplayGain();
-    if (p && p.key === "showStopBtn") syncStopButtonVisibility(!!p.value);
-  });
 
-  // Secondary windows can be opened at any time. Reply with the current
-  // track and playback position instead of requiring them to be open when
-  // the original track-changed event fires.
-  busOn("melo:request-playback-state", () => {
-    const track = queue[currentIndex] || null;
-    busEmit("melo:playback-state", { track, currentTime: audio.currentTime || 0, paused: audio.paused });
-  });
-  busOn("melo:seek-playback", (seconds: any) => {
-    const value = Number(seconds);
-    if (Number.isFinite(value) && value >= 0) audio.currentTime = value;
-  });
-
-  let fadeRAF: number | null = null;
-  let wasFadedPause = false;
-  function fadeVolumeTo(target: number, ms: number, onDone?: () => void) {
-    if (fadeRAF) cancelAnimationFrame(fadeRAF);
-    const start = audio.volume;
-    const t0 = performance.now();
-    const step = (now: number) => {
-      const p = Math.min(1, (now - t0) / ms);
-      audio.volume = start + (target - start) * p;
-      if (p < 1) { fadeRAF = requestAnimationFrame(step); }
-      else { fadeRAF = null; onDone?.(); }
-    };
-    fadeRAF = requestAnimationFrame(step);
-  }
-
-  async function play() {
-    try { await getAudioGraph(audio).resume(); } catch {}
-    const fadeOn = localStorage.getItem("melo-pref-fadePause") === "1";
-    const target = computeTargetVolume();
-    if (fadeOn && wasFadedPause) audio.volume = 0;
+  function play() {
+    try { getAudioGraph(audio).resume(); } catch {}
     audio.play().then(() => {
       pendingPlay = false;
       if (iconPlay) iconPlay.style.display = "none";
       if (iconPause) iconPause.style.display = "block";
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
-      if (fadeOn && wasFadedPause) { wasFadedPause = false; fadeVolumeTo(target, 300); }
-      else audio.volume = target;
     }).catch(() => {
       if (!pendingPlay) {
         pendingPlay = true;
@@ -216,21 +162,10 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   }
 
   function pause() {
-    const fadeOn = localStorage.getItem("melo-pref-fadePause") === "1";
-    if (fadeOn && !audio.paused) {
-      wasFadedPause = true;
-      fadeVolumeTo(0, 300, () => audio.pause());
-    } else {
-      wasFadedPause = false;
-      audio.pause();
-    }
+    audio.pause();
     if (iconPlay) iconPlay.style.display = "block";
     if (iconPause) iconPause.style.display = "none";
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
-    const t = queue[currentIndex];
-    if (t) {
-      try { localStorage.setItem("melo-resume-state", JSON.stringify({ trackId: t.id, position: audio.currentTime })); } catch {}
-    }
   }
 
   function togglePlay() {
@@ -258,10 +193,17 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       play();
       return;
     }
-    const nxt = computeNextIndex();
-    if (nxt === null) {
-      pause();
-      return;
+    let nxt = currentIndex + 1;
+    if (isShuffle) {
+      nxt = Math.floor(Math.random() * queue.length);
+      if (nxt === currentIndex && queue.length > 1) nxt = (nxt + 1) % queue.length;
+    }
+    if (nxt >= queue.length) {
+      if (repeatMode === "all") nxt = 0;
+      else {
+        pause();
+        return;
+      }
     }
     loadTrack(nxt);
   }
@@ -281,25 +223,15 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     loadTrack(prv);
   }
 
-  function computeTargetVolume(): number {
-    const t = queue[currentIndex];
-    if (!volBar) return 1;
-    const baseVol = parseInt(volBar.value, 10) / 100;
-    const replayGainEnabled = localStorage.getItem("melo-pref-replayGainGlobal") !== "0";
-    const gainDb = replayGainEnabled ? t?.replayGain ?? 0 : 0;
-    const linear = Math.pow(10, gainDb / 20);
-    return Math.min(1, Math.max(0, baseVol * linear));
-  }
   function applyReplayGain() {
-    if (!queue[currentIndex] || !volBar) return;
-    audio.volume = computeTargetVolume();
-  }
-
-  function syncStopButtonVisibility(enabled = localStorage.getItem("melo-pref-showStopBtn") === "1") {
-    const stop = document.getElementById("btnStop") as HTMLButtonElement | null;
-    if (!stop) return;
-    // Inline !important wins over all skin rules, including compact skins.
-    stop.style.setProperty("display", enabled ? "inline-flex" : "none", "important");
+    const t = queue[currentIndex];
+    if (!t || !volBar) return;
+    const baseVol = parseInt(volBar.value, 10) / 100;
+    const gainDb = replayGainToggle && replayGainToggle.checked ? t.replayGain ?? 0 : 0;
+    const linear = Math.pow(10, gainDb / 20);
+    let effective = baseVol * linear;
+    effective = Math.min(1, Math.max(0, effective));
+    audio.volume = effective;
   }
 
   function bindDOM() {
@@ -311,7 +243,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     btnShuffle = document.getElementById("btnShuffle") as HTMLButtonElement;
     btnRepeat = document.getElementById("btnRepeat") as HTMLButtonElement;
     btnStop = document.getElementById("btnStop") as HTMLButtonElement | null;
-    syncStopButtonVisibility();
     seekBar = document.getElementById("seekBar") as HTMLInputElement;
     volBar = document.getElementById("volBar") as HTMLInputElement;
     curTime = document.getElementById("curTime") as HTMLElement;
@@ -324,6 +255,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     trackSpecs = document.getElementById("trackSpecs") as HTMLElement;
     coverImg = document.getElementById("coverImg") as HTMLImageElement;
     coverFallback = document.getElementById("coverFallback") as HTMLElement;
+    replayGainToggle = document.getElementById("replayGainToggle") as HTMLInputElement;
 
     if (btnPlay) btnPlay.onclick = togglePlay;
     if (btnStop) btnStop.onclick = stop;
@@ -368,6 +300,26 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       };
     }
 
+    const volIcon = document.getElementById("volIcon");
+    const updateVolIconUI = () => {
+      if (!volIcon) return;
+      if (audio.muted) {
+        volIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`;
+      } else {
+        volIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
+      }
+    };
+    if (volIcon) {
+      volIcon.style.cursor = "pointer";
+      volIcon.onclick = () => {
+        audio.muted = !audio.muted;
+        updateVolIconUI();
+        toast(audio.muted ? "Muted" : "Unmuted");
+      };
+      updateVolIconUI();
+    }
+
+    if (replayGainToggle) replayGainToggle.onchange = () => applyReplayGain();
     updateSeekBackground();
     updateVolBackground();
 
@@ -389,27 +341,12 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   bindDOM();
 
   audio.addEventListener("timeupdate", () => {
-    busEmit("melo:playback-position", audio.currentTime || 0);
     if (!isSeeking && seekBar && curTime) {
       seekBar.value = String(Math.floor(audio.currentTime));
       curTime.textContent = formatTime(audio.currentTime);
       updateSeekBackground();
     }
-    saveResumeStateThrottled();
   });
-
-  let resumeSaveTimer: any = null;
-  function saveResumeStateThrottled() {
-    if (resumeSaveTimer) return;
-    resumeSaveTimer = setTimeout(() => {
-      resumeSaveTimer = null;
-      const t = queue[currentIndex];
-      if (!t || audio.paused) return;
-      try {
-        localStorage.setItem("melo-resume-state", JSON.stringify({ trackId: t.id, position: audio.currentTime }));
-      } catch {}
-    }, 4000);
-  }
 
   audio.addEventListener("loadedmetadata", () => {
     if (!seekBar || !durTime) return;
@@ -437,6 +374,14 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     }
     if (e.key === "m" || e.key === "M") {
       audio.muted = !audio.muted;
+      const volIcon = document.getElementById("volIcon");
+      if (volIcon) {
+        volIcon.innerHTML = audio.muted ? `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+        ` : `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        `;
+      }
       toast(audio.muted ? "Muted" : "Unmuted");
     }
     if (e.key === "s" || e.key === "S") {
@@ -458,6 +403,20 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       }
     }
   });
+
+  window.addEventListener("wheel", (e: WheelEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(".lyrics-scroll-container") || target.closest(".vscroll-wrapper") || target.closest("#trackList") || target.closest("#winPlaylistTracks") || target.closest(".settings-section")) {
+      return;
+    }
+    if (volBar) {
+      const step = e.deltaY < 0 ? 3 : -3;
+      const cur = parseInt(volBar.value, 10) || 60;
+      const next = Math.max(0, Math.min(100, cur + step));
+      volBar.value = String(next);
+      volBar.dispatchEvent(new Event("input"));
+    }
+  }, { passive: true });
 
   busOn("melo:tray-action", (action: any) => {
     if (action === "play_pause") togglePlay();
