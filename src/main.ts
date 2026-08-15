@@ -32,9 +32,19 @@ app.innerHTML = `
         </div>
       </div>
       <div class="float-body" style="padding:0; display:flex; flex-direction:column;">
-        <div class="search-wrap">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          <input id="searchInput" class="search-input" placeholder="Search artist, album, track…" />
+        <div class="library-search-row">
+          <div class="search-wrap">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="searchInput" class="search-input" placeholder="Search artist, album, track…" />
+          </div>
+          <button class="btn small library-action scan-action" id="btn-scan" title="Scan a music folder">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 10v6M9 13h6"/></svg>
+            <span class="scan-label">Scan</span>
+          </button>
+          <button class="btn small library-action danger" id="btn-clear-library" title="Clear the entire Library database">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+            <span>Clear</span>
+          </button>
         </div>
         <div class="tabs" id="libraryTabs" style="flex-shrink:0;">
           <button class="tab active" data-libtab="artists">Artists</button>
@@ -62,12 +72,6 @@ app.innerHTML = `
         <!-- hidden playlistList kept for library.ts internal logic -->
         <div id="playlistList" style="display:none;"></div>
         <div id="queueList" style="display:none;"></div>
-        <div style="padding:10px; border-top:1px solid var(--card-border); display:flex; gap:6px; flex-shrink:0;">
-          <button class="btn small block" id="btn-scan">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>
-            Scan Folder
-          </button>
-        </div>
       </div>
       <div class="resize-handle" data-resize="win-library">◢</div>
     </div>
@@ -567,7 +571,7 @@ if (isTauri && !urlPanel) {
         setTimeout(async () => {
           const lib = (window as any).LumiLibrary;
           const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-          const imported = await lib?.importPaths(paths, true) || [];
+          const imported = await lib?.importPaths(paths, "replace") || [];
           if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
         }, 350);
       }
@@ -579,7 +583,7 @@ if (isTauri && !urlPanel) {
       const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
       setTimeout(async () => {
         const lib = (window as any).LumiLibrary;
-        const imported = await lib?.importPaths(paths, true) || [];
+        const imported = await lib?.importPaths(paths, "replace") || [];
         if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
       }, 100);
     }
@@ -864,7 +868,7 @@ async function addFilesViaDialog() {
       const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
-      const list: any[] = await lib?.importPaths(paths, true) || [];
+      const list: any[] = await lib?.importPaths(paths, "replace") || [];
       if (list.length) {
         busEmit("melo:play-tracks", { tracks: list, index: 0 });
         showToast(`${list.length} file(s) added`);
@@ -907,7 +911,7 @@ async function addFolderViaDialog() {
       const sel = await open({ directory: true });
       if (!sel) return;
       const folder = sel as string;
-      await lib?.scanFolder(folder);
+      await lib?.scanFolder(folder, true);
     } catch { showToast("Error scanning folder"); }
     return;
   }
@@ -1114,22 +1118,6 @@ bindWinControls();
     }
   });
 };
-
-// background scan progress bar
-const scanBar = document.createElement("div");
-scanBar.id = "scanBar";
-document.body.appendChild(scanBar);
-let scanHideTimer: any = 0;
-busOn("melo:scan-progress", (p: any) => {
-  if (!p) return;
-  const pct = p.total ? Math.round((p.done / p.total) * 100) : 100;
-  scanBar.style.opacity = "1";
-  scanBar.style.width = pct + "%";
-  clearTimeout(scanHideTimer);
-  if (p.finished || (p.total && p.done >= p.total)) {
-    scanHideTimer = setTimeout(() => { scanBar.style.opacity = "0"; scanBar.style.width = "0"; }, 800);
-  }
-});
 
 // About popup
 const aboutPop = document.createElement("div");

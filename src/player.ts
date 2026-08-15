@@ -7,7 +7,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   let btnPlay: HTMLButtonElement, iconPlay: HTMLElement, iconPause: HTMLElement;
   let btnPrev: HTMLButtonElement, btnNext: HTMLButtonElement, btnShuffle: HTMLButtonElement, btnRepeat: HTMLButtonElement;
   let btnStop: HTMLButtonElement | null = null;
-  let seekBar: HTMLInputElement, volBar: HTMLInputElement, curTime: HTMLElement, durTime: HTMLElement, volPct: HTMLElement;
+  let seekBar: HTMLInputElement, volBar: HTMLInputElement, curTime: HTMLElement, durTime: HTMLElement, volPct: HTMLElement, volIcon: HTMLElement;
   let trackTitle: HTMLElement, trackArtist: HTMLElement, trackAlbum: HTMLElement, trackCodec: HTMLElement, trackSpecs: HTMLElement;
   let coverImg: HTMLImageElement, coverFallback: HTMLElement;
 
@@ -56,6 +56,18 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   function updateVolBackground() {
     if (!volBar) return;
     volBar.style.setProperty("--vol", volBar.value + "%");
+  }
+
+  function syncMuteUI() {
+    if (!volIcon) return;
+    volIcon.classList.toggle("muted", audio.muted);
+    volIcon.title = audio.muted ? "Unmute" : "Mute";
+  }
+
+  function toggleMute(notify = true) {
+    audio.muted = !audio.muted;
+    syncMuteUI();
+    if (notify) toast(audio.muted ? "Muted" : "Unmuted");
   }
 
   async function resolveSrc(p: string): Promise<string> {
@@ -317,6 +329,9 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     curTime = document.getElementById("curTime") as HTMLElement;
     durTime = document.getElementById("durTime") as HTMLElement;
     volPct = document.getElementById("volPct") as HTMLElement;
+    volIcon = document.getElementById("volIcon") as HTMLElement;
+    if (volIcon) volIcon.onclick = () => toggleMute();
+    syncMuteUI();
     trackTitle = document.getElementById("trackTitle") as HTMLElement;
     trackArtist = document.getElementById("trackArtist") as HTMLElement;
     trackAlbum = document.getElementById("trackAlbum") as HTMLElement;
@@ -388,6 +403,17 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
   bindDOM();
 
+  // Mouse wheel over the main player adjusts volume without requiring the
+  // pointer to be directly over the slider.
+  document.addEventListener("wheel", event => {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest("#playerCard") || !volBar) return;
+    event.preventDefault();
+    const step = event.deltaY < 0 ? 5 : -5;
+    volBar.value = String(Math.max(0, Math.min(100, Number(volBar.value) + step)));
+    volBar.dispatchEvent(new Event("input"));
+  }, { passive: false });
+
   audio.addEventListener("timeupdate", () => {
     busEmit("melo:playback-position", audio.currentTime || 0);
     if (!isSeeking && seekBar && curTime) {
@@ -436,8 +462,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       audio.currentTime -= 5;
     }
     if (e.key === "m" || e.key === "M") {
-      audio.muted = !audio.muted;
-      toast(audio.muted ? "Muted" : "Unmuted");
+      toggleMute();
     }
     if (e.key === "s" || e.key === "S") {
       if (btnShuffle) btnShuffle.click();
@@ -464,8 +489,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     else if (action === "next") next();
     else if (action === "prev") prev();
     else if (action === "mute") {
-      audio.muted = !audio.muted;
-      toast(audio.muted ? "Muted" : "Unmuted");
+      toggleMute();
     }
   });
 

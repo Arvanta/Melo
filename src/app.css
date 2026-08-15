@@ -394,12 +394,6 @@ body.tauri-main .player-card { overflow: hidden; }
 
 /* titlebar quick-add icons sit next to the brand */
 .titlebar-actions { margin-right: auto; margin-left: 4px; }
-/* slim, non-blocking scan progress bar */
-#scanBar {
-  position: fixed; top: 0; left: 0; height: 3px; width: 0; opacity: 0;
-  background: var(--accent); z-index: 9999; pointer-events: none;
-  transition: width 0.25s ease, opacity 0.4s ease;
-}
 /* panels never show a horizontal scrollbar; content shrinks with ellipsis */
 .panel-root { overflow: hidden; }
 .panel-body { overflow-y: auto; overflow-x: hidden; }
@@ -684,4 +678,61 @@ body.panel-window {
 #winPlaylistTracks > .playlist-item {
   flex: 0 0 auto;
   min-height: 0;
+}
+
+
+/* Library search and database actions */
+.library-search-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 12px; flex-shrink: 0; min-width: 0;
+}
+.library-search-row .search-wrap { flex: 1 1 auto; min-width: 0; padding: 0 !important; }
+.library-search-row .search-wrap svg { left: 10px !important; }
+.library-search-row .library-action { height: 30px; flex: 0 0 auto; justify-content: center; position: relative; overflow: hidden; }
+.library-search-row .library-action > * { position: relative; z-index: 1; }
+.library-search-row .library-action.danger { color: #e5484d; }
+.scan-action::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; z-index: 0;
+  width: var(--scan-progress, 0%); background: color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: width .18s linear;
+}
+.scan-action.scanning { border-color: var(--accent); }
+
+/* Identically sized vector-like glyphs for every custom window control. */
+.win-btn[aria-label="minimize"],
+.win-btn[aria-label="maximize"],
+.win-btn[aria-label="close"] { position: relative !important; font-size: 0 !important; }
+.win-btn[aria-label="minimize"]::before {
+  content: ""; width: 10px; height: 1.5px; border-radius: 2px; background: currentColor;
+}
+.win-btn[aria-label="maximize"]::before {
+  content: ""; width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 1px;
+}
+.win-btn[aria-label="close"]::before,
+.win-btn[aria-label="close"]::after {
+  content: ""; position: absolute; width: 11px; height: 1.5px; border-radius: 2px;
+  background: currentColor; left: 50%; top: 50%; transform-origin: center;
+}
+.win-btn[aria-label="close"]::before { transform: translate(-50%,-50%) rotate(45deg); }
+.win-btn[aria-label="close"]::after { transform: translate(-50%,-50%) rotate(-45deg); }
+
+/* Purposeful fallback artwork for tracks without embedded covers. */
+.track-cover-mini.cover-default {
+  display: grid !important; place-items: center; color: rgba(255,255,255,.94);
+  font-size: 15px; font-weight: 700;
+  background: linear-gradient(145deg, #344a78 0%, #6940a5 48%, #1589ad 100%);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
+}
+#btnStop { align-items: center !important; justify-content: center !important; }
+#btnStop svg { display: block; margin: auto; }
+.vol-icon { cursor: pointer; border-radius: 6px; }
+.vol-icon:hover { color: var(--accent); }
+.vol-icon.muted { color: var(--text-muted); opacity: .65; }
+
+@media (max-width: 420px) {
+  .panel-window .library-search-row { padding: 8px !important; gap: 4px; }
+  .panel-window .library-search-row .search-wrap { padding: 0 !important; }
+  .panel-window .library-search-row .search-wrap svg { left: 9px !important; }
+  .panel-window .library-action { padding-left: 7px; padding-right: 7px; }
 }

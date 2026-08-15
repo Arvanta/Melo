@@ -1,4 +1,4 @@
-# Melo — Modern Windows Music Player (Tauri + TypeScript + Rust)
+# Melo — Modern Windows Music Player
 
 A lightweight, native-feeling desktop music player built with **Tauri 2**, **TypeScript** and **Rust**.
 The main window is a compact player card; the Library, Playlist, Equalizer, Synced Lyrics and Settings each open as
@@ -49,6 +49,6 @@ npm run dev      # http://localhost:1420
 
 ## 🛠️ Tech Notes
 
-- **Rust**: `lofty` for reading/writing tags & covers, `walkdir` + `rayon` for parallel scanning, `tauri-plugin-single-instance` for single-instance control and tray actions.
+- **Rust**: `lofty` for metadata, `walkdir` + bounded background workers for scanning, SQLite for the Library, disk-cached artwork, and `tauri-plugin-single-instance` for single-instance control and tray actions.
 - **Frontend audio**: `HTMLAudioElement` + one shared `AudioContext` (EQ filters → gain → analyser → output).
 - **Desktop metadata**: `music-metadata-browser` is stubbed out of desktop bundles, keeping the Windows build small and fast.

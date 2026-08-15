@@ -25,6 +25,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const searchInput = document.getElementById("searchInput") as HTMLInputElement | null;
   const tabs = document.getElementById("libraryTabs");
   const scanButton = document.getElementById("btn-scan") as HTMLButtonElement | null;
+  const clearLibraryButton = document.getElementById("btn-clear-library") as HTMLButtonElement | null;
 
   const playlistList = document.getElementById("winPlaylistTracks") as HTMLElement | null;
   const playlistEmpty = document.getElementById("winPlaylistEmpty") as HTMLElement | null;
@@ -41,6 +42,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let currentPlaylistId = localStorage.getItem("melo-currentPlaylist") || "p1";
   let playlists: PlaylistRow[] = [];
   let activeScanId: string | null = null;
+  let ownedScanId: string | null = null;
+  let replacePlaylistAfterScan = false;
   let recentTracks: Track[] = [];
 
   let libTab: "artists" | "albums" | "genres" = "artists";
@@ -55,6 +58,28 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let playlistRequest = 0;
   let libraryScrollTimer = 0;
   let playlistScrollTimer = 0;
+  let contextTrackId: string | null = null;
+  const libraryContextMenu = document.createElement("div");
+  libraryContextMenu.className = "ctx-menu";
+  libraryContextMenu.style.display = "none";
+  libraryContextMenu.innerHTML = `<button class="ctx-item danger" id="ctxRemoveLibraryTrack">Remove from Library</button>`;
+  document.body.appendChild(libraryContextMenu);
+  document.addEventListener("click", event => {
+    if (!(event.target as HTMLElement).closest("#ctxRemoveLibraryTrack")) libraryContextMenu.style.display = "none";
+  });
+  libraryContextMenu.querySelector<HTMLElement>("#ctxRemoveLibraryTrack")!.onclick = async event => {
+    event.stopPropagation();
+    if (!invoke || !contextTrackId) return;
+    await invoke("delete_tracks", { ids: [contextTrackId] });
+    libraryContextMenu.style.display = "none";
+    contextTrackId = null;
+    busEmit("melo:library-changed", { removed: 1 });
+  };
+
+  function setScanLabel(text: string) {
+    const label = scanButton?.querySelector<HTMLElement>(".scan-label");
+    if (label) label.textContent = text;
+  }
 
   function artworkUrl(path?: string): string {
     if (!path) return "";
@@ -266,20 +291,24 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
     });
     trackList.querySelectorAll<HTMLElement>("[data-track-id]").forEach(row => {
-      row.onclick = event => {
+      row.onclick = async event => {
         if ((event.target as HTMLElement).closest("[data-add-track]")) return;
         const index = Number(row.dataset.pageIndex || 0);
         const list = items.filter((x): x is Track => "path" in x).map(normalizeTrack);
+        if (invoke && list.length) {
+          await invoke("replace_playlist_tracks", { playlistId: currentPlaylistId, trackIds: list.map(t => t.id) });
+          busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+        }
         busEmit("melo:play-tracks", { tracks: list, index });
       };
-      row.oncontextmenu = async event => {
+      row.oncontextmenu = event => {
         event.preventDefault();
-        const id = row.dataset.trackId;
-        if (!id || !invoke) return;
-        if (confirm("Remove this track from the Library?")) {
-          await invoke("delete_tracks", { ids: [id] });
-          busEmit("melo:library-changed", { removed: 1 });
-        }
+        event.stopPropagation();
+        contextTrackId = row.dataset.trackId || null;
+        libraryContextMenu.style.display = "block";
+        const rect = libraryContextMenu.getBoundingClientRect();
+        libraryContextMenu.style.left = `${Math.max(6, Math.min(event.clientX, window.innerWidth - rect.width - 6))}px`;
+        libraryContextMenu.style.top = `${Math.max(6, Math.min(event.clientY, window.innerHeight - rect.height - 6))}px`;
       };
     });
     trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
@@ -352,12 +381,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return invoke<T>(command, args);
   }
 
-  async function importPaths(paths: string[], addToPlaylist = true): Promise<Track[]> {
+  async function importPaths(paths: string[], mode: "replace" | "append" | "none" = "replace"): Promise<Track[]> {
     await loadCore();
     if (!invoke || !paths.length) return [];
     const list = await invoke<Track[]>("import_audio_files", {
       paths,
-      playlistId: addToPlaylist ? currentPlaylistId : null,
+      playlistId: mode === "none" ? null : currentPlaylistId,
+      replacePlaylist: mode === "replace",
     });
     const hydrated = list.map(normalizeTrack);
     await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(), renderPlaylistVirtual()]);
@@ -365,13 +395,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return hydrated;
   }
 
-  async function scanFolder(path: string) {
+  async function scanFolder(path: string, replacePlaylist = false) {
     await loadCore();
     if (!invoke) return null;
     if (activeScanId) return activeScanId;
     const result = await invoke<{ scanId: string }>("start_library_scan", { path });
     activeScanId = result.scanId;
-    if (scanButton) scanButton.textContent = "Cancel Scan";
+    ownedScanId = result.scanId;
+    replacePlaylistAfterScan = replacePlaylist;
+    if (scanButton) setScanLabel("Cancel Scan");
     return activeScanId;
   }
 
@@ -426,6 +458,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     renderPlaylistVirtual(true);
   });
   scanButton?.addEventListener("click", chooseAndScanFolder);
+  clearLibraryButton?.addEventListener("click", async () => {
+    if (!invoke) return;
+    if (activeScanId) {
+      alert("Cancel the active scan before clearing the Library database.");
+      return;
+    }
+    if (!confirm("Clear all Library tracks, playlist contents, and cached artwork? This cannot be undone.")) return;
+    await invoke("clear_library_database");
+    recentTracks = [];
+    await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true), renderPlaylistVirtual(true)]);
+    busEmit("melo:library-changed", { cleared: true });
+  });
   clearPlaylistButton?.addEventListener("click", async () => {
     await invokeSafe("clear_playlist", { playlistId: currentPlaylistId });
     await Promise.all([refreshPlaylists(), renderPlaylistVirtual(true)]);
@@ -463,12 +507,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (event.payload.type !== "drop") return;
         const paths = event.payload.paths || [];
         if (!paths.length) return;
-        const imported = await importPaths(paths, true);
+        const imported = await importPaths(paths, role === "playlist" ? "append" : "replace");
         if (imported.length) {
           busEmit("melo:play-tracks", { tracks: imported, index: 0 });
         } else {
           for (const path of paths) {
-            try { await scanFolder(path); } catch {}
+            try { await scanFolder(path, role !== "playlist"); } catch {}
           }
         }
       });
@@ -478,10 +522,29 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   busOn("melo:scan-progress", async (progress: any) => {
     if (!progress) return;
     if (progress.scanId) activeScanId = progress.scanId;
-    if (scanButton && !progress.finished) scanButton.textContent = `Cancel Scan (${progress.done || 0}/${progress.total || "…"})`;
+    if (scanButton && !progress.finished) setScanLabel(`Cancel ${progress.done || 0}/${progress.total || "…"}`);
+    if (scanButton) {
+      const pct = progress.total ? Math.max(0, Math.min(100, (Number(progress.done || 0) / Number(progress.total)) * 100)) : 0;
+      scanButton.style.setProperty("--scan-progress", `${pct}%`);
+      scanButton.classList.toggle("scanning", !progress.finished);
+    }
     if (progress.finished) {
+      const shouldReplace = progress.scanId === ownedScanId && replacePlaylistAfterScan && !progress.cancelled;
+      if (shouldReplace && invoke) {
+        await invoke("replace_playlist_from_scan", { playlistId: currentPlaylistId, scanId: progress.scanId });
+        const first = await invoke<Page<Track>>("playlist_tracks", { playlistId: currentPlaylistId, search: null, sort: "default", limit: 100, offset: 0 });
+        const list = first.items.map(normalizeTrack);
+        if (list.length) busEmit("melo:play-tracks", { tracks: list, index: 0 });
+        busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+      }
       activeScanId = null;
-      if (scanButton) scanButton.textContent = "Scan Folder";
+      ownedScanId = null;
+      replacePlaylistAfterScan = false;
+      if (scanButton) {
+        setScanLabel("Scan");
+        scanButton.classList.remove("scanning");
+        scanButton.style.setProperty("--scan-progress", "0%");
+      }
       await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(), renderPlaylistVirtual()]);
     }
   });
