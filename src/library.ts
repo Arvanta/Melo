@@ -76,6 +76,27 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     busEmit("melo:library-changed", { removed: 1 });
   };
 
+  function confirmLibraryClear(): Promise<boolean> {
+    return new Promise(resolve => {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `<div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clearLibraryTitle">
+        <div id="clearLibraryTitle" class="confirm-title">Clear Library?</div>
+        <div class="confirm-message">All tracks will be removed from Library browsing. Your playlists and their tracks will remain unchanged.</div>
+        <div class="confirm-actions"><button class="btn small" data-confirm="cancel">Cancel</button><button class="btn small danger-confirm" data-confirm="yes">Clear Library</button></div>
+      </div>`;
+      document.body.appendChild(overlay);
+      const finish = (answer: boolean) => { document.removeEventListener("keydown", onKey); overlay.remove(); resolve(answer); };
+      overlay.querySelector<HTMLElement>("[data-confirm='cancel']")!.onclick = () => finish(false);
+      overlay.querySelector<HTMLElement>("[data-confirm='yes']")!.onclick = () => finish(true);
+      overlay.onclick = event => { if (event.target === overlay) finish(false); };
+      const onKey = (event: KeyboardEvent) => {
+        if (event.key === "Escape") { document.removeEventListener("keydown", onKey); finish(false); }
+      };
+      document.addEventListener("keydown", onKey);
+    });
+  }
+
   function setScanLabel(text: string) {
     const label = scanButton?.querySelector<HTMLElement>(".scan-label");
     if (label) label.textContent = text;
@@ -464,7 +485,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       alert("Cancel the active scan before clearing the Library database.");
       return;
     }
-    if (!confirm("Clear all Library tracks, playlist contents, and cached artwork? This cannot be undone.")) return;
+    if (!await confirmLibraryClear()) return;
     await invoke("clear_library_database");
     recentTracks = [];
     await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true), renderPlaylistVirtual(true)]);
@@ -509,7 +530,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (!paths.length) return;
         const imported = await importPaths(paths, role === "playlist" ? "append" : "replace");
         if (imported.length) {
-          busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+          if (role !== "playlist") busEmit("melo:play-tracks", { tracks: imported, index: 0 });
         } else {
           for (const path of paths) {
             try { await scanFolder(path, role !== "playlist"); } catch {}

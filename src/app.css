@@ -703,10 +703,14 @@ body.panel-window {
 .win-btn[aria-label="maximize"],
 .win-btn[aria-label="close"] { position: relative !important; font-size: 0 !important; }
 .win-btn[aria-label="minimize"]::before {
-  content: ""; width: 10px; height: 1.5px; border-radius: 2px; background: currentColor;
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 10px; height: 1.5px; border-radius: 2px; background: currentColor;
+  transform: translate(-50%,-50%);
 }
 .win-btn[aria-label="maximize"]::before {
-  content: ""; width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 1px;
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 1px;
+  transform: translate(-50%,-50%);
 }
 .win-btn[aria-label="close"]::before,
 .win-btn[aria-label="close"]::after {
@@ -720,7 +724,7 @@ body.panel-window {
 .track-cover-mini.cover-default {
   display: grid !important; place-items: center; color: rgba(255,255,255,.94);
   font-size: 15px; font-weight: 700;
-  background: linear-gradient(145deg, #344a78 0%, #6940a5 48%, #1589ad 100%);
+  background: linear-gradient(135deg, #8fb9e8 0%, #d6b8e0 50%, #f0c9a8 100%);
   border: 1px solid rgba(255,255,255,.14);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
 }
@@ -736,3 +740,21 @@ body.panel-window {
   .panel-window .library-search-row .search-wrap svg { left: 9px !important; }
   .panel-window .library-action { padding-left: 7px; padding-right: 7px; }
 }
+
+
+/* In-app confirmation used by destructive Library actions. */
+.confirm-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  display: grid; place-items: center; padding: 18px;
+  background: rgba(5, 10, 20, .52); backdrop-filter: blur(3px);
+}
+.confirm-dialog {
+  width: min(360px, 100%); padding: 16px;
+  border-radius: 14px; border: 1px solid var(--card-border);
+  background: var(--card); color: var(--text); box-shadow: var(--shadow-lg);
+}
+.confirm-title { font-size: 14px; font-weight: 750; margin-bottom: 7px; }
+.confirm-message { font-size: 12px; line-height: 1.55; color: var(--text-soft); }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 15px; }
+.btn.danger-confirm { background: #e5484d; color: #fff; border-color: #e5484d; }
+.btn.danger-confirm:hover { background: #c9363b; }

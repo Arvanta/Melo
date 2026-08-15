@@ -580,7 +580,7 @@ pub async fn start_library_scan(
                             else { failed += 1; }
                         }
                         ScanResult::Unchanged(path) => {
-                            if tx.execute("UPDATE tracks SET last_seen_scan=?2 WHERE path=?1", params![path,id]).is_err() { failed += 1; }
+                            if tx.execute("UPDATE tracks SET last_seen_scan=?2,library_owned=1 WHERE path=?1", params![path,id]).is_err() { failed += 1; }
                         }
                         ScanResult::Failed => failed += 1,
                     }
@@ -820,8 +820,15 @@ pub async fn replace_playlist_from_scan(playlist_id:String,scan_id:String,state:
 
 #[tauri::command]
 pub async fn clear_library_database(state:State<'_,LibraryState>)->Result<(),String>{
-    let db_path=state.db_path.clone(); let artwork_dir=state.artwork_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {let mut conn=open_db(&db_path)?;let tx=conn.transaction().map_err(|e|e.to_string())?;tx.execute("DELETE FROM playlist_tracks",[]).map_err(|e|e.to_string())?;tx.execute("DELETE FROM tracks",[]).map_err(|e|e.to_string())?;tx.execute("DELETE FROM scan_jobs",[]).map_err(|e|e.to_string())?;tx.commit().map_err(|e|e.to_string())?;if let Ok(entries)=std::fs::read_dir(artwork_dir){for entry in entries.filter_map(Result::ok){let _=std::fs::remove_file(entry.path());}}Ok(())}).await.map_err(|e|e.to_string())?
+    let db_path=state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn=open_db(&db_path)?;
+        // Keep track rows and artwork because playlists may still reference
+        // them; only remove their membership in Library browsing.
+        conn.execute("UPDATE tracks SET library_owned=0 WHERE library_owned=1",[]).map_err(|e|e.to_string())?;
+        conn.execute("DELETE FROM scan_jobs",[]).map_err(|e|e.to_string())?;
+        Ok(())
+    }).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
