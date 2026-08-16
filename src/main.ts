@@ -452,7 +452,6 @@ if (isTauri && urlPanel) {
     <div class="panel-title" data-tauri-drag-region>${titleHtml}</div>
     <div class="win-controls">
       <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
-      <button class="win-btn" aria-label="maximize" title="Maximize / Restore">□</button>
       <button class="win-btn close" aria-label="close" title="Close">×</button>
     </div>
   </div>
@@ -1098,11 +1097,9 @@ function bindWinControls() {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const w = getCurrentWindow();
         if (label === "minimize") w.minimize();
-        else if (label === "maximize") w.toggleMaximize();
         else if (label === "close") w.close();
       } else {
         if (label === "close") showToast("Window close requires the Tauri desktop build");
-        if (label === "maximize") showToast("Resize: drag corner handle");
       }
     };
   });

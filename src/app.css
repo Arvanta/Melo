@@ -706,16 +706,10 @@ body.panel-window {
 
 /* Identically sized vector-like glyphs for every custom window control. */
 .win-btn[aria-label="minimize"],
-.win-btn[aria-label="maximize"],
 .win-btn[aria-label="close"] { position: relative !important; font-size: 0 !important; }
 .win-btn[aria-label="minimize"]::before {
   content: ""; position: absolute; left: 50%; top: 50%;
   width: 10px; height: 1.5px; border-radius: 2px; background: currentColor;
-  transform: translate(-50%,-50%);
-}
-.win-btn[aria-label="maximize"]::before {
-  content: ""; position: absolute; left: 50%; top: 50%;
-  width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 1px;
   transform: translate(-50%,-50%);
 }
 .win-btn[aria-label="close"]::before,
