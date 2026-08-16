@@ -17,6 +17,9 @@
   --radius-sm: 12px;
   --visualizer: #5ea0e6;
   --visualizer-soft: rgba(94,160,230,0.18);
+  --scrollbar-track: rgba(92, 113, 138, 0.10);
+  --scrollbar-thumb: rgba(92, 113, 138, 0.46);
+  --scrollbar-thumb-hover: rgba(42, 123, 214, 0.72);
 }
 [data-theme="dark"] {
   --bg: #131a24;
@@ -35,6 +38,9 @@
   --shadow-lg: 0 20px 50px rgba(0,0,0,0.5), 0 8px 20px rgba(0,0,0,0.4);
   --visualizer: #5ea0e6;
   --visualizer-soft: rgba(94,160,230,0.25);
+  --scrollbar-track: rgba(255,255,255,0.045);
+  --scrollbar-thumb: rgba(154,173,200,0.38);
+  --scrollbar-thumb-hover: rgba(78,158,255,0.76);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -721,7 +727,8 @@ body.panel-window {
 .win-btn[aria-label="close"]::after { transform: translate(-50%,-50%) rotate(-45deg); }
 
 /* Purposeful fallback artwork for tracks without embedded covers. */
-.track-cover-mini.cover-default {
+.track-cover-mini.cover-default,
+.chip-thumb.cover-default {
   display: grid !important; place-items: center; color: rgba(255,255,255,.94);
   font-size: 15px; font-weight: 700;
   background: linear-gradient(135deg, #8fb9e8 0%, #d6b8e0 50%, #f0c9a8 100%);
@@ -758,3 +765,51 @@ body.panel-window {
 .confirm-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 15px; }
 .btn.danger-confirm { background: #e5484d; color: #fff; border-color: #e5484d; }
 .btn.danger-confirm:hover { background: #c9363b; }
+
+
+/* Theme-aware custom scrollbars for Library, Playlist, and artist albums. */
+#trackList,
+#winPlaylistTracks,
+.artist-album-chips,
+.panel-library .panel-body,
+.panel-playlist .panel-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+#trackList::-webkit-scrollbar,
+#winPlaylistTracks::-webkit-scrollbar,
+.panel-library .panel-body::-webkit-scrollbar,
+.panel-playlist .panel-body::-webkit-scrollbar { width: 9px; height: 9px; }
+.artist-album-chips::-webkit-scrollbar { width: 6px; height: 6px; }
+#trackList::-webkit-scrollbar-track,
+#winPlaylistTracks::-webkit-scrollbar-track,
+.artist-album-chips::-webkit-scrollbar-track,
+.panel-library .panel-body::-webkit-scrollbar-track,
+.panel-playlist .panel-body::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+#trackList::-webkit-scrollbar-thumb,
+#winPlaylistTracks::-webkit-scrollbar-thumb,
+.artist-album-chips::-webkit-scrollbar-thumb,
+.panel-library .panel-body::-webkit-scrollbar-thumb,
+.panel-playlist .panel-body::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  min-height: 32px;
+}
+.artist-album-chips::-webkit-scrollbar-thumb { border-width: 1px; }
+#trackList::-webkit-scrollbar-thumb:hover,
+#winPlaylistTracks::-webkit-scrollbar-thumb:hover,
+.artist-album-chips::-webkit-scrollbar-thumb:hover,
+.panel-library .panel-body::-webkit-scrollbar-thumb:hover,
+.panel-playlist .panel-body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+.artist-detail-header { border-bottom: 1px solid var(--card-border); box-shadow: 0 2px 8px rgba(0,0,0,.035); }
+.artist-detail-header .lib-crumb { border-bottom: none; }
+.artist-album-chips { overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
+.artist-album-chips .chip { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.artist-album-chips .chip-thumb { display: inline-grid; place-items: center; color: white; font-size: 9px; }

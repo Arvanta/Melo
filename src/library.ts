@@ -45,6 +45,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let ownedScanId: string | null = null;
   let replacePlaylistAfterScan = false;
   let recentTracks: Track[] = [];
+  const artistAlbumsCache = new Map<string, GroupRow[]>();
 
   let libTab: "artists" | "albums" | "genres" = "artists";
   let selectedArtist: string | null = null;
@@ -193,19 +194,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   function libraryMode(): "groups" | "tracks" {
-    if (libTab === "artists") return selectedArtist && selectedAlbum ? "tracks" : "groups";
+    if (libTab === "artists") return selectedArtist ? "tracks" : "groups";
     if (libTab === "albums") return selectedAlbum ? "tracks" : "groups";
     return selectedGenre ? "tracks" : "groups";
   }
 
   function libraryGroupKind(): "artists" | "albums" | "genres" {
-    if (libTab === "artists" && selectedArtist) return "albums";
     return libTab;
   }
 
   function libraryCrumb(): string {
     if (libTab === "artists" && selectedArtist) {
-      return selectedAlbum ? `${selectedArtist} › ${selectedAlbum === "__ALL__" ? "All tracks" : selectedAlbum}` : selectedArtist;
+      return selectedAlbum ? `${selectedArtist} › ${selectedAlbum}` : selectedArtist;
     }
     if (libTab === "albums" && selectedAlbum) return selectedAlbum;
     if (libTab === "genres" && selectedGenre) return selectedGenre;
@@ -226,7 +226,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const page = await invoke<Page<Track>>("library_tracks", {
       search: librarySearch || null,
       artist: selectedArtist,
-      album: selectedAlbum === "__ALL__" ? null : selectedAlbum,
+      album: selectedAlbum,
       genre: selectedGenre,
       sort: "title-asc",
       limit,
@@ -237,6 +237,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return page;
   }
 
+  async function getArtistAlbums(artist: string): Promise<GroupRow[]> {
+    const cached = artistAlbumsCache.get(artist);
+    if (cached) return cached;
+    if (!invoke) return [];
+    const page = await invoke<Page<GroupRow>>("library_groups", { kind: "albums", search: null, artist, limit: 500, offset: 0 });
+    artistAlbumsCache.set(artist, page.items);
+    return page.items;
+  }
+
   async function renderLibraryVirtual(reset = false) {
     if (!trackList || !invoke) return;
     if (reset) trackList.scrollTop = 0;
@@ -244,19 +253,24 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     trackList.style.position = "relative";
     trackList.style.overflowY = "auto";
     const viewport = Math.max(300, trackList.clientHeight || 420);
+    const artistDetail = libTab === "artists" && !!selectedArtist;
+    const crumb = libraryCrumb();
+    const headerHeight = artistDetail ? 84 : (crumb ? 38 : 0);
     const visible = Math.ceil(viewport / libraryRowHeight);
-    const start = Math.max(0, Math.floor(trackList.scrollTop / libraryRowHeight) - 8);
+    const effectiveScroll = Math.max(0, trackList.scrollTop - headerHeight);
+    const start = Math.max(0, Math.floor(effectiveScroll / libraryRowHeight) - 8);
     const limit = Math.max(40, visible + 16);
     const request = ++libraryRequest;
     try {
-      const page = await fetchLibraryPage(start, limit);
+      const albumsPromise: Promise<GroupRow[] | null> = artistDetail && selectedArtist
+        ? getArtistAlbums(selectedArtist)
+        : Promise.resolve(null);
+      const [page, artistAlbums] = await Promise.all([fetchLibraryPage(start, limit), albumsPromise]);
       if (request !== libraryRequest) return;
-      const crumb = libraryCrumb();
-      const crumbHeight = crumb ? 38 : 0;
-      const totalHeight = page.total * libraryRowHeight + crumbHeight;
+      const totalHeight = page.total * libraryRowHeight + headerHeight;
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
-        const top = crumbHeight + absoluteIndex * libraryRowHeight;
+        const top = headerHeight + absoluteIndex * libraryRowHeight;
         if (libraryMode() === "groups") {
           const group = item as GroupRow;
           const cover = artworkUrl(group.cover);
@@ -276,18 +290,30 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
         </div>`;
       }).join("");
-      const crumbHtml = crumb
-        ? `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;height:${crumbHeight}px;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(crumb)}</b>${libTab === "artists" && selectedArtist && !selectedAlbum ? `<button class="btn small" id="virtualAllTracks">All tracks</button>` : ""}</div>`
-        : "";
-      trackList.innerHTML = `<div class="virtual-list-space" style="position:relative;height:${Math.max(totalHeight, viewport)}px">${crumbHtml}${rows}</div>`;
-      bindLibraryRows(page.items);
+      const artistHeader = artistDetail && artistAlbums
+        ? `<div class="artist-detail-header" style="position:sticky;top:0;height:${headerHeight}px;z-index:4;background:var(--card)">
+            <div class="lib-crumb" style="height:38px"><button class="btn small" id="virtualBack">‹ Artists</button><b>${esc(selectedArtist)}</b></div>
+            <div class="chip-row artist-album-chips custom-scrollbar" style="height:46px;padding-top:6px;padding-bottom:6px">
+              <button class="chip ${selectedAlbum === null ? "active" : ""}" data-artist-album="all">All Tracks</button>
+              ${artistAlbums.map((album, index) => {
+                const cover = artworkUrl(album.cover);
+                const thumb = cover
+                  ? `<span class="chip-thumb" style="background-image:url('${esc(cover)}')"></span>`
+                  : `<span class="chip-thumb cover-default" data-artwork-id="${esc(album.artworkTrackId || "")}">♪</span>`;
+                return `<button class="chip ${selectedAlbum === album.name ? "active" : ""}" data-artist-album-index="${index}">${thumb}${esc(album.name)}</button>`;
+              }).join("")}
+            </div>
+          </div>`
+        : (crumb ? `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;height:${headerHeight}px;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(crumb)}</b></div>` : "");
+      trackList.innerHTML = `<div class="virtual-list-space" style="position:relative;height:${Math.max(totalHeight, viewport)}px">${artistHeader}${rows}</div>`;
+      bindLibraryRows(page.items, artistAlbums || []);
       bindLazyArtwork(trackList);
     } catch (error) {
       trackList.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Could not read the Library database.</div>`;
     }
   }
 
-  function bindLibraryRows(items: Array<GroupRow | Track>) {
+  function bindLibraryRows(items: Array<GroupRow | Track>, artistAlbums: GroupRow[] = []) {
     if (!trackList) return;
     trackList.querySelectorAll<HTMLElement>("[data-group-index]").forEach(row => {
       row.onclick = () => {
@@ -333,14 +359,22 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
     });
     trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
-      if (selectedAlbum) selectedAlbum = null;
+      if (libTab === "artists" && selectedArtist) { selectedArtist = null; selectedAlbum = null; }
+      else if (selectedAlbum) selectedAlbum = null;
       else if (selectedArtist) selectedArtist = null;
       else selectedGenre = null;
       renderLibraryVirtual(true);
     });
-    trackList.querySelector<HTMLElement>("#virtualAllTracks")?.addEventListener("click", () => {
-      selectedAlbum = "__ALL__";
+    trackList.querySelector<HTMLElement>("[data-artist-album='all']")?.addEventListener("click", () => {
+      selectedAlbum = null;
       renderLibraryVirtual(true);
+    });
+    trackList.querySelectorAll<HTMLElement>("[data-artist-album-index]").forEach(button => {
+      button.onclick = () => {
+        const album = artistAlbums[Number(button.dataset.artistAlbumIndex || 0)];
+        selectedAlbum = album?.name || null;
+        renderLibraryVirtual(true);
+      };
     });
   }
 
@@ -488,6 +522,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!await confirmLibraryClear()) return;
     await invoke("clear_library_database");
     recentTracks = [];
+    artistAlbumsCache.clear();
     await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true), renderPlaylistVirtual(true)]);
     busEmit("melo:library-changed", { cleared: true });
   });
@@ -571,6 +606,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   });
   let refreshTimer = 0;
   busOn("melo:library-changed", () => {
+    artistAlbumsCache.clear();
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
       refreshStats();
