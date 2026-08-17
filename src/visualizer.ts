@@ -140,15 +140,26 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
   function resize() {
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || container?.clientWidth || 200;
-    const h = canvas.clientHeight || container?.clientHeight || 56;
+    const host = container || canvas.parentElement;
+    // Prefer the container's box (the canvas fills it). Observing the
+    // canvas itself can miss the initial layout and leave a 300x150
+    // default buffer until the user manually resizes the window.
+    const w = canvas.clientWidth || host?.clientWidth || 0;
+    const h = canvas.clientHeight || host?.clientHeight || 0;
     if (w > 0 && h > 0) {
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
     }
   }
-  new ResizeObserver(resize).observe(canvas);
+  const resizeTarget = container || canvas.parentElement || canvas;
+  new ResizeObserver(resize).observe(resizeTarget);
   resize();
+  // Re-run after the browser has performed layout, in case the container
+  // had zero size at construction (this fixes the "too big on launch" bug).
+  requestAnimationFrame(() => {
+    resize();
+    requestAnimationFrame(resize);
+  });
 
   function drawBars(data: number[], w: number, h: number, gapFrac: number) {
     const dpr = dprOf();
@@ -486,8 +497,13 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     if (!container) return;
     canvas = ensureCanvas(container);
     g2d = canvas.getContext("2d")!;
-    new ResizeObserver(resize).observe(canvas);
+    const resizeTarget = container || canvas.parentElement || canvas;
+    new ResizeObserver(resize).observe(resizeTarget);
     resize();
+    requestAnimationFrame(() => {
+      resize();
+      requestAnimationFrame(resize);
+    });
     bindContainer();
     startLoop();
   }

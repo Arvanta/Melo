@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Silk Orbit</title>
+<meta name="melo-window" content="width=620, height=380, minWidth=520, minHeight=340, maxWidth=780, maxHeight=520, resizable=true, transparent=true" />
+<style>
+  :root {
+    --so-bg: #f1f0eb;
+    --so-surface: rgba(255,255,255,.68);
+    --so-surface-strong: rgba(255,255,255,.88);
+    --so-line: rgba(26,31,39,.08);
+    --so-text: #20252d;
+    --so-soft: #747a84;
+    --so-muted: #a0a5ad;
+    --so-shadow: 0 26px 70px rgba(39,43,50,.16);
+    --accent: #7473e8;
+    --visualizer: #7473e8;
+    --track-bg: rgba(41,47,57,.075);
+  }
+
+  [data-theme="dark"] {
+    --so-bg: #111318;
+    --so-surface: rgba(29,32,39,.74);
+    --so-surface-strong: rgba(35,38,47,.92);
+    --so-line: rgba(255,255,255,.075);
+    --so-text: #f1f2f5;
+    --so-soft: #a4a8b2;
+    --so-muted: #696e79;
+    --so-shadow: 0 28px 80px rgba(0,0,0,.48);
+    --track-bg: rgba(255,255,255,.07);
+  }
+
+  * { box-sizing: border-box; }
+  body:not(.tauri-main) {
+    min-height: 100vh;
+    margin: 0;
+    padding: 26px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    color: var(--so-text);
+    background: radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 38%), var(--so-bg);
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+
+  /* Melo extracts the inner HTML of #melo-player into .player-card. */
+  #melo-player,
+  body.tauri-main .player-card {
+    width: min(620px, 100%);
+    height: 380px;
+    min-height: 340px;
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: 42px minmax(0, 1fr) 56px;
+    margin: 0;
+    padding: 0;
+    color: var(--so-text);
+    background:
+      radial-gradient(circle at 4% 3%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 36%),
+      var(--so-bg);
+    border: 1px solid var(--so-line);
+    border-radius: 30px;
+    box-shadow: var(--so-shadow);
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  /* Defensive overrides for older v0.5 builds whose default-player 640px
+     floor and visualizer media query leaked into custom full-HTML skins. */
+  body.tauri-main,
+  body.tauri-main .app-shell { min-width: 0 !important; }
+  body.tauri-main .so-viz.visualizer-bars { display: block !important; }
+
+  body.tauri-main .player-card {
+    width: 100% !important;
+    height: 100vh !important;
+    min-height: 0 !important;
+    max-height: 100vh !important;
+    border-radius: 30px !important;
+    box-shadow: none !important;
+  }
+
+  .so-titlebar {
+    padding: 0 10px 0 17px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    -webkit-app-region: drag;
+    user-select: none;
+    position: relative;
+    z-index: 5;
+  }
+  .so-brand { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 750; letter-spacing: .08em; }
+  .so-brand-orb { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent); }
+  .so-brand small { color: var(--so-muted); font-size: 8px; font-weight: 650; letter-spacing: .12em; }
+
+  .win-controls { -webkit-app-region: no-drag; display: flex; gap: 3px; }
+  .win-btn {
+    width: 28px; height: 25px; border: 0; border-radius: 8px;
+    display: grid; place-items: center; color: var(--so-soft);
+    background: transparent; cursor: pointer;
+  }
+  .win-btn:hover { color: var(--so-text); background: var(--track-bg); }
+  .win-btn.close:hover { color: white; background: #e35468; }
+
+  .so-content {
+    min-width: 0; min-height: 0;
+    padding: 4px 18px 14px;
+    display: grid;
+    grid-template-columns: minmax(190px, .88fr) minmax(240px, 1.12fr);
+    gap: 18px;
+  }
+
+  .so-art-column { min-width: 0; min-height: 0; position: relative; }
+  .cover-wrap {
+    width: 100%; height: 100%; min-height: 210px;
+    position: relative; overflow: hidden;
+    border-radius: 26px 9px 26px 26px;
+    background: linear-gradient(140deg, color-mix(in srgb, var(--accent) 48%, #b9c7de), #eabfc7 52%, #f0d7b1);
+    box-shadow: inset 0 1px rgba(255,255,255,.4), 0 18px 45px rgba(34,39,48,.16);
+  }
+  .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover-fallback {
+    width: 100%; height: 100%; display: grid; place-items: center;
+    color: rgba(255,255,255,.92); font-size: 52px;
+    background:
+      radial-gradient(circle at 22% 20%, rgba(255,255,255,.38), transparent 30%),
+      linear-gradient(140deg, color-mix(in srgb, var(--accent) 72%, #8bbad1), #ba83c4 55%, #efad94);
+  }
+
+  .so-player-column {
+    min-width: 0; min-height: 0;
+    padding: 8px 2px 2px;
+    display: flex; flex-direction: column;
+  }
+  .so-kicker { flex-shrink: 0; color: var(--accent); font-size: 9px; font-weight: 760; letter-spacing: .13em; text-transform: uppercase; }
+  .track-title {
+    margin-top: 7px; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex-shrink: 0; color: var(--so-text); font-size: clamp(21px, 4vw, 29px); font-weight: 780; line-height: 1.18; letter-spacing: -.035em;
+  }
+  .track-artist { flex-shrink: 0; line-height: 1.3; margin-top: 8px; color: var(--so-soft); font-size: 13px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-album { flex-shrink: 0; line-height: 1.25; margin-top: 3px; color: var(--so-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-format { flex-shrink: 0; margin-top: 9px; display: flex; align-items: center; gap: 6px; color: var(--so-muted); font-size: 9px; }
+  .badge-flac { padding: 3px 6px; border: 1px solid var(--so-line); border-radius: 6px; color: var(--accent); font-weight: 750; letter-spacing: .06em; }
+
+  .so-viz {
+    height: 42px; margin-top: auto; margin-bottom: 8px;
+    overflow: hidden; border-radius: 10px;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 5%, transparent));
+    cursor: pointer;
+  }
+  .so-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+
+  .so-seek { flex-shrink: 0; display: grid; grid-template-columns: 32px minmax(0,1fr) 32px; gap: 8px; align-items: center; }
+  .so-time { color: var(--so-muted); font: 500 9px/1 ui-monospace, "Cascadia Mono", monospace; font-variant-numeric: tabular-nums; }
+  #durTime { text-align: right; }
+  .seek, .vol {
+    -webkit-appearance: none; appearance: none; outline: none; cursor: pointer;
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress,0%), var(--track-bg) var(--progress,0%), var(--track-bg) 100%);
+  }
+  .seek::-webkit-slider-thumb, .vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+    border: 3px solid var(--so-bg); background: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  .transport { flex-shrink: 0; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .transport button {
+    width: 36px; height: 36px; padding: 0; border: 0; border-radius: 12px;
+    display: grid; place-items: center; color: var(--so-soft); background: transparent; cursor: pointer;
+    transition: transform .14s ease, background .14s ease, color .14s ease;
+  }
+  .transport button:hover { color: var(--so-text); background: var(--track-bg); transform: translateY(-1px); }
+  .transport button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .transport button svg { width: 16px; height: 16px; }
+  .transport .play-btn {
+    width: 48px; height: 48px; border-radius: 50%; color: white; background: var(--accent);
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .transport .play-btn:hover { color: white; background: color-mix(in srgb, var(--accent) 88%, black); }
+  .transport .play-btn svg { width: 20px; height: 20px; }
+  #btnStop { display: none; }
+  body.show-stop-btn #btnStop { display: grid !important; }
+
+  .so-footer {
+    margin: 0 13px 11px; padding: 6px;
+    display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center;
+    border: 1px solid var(--so-line); border-radius: 17px;
+    background: var(--so-surface); backdrop-filter: blur(20px);
+  }
+  .so-tools, .so-panels { display: flex; align-items: center; gap: 3px; }
+  .so-panels { justify-content: center; }
+  .so-footer button {
+    height: 31px; min-width: 31px; padding: 0 9px; border: 0; border-radius: 11px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    color: var(--so-soft); background: transparent; cursor: pointer; font-size: 9px; font-weight: 680;
+  }
+  .so-footer button:hover { color: var(--so-text); background: var(--track-bg); }
+  .so-footer button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .so-footer svg { width: 13px; height: 13px; }
+  .so-volume { display: grid; grid-template-columns: 17px 64px 27px; gap: 6px; align-items: center; }
+  #volIcon { display: grid; place-items: center; color: var(--so-soft); cursor: pointer; }
+  #volIcon:hover { color: var(--accent); }
+  .vol { width: 64px; background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol,60%), var(--track-bg) var(--vol,60%), var(--track-bg) 100%); }
+  #volPct { color: var(--so-muted); text-align: right; font: 500 11px/1 ui-monospace, monospace; }
+
+  /* Switch before content begins to clip, rather than waiting for min width. */
+  @media (max-width: 690px) {
+    .so-content { grid-template-columns: 170px minmax(0,1fr); gap: 13px; padding-left: 13px; padding-right: 13px; }
+    .so-footer { margin-left: 10px; margin-right: 10px; grid-template-columns: auto minmax(155px,1fr) auto; gap: 5px; }
+    .so-panels { gap: 1px; }
+    .so-footer button { min-width: 30px; width: 30px; padding: 0; }
+    .so-footer button span { display: none; }
+    .so-volume { grid-template-columns: 17px 54px 25px; }
+    .vol { width: 54px; }
+  }
+
+  @media (max-width: 570px) {
+    .so-content { grid-template-columns: 142px minmax(0,1fr); gap: 10px; padding-left: 10px; padding-right: 10px; }
+    .so-footer { margin-left: 7px; margin-right: 7px; padding-left: 4px; padding-right: 4px; grid-template-columns: auto minmax(148px,1fr) auto; gap: 3px; }
+    .so-footer button { min-width: 28px; width: 28px; }
+    .so-volume { grid-template-columns: 15px 42px 23px; gap: 4px; }
+    .vol { width: 42px; }
+    .track-title { font-size: 20px; }
+    .so-seek { transform: translateY(-4px); }
+  }
+
+  /* Short-window mode: preserve text, seek, visualizer, and volume instead of
+     letting flex items shrink and clip their line boxes. */
+  @media (max-height: 360px) {
+    #melo-player,
+    body.tauri-main .player-card { grid-template-rows: 35px minmax(0,1fr) 49px; }
+    .so-titlebar { padding-left: 13px; }
+    .so-content { padding-top: 2px; padding-bottom: 7px; }
+    .so-player-column { padding-top: 1px; padding-bottom: 0; }
+    .so-kicker { display: none; }
+    .track-title { margin-top: 0; font-size: 21px; line-height: 1.22; }
+    .track-artist { margin-top: 4px; line-height: 1.35; }
+    .track-album { margin-top: 1px; }
+    .track-format { margin-top: 4px; }
+    .so-viz { height: 31px; min-height: 31px; margin-bottom: 4px; }
+    .transport { margin-top: 5px; gap: 4px; }
+    .transport button { width: 31px; height: 31px; border-radius: 10px; }
+    .transport .play-btn { width: 40px; height: 40px; }
+    .so-footer { margin-bottom: 7px; padding-top: 4px; padding-bottom: 4px; }
+    .so-footer button { height: 29px; }
+    .cover-wrap { min-height: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="melo-player">
+  <div class="so-titlebar" data-tauri-drag-region>
+    <div class="so-brand" data-tauri-drag-region>
+      <span class="so-brand-orb"></span>
+      MELO <small>SILK ORBIT</small>
+    </div>
+    <div class="win-controls">
+      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+      <button class="win-btn close" aria-label="close" title="Close">×</button>
+    </div>
+  </div>
+
+  <div class="so-content">
+    <section class="so-art-column">
+      <div class="cover-wrap" id="coverWrap">
+        <img id="coverImg" style="display:none" alt="Album artwork" />
+        <div id="coverFallback" class="cover-fallback">♪</div>
+      </div>
+    </section>
+
+    <section class="so-player-column">
+      <div class="so-kicker">Now playing</div>
+      <div class="track-title" id="trackTitle">No track loaded</div>
+      <div class="track-artist" id="trackArtist">Choose music to begin</div>
+      <div class="track-album" id="trackAlbum"></div>
+      <div class="track-format">
+        <span class="badge-flac" id="trackCodec">—</span>
+        <span id="trackSpecs"></span>
+      </div>
+
+      <div class="so-viz" id="vizBars"></div>
+
+      <div class="so-seek seek-row">
+        <span class="so-time" id="curTime">0:00</span>
+        <input class="seek" id="seekBar" type="range" min="0" max="100" value="0" />
+        <span class="so-time" id="durTime">0:00</span>
+      </div>
+
+      <div class="transport">
+        <button id="btnShuffle" title="Shuffle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg>
+        </button>
+        <button id="btnPrev" title="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button id="btnStop" title="Stop">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+        <button class="play-btn" id="btnPlay" title="Play / Pause">
+          <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button id="btnNext" title="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <button id="btnRepeat" title="Repeat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <div class="so-footer">
+    <div class="so-tools">
+      <button id="btnAddFiles" title="Add files">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg><span>Files</span>
+      </button>
+      <button id="btnAddFolder" title="Add folder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span>Folder</span>
+      </button>
+      <button id="btnThemeToggle" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/></svg>
+      </button>
+    </div>
+
+    <div class="so-panels">
+      <button id="btnToggleLibrary" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg><span>Library</span></button>
+      <button id="btnTogglePlaylist" title="Playing Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg><span>Queue</span></button>
+      <button id="btnToggleEq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>EQ</span></button>
+      <button id="btnToggleLyrics" title="Lyric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Lyric</span></button>
+      <button id="btnOpenSettings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg><span>Settings</span></button>
+    </div>
+
+    <div class="so-volume volume-row">
+      <span id="volIcon" title="Mute">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+      </span>
+      <input class="vol" id="volBar" type="range" min="0" max="100" value="60" />
+      <span id="volPct">60%</span>
+    </div>
+  </div>
+</div>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2c9193d5f8fd28a',t:'MTc4Njk3NDExMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>

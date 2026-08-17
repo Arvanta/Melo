@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo v0.5 — Slate Ribbon Compact Skin</title>
+<meta name="melo-window" content="width=700, height=126, minWidth=700, minHeight=126, maxWidth=700, maxHeight=126, resizable=false, transparent=true" />
+<style>
+  :root {
+    --sr-bg: #eef1f4;
+    --sr-panel: rgba(255,255,255,.78);
+    --sr-line: rgba(31,40,52,.09);
+    --sr-text: #1e2732;
+    --sr-soft: #697787;
+    --sr-muted: #96a1ae;
+    --sr-shadow: 0 18px 46px rgba(29,43,60,.18);
+    --accent: #397fc3;
+    --visualizer: #5ea0e6;
+    --track-bg: rgba(36,51,68,.075);
+  }
+  [data-theme="dark"] {
+    --sr-bg: #151b24;
+    --sr-panel: rgba(30,39,51,.82);
+    --sr-line: rgba(255,255,255,.075);
+    --sr-text: #edf3fa;
+    --sr-soft: #9aacc2;
+    --sr-muted: #6f8197;
+    --sr-shadow: 0 20px 52px rgba(0,0,0,.48);
+    --track-bg: rgba(255,255,255,.065);
+  }
+
+  * { box-sizing: border-box; }
+  body:not(.tauri-main) {
+    min-height: 100vh; margin: 0; padding: 24px; display: grid; place-items: center;
+    overflow: hidden; color: var(--sr-text); background: #0d1118;
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card {
+    width: 700px; height: 126px; min-height: 126px; max-height: 126px;
+    margin: 0; padding: 0; position: relative; overflow: hidden;
+    display: grid; grid-template-rows: 25px 101px;
+    color: var(--sr-text); background: var(--sr-bg);
+    border: 1px solid var(--sr-line); border-radius: 15px; box-shadow: var(--sr-shadow);
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  body.tauri-main,
+  body.tauri-main .app-shell { min-width: 0 !important; }
+  body.tauri-main .player-card {
+    width: 700px !important; height: 126px !important; min-width: 700px !important;
+    max-width: 700px !important; min-height: 126px !important; max-height: 126px !important;
+    padding: 0 !important; display: grid !important; grid-template-rows: 25px 101px !important;
+    border-radius: 15px !important; box-shadow: none !important;
+  }
+  body.tauri-main .sr-viz.visualizer-bars { display: block !important; }
+
+  .sr-titlebar {
+    min-width: 0; padding: 0 6px 0 11px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--sr-line); -webkit-app-region: drag; user-select: none;
+  }
+  .sr-head-left { min-width: 0; display: flex; align-items: center; gap: 3px; -webkit-app-region: no-drag; }
+  .sr-brand { margin-right: 5px; display: flex; align-items: center; gap: 6px; color: var(--sr-text); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+  .sr-brand svg { color: var(--accent); }
+  .sr-quick, .win-btn {
+    width: 24px; height: 21px; padding: 0; border: 0; border-radius: 6px;
+    display: grid; place-items: center; color: var(--sr-soft); background: transparent; cursor: pointer;
+  }
+  .sr-quick:hover, .win-btn:hover { color: var(--sr-text); background: var(--track-bg); }
+  .sr-quick svg { width: 12px; height: 12px; }
+  .win-controls { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+  .win-btn.close:hover { color: white; background: #df5065; }
+
+  .sr-main {
+    min-width: 0; min-height: 0; padding: 7px 12px 12px;
+    display: grid !important;
+    grid-template-columns: 70px 165px minmax(235px,1fr) 145px;
+    gap: 11px; align-items: center; overflow: hidden;
+  }
+
+  .cover-wrap {
+    width: 70px !important; height: 70px !important; min-width: 70px !important;
+    min-height: 70px !important; max-width: 70px !important; max-height: 70px !important;
+    align-self: center; overflow: hidden; border-radius: 11px 20px 11px 11px;
+    background: var(--track-bg); box-shadow: 0 7px 20px rgba(27,39,53,.16), inset 0 1px rgba(255,255,255,.25);
+  }
+  .cover-wrap img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .cover-fallback {
+    width: 100%; height: 100%; display: grid; place-items: center; color: rgba(255,255,255,.92); font-size: 27px;
+    background: linear-gradient(140deg,color-mix(in srgb,var(--accent) 68%,#83b8d0),#9a81c5 56%,#e79a88);
+  }
+
+  .sr-meta { min-width: 0; }
+  .track-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sr-text); font-size: 13px; font-weight: 760; line-height: 1.24; }
+  .track-artist { margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-size: 10px; font-weight: 650; }
+  .track-album { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sr-muted); font-size: 8px; }
+  .track-format { margin-top: 6px; display: flex; align-items: center; gap: 5px; color: var(--sr-muted); font-size: 8px; }
+  .badge-flac { flex: 0 0 auto; padding: 2px 5px; border: 1px solid var(--sr-line); border-radius: 5px; color: var(--accent); font-weight: 780; }
+  #trackSpecs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .sr-center { min-width: 0; display: grid; grid-template-rows: 42px 19px; gap: 7px; align-items: center; }
+  .transport { display: flex; align-items: center; justify-content: center; gap: 4px; }
+  .transport button {
+    width: 28px; height: 28px; padding: 0; border: 0; border-radius: 9px;
+    display: grid; place-items: center; color: var(--sr-soft); background: transparent; cursor: pointer;
+  }
+  .transport button:hover { color: var(--sr-text); background: var(--track-bg); }
+  .transport button.active { color: var(--accent); background: color-mix(in srgb,var(--accent) 10%,transparent); }
+  .transport button svg { width: 13px; height: 13px; }
+  .transport .play-btn { width: 35px; height: 35px; border-radius: 50%; color: white; background: var(--accent); box-shadow: 0 8px 18px color-mix(in srgb,var(--accent) 27%,transparent); }
+  .transport .play-btn:hover { color: white; background: color-mix(in srgb,var(--accent) 88%,black); }
+  .transport .play-btn svg { width: 17px; height: 17px; }
+  #btnStop { display: none; }
+  body.show-stop-btn #btnStop { display: grid !important; }
+
+  .sr-seek { min-width: 0; display: grid; grid-template-columns: 29px minmax(0,1fr) 29px; gap: 6px; align-items: center; }
+  .sr-time { color: var(--sr-muted); font: 500 8px/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric: tabular-nums; }
+  #durTime { text-align: right; }
+  .seek, .vol {
+    -webkit-appearance: none; appearance: none; height: 3px; border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(to right,var(--accent) 0%,var(--accent) var(--progress,0%),var(--track-bg) var(--progress,0%),var(--track-bg) 100%);
+  }
+  .seek::-webkit-slider-thumb, .vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 10px; height: 10px; border: 2px solid var(--sr-bg); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb,var(--accent) 32%,transparent);
+  }
+
+  .sr-media { min-width: 0; display: grid; grid-template-rows: 42px 19px; gap: 7px; align-items: center; }
+  .sr-viz { min-width: 0; width: 100%; height: 42px; overflow: hidden; border-radius: 0; cursor: pointer; }
+  .sr-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+  .volume-row { min-width: 0; display: grid; grid-template-columns: 14px minmax(70px,1fr) 25px; gap: 5px; align-items: center; }
+  #volIcon { display: grid; place-items: center; color: var(--sr-soft); cursor: pointer; }
+  #volIcon:hover { color: var(--accent); }
+  .vol { width: 100%; background: linear-gradient(to right,var(--accent) 0%,var(--accent) var(--vol,60%),var(--track-bg) var(--vol,60%),var(--track-bg) 100%); }
+  #volPct { color: var(--sr-muted); text-align: right; font: 500 7px/1 ui-monospace,monospace; }
+
+  .sr-head-sep { width: 1px; height: 15px; margin: 0 4px; background: color-mix(in srgb,var(--accent) 30%,var(--sr-line)); }
+  .sr-title-panels { display: flex; align-items: center; gap: 2px; }
+  .sr-panel-btn {
+    width: 24px; height: 21px; padding: 0; border: 0; border-radius: 6px;
+    display: grid; place-items: center; color: var(--sr-soft); background: transparent; cursor: pointer;
+  }
+  .sr-panel-btn:hover { color: var(--sr-text); background: var(--track-bg); }
+  .sr-panel-btn.active { color: white; background: var(--accent); }
+  .sr-panel-btn svg { width: 11px; height: 11px; }
+</style>
+</head>
+<body>
+<div id="melo-player">
+  <div class="sr-titlebar" data-tauri-drag-region>
+    <div class="sr-head-left">
+      <span class="sr-brand" data-tauri-drag-region>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
+        MELO · SLATE
+      </span>
+      <button class="sr-quick" id="btnAddFiles" title="Add files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg></button>
+      <button class="sr-quick" id="btnAddFolder" title="Add folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+      <button class="sr-quick" id="btnThemeToggle" title="Toggle theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/></svg></button>
+      <span class="sr-head-sep"></span>
+      <span class="sr-title-panels">
+        <button class="sr-panel-btn" id="btnToggleLibrary" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+        <button class="sr-panel-btn" id="btnTogglePlaylist" title="Playing Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg></button>
+        <button class="sr-panel-btn" id="btnToggleEq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
+        <button class="sr-panel-btn" id="btnToggleLyrics" title="Lyric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+        <button class="sr-panel-btn" id="btnOpenSettings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+      </span>
+    </div>
+    <div class="win-controls">
+      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+      <button class="win-btn close" aria-label="close" title="Close">×</button>
+    </div>
+  </div>
+
+  <main class="sr-main">
+    <div class="cover-wrap" id="coverWrap">
+      <img id="coverImg" style="display:none" alt="Album artwork" />
+      <div id="coverFallback" class="cover-fallback">♪</div>
+    </div>
+
+    <section class="sr-meta">
+      <div class="track-title" id="trackTitle">No track loaded</div>
+      <div class="track-artist" id="trackArtist">Add music to begin</div>
+      <div class="track-album" id="trackAlbum"></div>
+      <div class="track-format"><span class="badge-flac" id="trackCodec">—</span><span id="trackSpecs"></span></div>
+    </section>
+
+    <section class="sr-center">
+      <div class="transport">
+        <button id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+        <button id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+        <button id="btnStop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+        <button class="play-btn" id="btnPlay" title="Play / Pause"><svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg><svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg></button>
+        <button id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+        <button id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+      </div>
+      <div class="sr-seek seek-row">
+        <span class="sr-time" id="curTime">0:00</span>
+        <input class="seek" id="seekBar" type="range" min="0" max="100" value="0" />
+        <span class="sr-time" id="durTime">0:00</span>
+      </div>
+    </section>
+
+    <section class="sr-media">
+      <div class="sr-viz visualizer-bars" id="vizBars"></div>
+      <div class="volume-row">
+        <span id="volIcon" title="Mute"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg></span>
+        <input class="vol" id="volBar" type="range" min="0" max="100" value="60" />
+        <span id="volPct">60%</span>
+      </div>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>

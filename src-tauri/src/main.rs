@@ -42,6 +42,10 @@ pub struct SkinFileInfo {
 // Embedded default skin templates to ensure the skins folder is always populated on disk
 const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
+const DEFAULT_SKIN_MICROLINE: &str = include_str!("../../skins/microline.html");
+const DEFAULT_SKIN_IVORY: &str = include_str!("../../skins/ivory.html");
+const DEFAULT_SKIN_SILK_ORBIT: &str = include_str!("../../skins/silk-orbit.html");
+const DEFAULT_SKIN_SLATE: &str = include_str!("../../skins/slate.html");
 
 // ---- Helpers ----
 
@@ -200,6 +204,10 @@ fn ensure_default_skins(skins_dir: &Path) {
     let defaults = [
         ("compact-pill.html", DEFAULT_SKIN_COMPACT),
         ("full-html-example.html", DEFAULT_SKIN_FULL_EXAMPLE),
+        ("microline.html", DEFAULT_SKIN_MICROLINE),
+        ("ivory.html", DEFAULT_SKIN_IVORY),
+        ("silk-orbit.html", DEFAULT_SKIN_SILK_ORBIT),
+        ("slate.html", DEFAULT_SKIN_SLATE),
     ];
     for (name, content) in defaults {
         let target = skins_dir.join(name);

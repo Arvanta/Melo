@@ -164,7 +164,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
   function pumpArtworkQueue() {
-    while (invoke && artworkWorkers < 6) {
+    while (invoke && artworkWorkers < 4) {
       // Pick the next id that has waiters and isn't already in flight.
       const next = [...artworkWaiters.entries()].find(
         ([id, els]) => els.length && !artworkInFlight.has(id),
