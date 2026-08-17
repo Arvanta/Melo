@@ -9,6 +9,7 @@ import {
   removeFromQueue,
   reorderQueue,
   clearQueue,
+  setupQueue,
   type QueueSource,
   type QueueEntry,
 } from "./queue";
@@ -665,12 +666,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   });
 
-  // The queue panel also needs to paint its initial list even before the
-  // first mutation event fires.
+  // The queue panel runs in its own webview and must bootstrap the queue
+  // state itself (the player window normally does this via setupPlayer).
+  // Without it, currentTrackId stays null until a track changes and the
+  // active row isn't highlighted when the panel is (re)opened.
   if (role === "playlist") {
-    loadCore()
+    setupQueue()
+      .then(() => loadCore())
       .then(() => renderQueueVirtual(true))
-      .catch(() => toast("Could not initialize the Library database"));
+      .then(() => markActiveTracks())
+      .catch(() => toast("Could not initialize the Playing Queue"));
   } else {
     loadCore().catch(() => toast("Could not initialize the Library database"));
   }

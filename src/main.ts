@@ -204,7 +204,7 @@ app.innerHTML = `
           </div>
           <div class="settings-row">
             <div><div class="label">${t("settings.general.tray.label")}</div><div class="desc">${t("settings.general.tray.desc")}</div></div>
-            <div class="switch on" id="swTray" data-key="tray"></div>
+            <div class="switch" id="swTray" data-key="tray"></div>
           </div>
           <div class="settings-row">
             <div><div class="label">${t("settings.general.resume.label")}</div><div class="desc">${t("settings.general.resume.desc")}</div></div>
@@ -220,7 +220,7 @@ app.innerHTML = `
           </div>
           <div class="settings-row">
             <div><div class="label">${t("settings.playback.fadepause.label")}</div><div class="desc">${t("settings.playback.fadepause.desc")}</div></div>
-            <div class="switch" id="swFadePause" data-key="fadePause"></div>
+            <div class="switch on" id="swFadePause" data-key="fadePause" data-default="on"></div>
           </div>
         </div>
 
@@ -502,13 +502,34 @@ if (isTauri && !urlPanel) {
       const minH = h.minHeight ?? (h.resizable ? 200 : h.height ?? cur.height);
       const maxW = h.maxWidth;
       const maxH = h.maxHeight;
-      let w = cur.width, hgt = cur.height;
-      if (useStartupSize && h.width) w = h.width;
-      if (useStartupSize && h.height) hgt = h.height;
-      w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
-      hgt = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
-      if (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5) {
-        await mainWin.setSize(new LogicalSize(w, hgt));
+      // Hand the min/max limits to the OS so it enforces them DURING the
+      // drag-resize itself. Without this, the window is allowed past the
+      // limit first and then setSize() pulls it back, which causes the
+      // visible "bounce/snap back" at the minimum and maximum edges.
+      await mainWin.setMinSize(new LogicalSize(minW, minH));
+      if (maxW && maxH) {
+        await mainWin.setMaxSize(new LogicalSize(maxW, maxH));
+      } else if (maxW) {
+        await mainWin.setMaxSize(new LogicalSize(maxW, 99999));
+      } else if (maxH) {
+        await mainWin.setMaxSize(new LogicalSize(99999, maxH));
+      } else {
+        // Clear any previous maximum.
+        await mainWin.setMaxSize(new LogicalSize(99999, 99999));
+      }
+      // For fixed (non-resizable) skins and for the initial application of
+      // a skin, force the exact declared size. For normal interactive
+      // resizing of a resizable skin we deliberately do NOT call setSize
+      // here — the OS constraints above do the clamping, which is what
+      // removes the bounce.
+      if (useStartupSize || h.fixed) {
+        let w = useStartupSize && h.width ? h.width : cur.width;
+        let hgt = useStartupSize && h.height ? h.height : cur.height;
+        w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
+        hgt = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
+        if (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5) {
+          await mainWin.setSize(new LogicalSize(w, hgt));
+        }
       }
     };
 
@@ -534,21 +555,12 @@ if (isTauri && !urlPanel) {
         const h = getSkinHints();
         if (!h.resizable) {
           // Fixed skins (compact pill): snap back if the OS/window manager
-          // tried to resize us.
+          // somehow tried to resize us.
           await applyWindowConstraints(true);
-        } else {
-          // Resizable skins: enforce declared min/max only.
-          const sf = await mainWin.scaleFactor();
-          const cur = (await mainWin.innerSize()).toLogical(sf);
-          const minW = h.minWidth ?? 280, minH = h.minHeight ?? 200;
-          const maxW = h.maxWidth, maxH = h.maxHeight;
-          let w = Math.max(minW, maxW ? Math.min(maxW, cur.width) : cur.width);
-          let hgt = Math.max(minH, maxH ? Math.min(maxH, cur.height) : cur.height);
-          if (w !== cur.width || hgt !== cur.height) {
-            const { LogicalSize } = await import("@tauri-apps/api/dpi");
-            await mainWin.setSize(new LogicalSize(w, hgt));
-          }
         }
+        // For resizable skins, do NOT clamp/setSize here. The min/max
+        // constraints were pushed to the OS via setMinSize/setMaxSize, so
+        // the pointer drag is stopped at the edge without a bounce.
       } catch {}
       saveGeo();
     });
@@ -568,7 +580,9 @@ if (isTauri && !urlPanel) {
 
     mainWin.onCloseRequested(async (event) => {
       event.preventDefault();
-      const trayEnabled = localStorage.getItem("melo-pref-tray") !== "0";
+      // Close-to-tray is OFF by default; only enable if the user explicitly
+      // turned it on (stored as "1").
+      const trayEnabled = localStorage.getItem("melo-pref-tray") === "1";
       if (trayEnabled) {
         try { await mainWin.hide(); return; } catch {}
       }
@@ -1088,6 +1102,13 @@ function setupSettings(toast: ToastFn) {
     toast("Skins reloaded from disk");
   });
 
+  // Refresh the dropdown when a new skin is imported/dragged in.
+  busOn("melo:skins-changed", async () => {
+    const active = localStorage.getItem("melo-active-skin-id") || "default";
+    await populateSkinsDropdown();
+    if (skinSelect) skinSelect.value = active;
+  });
+
   btnOpenSkinsFolder?.addEventListener("click", () => {
     openSkinsFolderOnDisk(toast);
   });
@@ -1160,6 +1181,42 @@ document.addEventListener("click", (e) => {
 document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#aboutPop") && !(e.target as HTMLElement).closest("#btnAbout")) aboutPop.style.display = "none";
 });
+
+// Search inputs get an in-field clear (×) button. It is shown only while
+// the field contains text. Works for both the Library and Queue panels,
+// including when their DOM is rebuilt (full-HTML skins).
+function wireSearchClearButtons(root: ParentNode = document) {
+  root.querySelectorAll<HTMLInputElement>("input.search-input").forEach((input) => {
+    if (input.dataset.clearWired === "1") return;
+    // Ensure a non-empty placeholder so :placeholder-shown can detect text.
+    if (!input.hasAttribute("placeholder")) input.setAttribute("placeholder", " ");
+    let field = input.closest<HTMLElement>(".search-field");
+    if (!field) {
+      // The library search already sits in .search-wrap; wrap just the input.
+      field = document.createElement("span");
+      field.className = "search-field";
+      input.parentNode?.insertBefore(field, input);
+      field.appendChild(input);
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "search-clear";
+    btn.setAttribute("aria-label", "Clear search");
+    btn.textContent = "×";
+    btn.tabIndex = -1;
+    btn.onclick = () => {
+      input.value = "";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      input.focus();
+    };
+    field.appendChild(btn);
+    input.dataset.clearWired = "1";
+  });
+}
+wireSearchClearButtons();
+// Re-wire after the DOM is replaced (skin swap, panel render).
+new MutationObserver(() => wireSearchClearButtons()).observe(document.body, { childList: true, subtree: true });
 
 // App Initialization
 if (isTauri && urlPanel) {

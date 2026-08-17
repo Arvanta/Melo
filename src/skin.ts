@@ -78,9 +78,9 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     display: flex; align-items: center; gap: 5px;
     font-size: 11.5px; font-weight: 700; color: var(--text);
     background: transparent; border: none; padding: 2px 6px;
-    border-radius: 6px; cursor: pointer; letter-spacing: 0.02em;
+    border-radius: 6px; cursor: default; letter-spacing: 0.02em;
+    pointer-events: none;
   }
-  .app-name-btn:hover { background: var(--track-bg); }
   
   .mini-btn {
     width: 22px; height: 22px; border-radius: 5px; border: none;
@@ -201,7 +201,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
     height: 15px !important;
     border-radius: 50% !important;
     background: #ffffff !important;
-    border: 3.5px solid #5b92a5 !important;
+    border: 3.5px solid var(--accent, #5b92a5) !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.18) !important;
     cursor: pointer !important;
     transition: transform 0.1s !important;
@@ -251,17 +251,17 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
   <div class="player-titlebar" data-tauri-drag-region>
     <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
-      <button class="app-name-btn" id="appMenuBtn">
+      <span class="app-name-btn" id="appMenuBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
         Melo
-      </button>
+      </span>
       <div class="mini-sep"></div>
       <button class="mini-btn" id="btnAddFiles" title="Add files (Ctrl+O)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
-      </button>
+      </span>
       <button class="mini-btn" id="btnAddFolder" title="Add folder (Ctrl+Shift+O)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
-      </button>
+      </span>
       <button class="mini-btn" id="btnThemeToggle" title="Toggle Light / Dark Theme">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M6.34 17.66l-1.41 1.41"/><path d="M19.07 4.93l-1.41 1.41"/></svg>
       </button>
@@ -419,9 +419,9 @@ const COMPACT_PILL_DARK = `<!doctype html>
     display: flex; align-items: center; gap: 5px;
     font-size: 11.5px; font-weight: 700; color: var(--text);
     background: transparent; border: none; padding: 2px 6px;
-    border-radius: 6px; cursor: pointer; letter-spacing: 0.02em;
+    border-radius: 6px; cursor: default; letter-spacing: 0.02em;
+    pointer-events: none;
   }
-  .app-name-btn:hover { background: var(--track-bg); }
   
   .mini-btn {
     width: 22px; height: 22px; border-radius: 5px; border: none;
@@ -542,7 +542,7 @@ const COMPACT_PILL_DARK = `<!doctype html>
     height: 15px !important;
     border-radius: 50% !important;
     background: #ffffff !important;
-    border: 3.5px solid #4db6ac !important;
+    border: 3.5px solid var(--accent, #4db6ac) !important;
     box-shadow: 0 0 8px rgba(77, 182, 172, 0.4) !important;
     cursor: pointer !important;
     transition: transform 0.1s !important;
@@ -592,10 +592,10 @@ const COMPACT_PILL_DARK = `<!doctype html>
   <div class="player-titlebar" data-tauri-drag-region>
     <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
-      <button class="app-name-btn" id="appMenuBtn">
+      <span class="app-name-btn" id="appMenuBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
         Melo
-      </button>
+      </span>
       <div class="mini-sep"></div>
       <button class="mini-btn" id="btnAddFiles" title="Add files (Ctrl+O)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
@@ -778,6 +778,8 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
   }
 
   const isFull = isFullHtmlSkin(htmlText);
+  document.documentElement.classList.toggle("full-html-skin-active", isFull);
+  document.body.classList.toggle("full-html-skin-active", isFull);
   let bodyHTML = "";
   const bodyMatch = htmlText.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   if (bodyMatch) bodyHTML = bodyMatch[1];
@@ -813,8 +815,14 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
 
 export function resetSkin(toast?: (m: string) => void, broadcast = true) {
   lastAppliedSkinHtml = null;
-  document.documentElement.classList.remove("compact-skin-active");
-  document.body.classList.remove("compact-skin-active");
+  document.documentElement.classList.remove(
+    "compact-skin-active",
+    "full-html-skin-active"
+  );
+  document.body.classList.remove(
+    "compact-skin-active",
+    "full-html-skin-active"
+  );
   if (customStyleEl) { customStyleEl.remove(); customStyleEl = null; }
   if (customFrame) { customFrame.remove(); customFrame = null; }
   const playerCard = document.getElementById("playerCard") as HTMLElement;
@@ -970,15 +978,27 @@ export function setupSkinEngine(toast: (m: string) => void) {
       if (!file) return;
       const text = await file.text();
       const filename = file.name;
-      
+
       if (isTauri) {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("save_custom_skin_file", { filename, content: text });
-          toast(`Saved ${filename} to skins folder`);
-        } catch {}
+          const savedPath = await invoke<string>("save_custom_skin_file", { filename, content: text });
+          // Let the dropdown pick the new file up, then apply by filename
+          // (the backend resolves it from the writable skins folder).
+          busEmit("melo:skins-changed");
+          toast(`Imported ${filename}`);
+          applyCustomSkin(text, toast);
+          localStorage.setItem("melo-active-skin-id", filename);
+          busEmit("melo:skin-changed", filename);
+          skinUpload.value = "";
+          return;
+        } catch (err) {
+          console.error("Failed to save imported skin", err);
+          toast("Could not save skin to the skins folder. See the log for details.");
+        }
       }
-      
+
+      // Non-Tauri / save failed: still apply for this session.
       applyCustomSkin(text, toast);
       localStorage.setItem("melo-active-skin-id", filename);
       busEmit("melo:skin-changed", filename);
@@ -1002,7 +1022,11 @@ export function setupSkinEngine(toast: (m: string) => void) {
           try {
             const { invoke } = await import("@tauri-apps/api/core");
             await invoke("save_custom_skin_file", { filename, content: text });
-          } catch {}
+            busEmit("melo:skins-changed");
+          } catch (err) {
+            console.error("Failed to save dragged skin", err);
+            toast("Could not save skin to the skins folder.");
+          }
         }
         applyCustomSkin(text, toast);
         localStorage.setItem("melo-active-skin-id", filename);

@@ -292,7 +292,8 @@ export async function setupPlayer(
     try {
       await getAudioGraph(audio).resume();
     } catch {}
-    const fadeOn = localStorage.getItem("melo-pref-fadePause") === "1";
+    // Fade-on-pause is ON by default; only an explicit "0" disables it.
+    const fadeOn = localStorage.getItem("melo-pref-fadePause") !== "0";
     const target = computeTargetVolume();
     if (fadeOn && wasFadedPause) audio.volume = 0;
     audio
@@ -317,10 +318,11 @@ export async function setupPlayer(
   }
 
   function pause() {
-    const fadeOn = localStorage.getItem("melo-pref-fadePause") === "1";
+    // Fade-on-pause is ON by default; only an explicit "0" disables it.
+    const fadeOn = localStorage.getItem("melo-pref-fadePause") !== "0";
     if (fadeOn && !audio.paused) {
       wasFadedPause = true;
-      fadeVolumeTo(0, 300, () => audio.pause());
+      fadeVolumeTo(0, 500, () => audio.pause());
     } else {
       wasFadedPause = false;
       audio.pause();
@@ -503,6 +505,21 @@ export async function setupPlayer(
     updateSeekBackground();
     updateVolBackground();
     syncTransportButtons(getQueueState());
+
+    // After a full-HTML skin swap the seek bar/duration elements are
+    // replaced with fresh DOM whose max/value come from the skin's static
+    // HTML (often 276). Re-sync them from the live audio/currentTrack so
+    // the total time and progress position are correct immediately.
+    const liveDur = Number.isFinite(audio.duration) && audio.duration > 0
+      ? Math.floor(audio.duration)
+      : (currentTrack?.duration || 0);
+    if (seekBar) {
+      if (liveDur > 0) seekBar.max = String(liveDur);
+      seekBar.value = String(Math.floor(audio.currentTime || 0));
+      updateSeekBackground();
+    }
+    if (durTime) durTime.textContent = formatTime(liveDur);
+    if (curTime) curTime.textContent = formatTime(audio.currentTime || 0);
 
     if (currentTrack) {
       if (trackTitle) trackTitle.textContent = currentTrack.title || "Unknown Title";

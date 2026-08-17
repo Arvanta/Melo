@@ -139,47 +139,27 @@ fn parse_track(p: &Path) -> Option<Track> {
 
 // ---- Skin Folder Resolver & Populator ----
 
-fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
-    use tauri::Manager;
-    // 1. Next to current executable (e.g. C:\Program Files\Melo\skins\ or portable)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let p = parent.join("skins");
-            let _ = std::fs::create_dir_all(&p);
-            if p.exists() && p.is_dir() {
-                ensure_default_skins_on_disk(&p);
-                return p;
-            }
+/// Returns true if we can create and write a small file inside `dir`.
+/// Installed locations such as `C:\Program Files\Melo\skins` are typically
+/// read-only for non-admin users; in that case we must fall back to the
+/// per-user AppData folder so custom skins can actually be saved.
+fn dir_is_writable(dir: &Path) -> bool {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        if e.kind() != std::io::ErrorKind::AlreadyExists {
+            return false;
         }
     }
-    // 2. Standard AppData writable directory on Windows
-    if let Ok(app_data) = app.path().app_data_dir() {
-        let p = app_data.join("skins");
-        let _ = std::fs::create_dir_all(&p);
-        ensure_default_skins_on_disk(&p);
-        return p;
+    let probe = dir.join(".melo-write-test");
+    match std::fs::write(&probe, b"ok") {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
     }
-    // 3. Fallback relative
-    let p = PathBuf::from("skins");
-    let _ = std::fs::create_dir_all(&p);
-    ensure_default_skins_on_disk(&p);
-    p
 }
 
-fn ensure_default_skins_on_disk(skins_dir: &Path) {
-    let f1 = skins_dir.join("compact-pill-light.html");
-    if !f1.exists() {
-        let _ = std::fs::write(f1, DEFAULT_SKIN_COMPACT_LIGHT);
-    }
-    let f2 = skins_dir.join("compact-pill-dark.html");
-    if !f2.exists() {
-        let _ = std::fs::write(f2, DEFAULT_SKIN_COMPACT_DARK);
-    }
-    let f4 = skins_dir.join("full-html-example.html");
-    if !f4.exists() {
-        let _ = std::fs::write(f4, DEFAULT_SKIN_FULL_EXAMPLE);
-    }
-}
+
 
 // ---- Tauri Commands ----
 
@@ -213,44 +193,68 @@ fn get_track_lyrics(path: String) -> Option<String> {
     None
 }
 
+/// All directories that may contain skin files, in priority order:
+/// 1. The writable per-user AppData skins folder (custom skins)
+/// 2. The bundled skins folder next to the executable (default skins)
+fn all_skin_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    use tauri::Manager;
+    let mut dirs = Vec::new();
+    if let Ok(app_data) = app.path().app_data_dir() {
+        dirs.push(app_data.join("skins"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            dirs.push(parent.join("skins"));
+        }
+    }
+    dirs
+}
+
 #[tauri::command]
 fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, String> {
-    let skins_dir = get_skins_dir(&app);
     let mut list = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&skins_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
-                        let filename = path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let stem = path
-                            .file_stem()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let name_clean = stem.replace('-', " ").replace('_', " ");
-                        let name_formatted = name_clean
-                            .split_whitespace()
-                            .map(|word| {
-                                let mut c = word.chars();
-                                match c.next() {
-                                    None => String::new(),
-                                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ");
-                        list.push(SkinFileInfo {
-                            id: stem,
-                            name: name_formatted,
-                            filename,
-                            path: path.to_string_lossy().to_string(),
-                        });
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // User skins come first and take precedence over bundled defaults with
+    // the same filename.
+    for skins_dir in all_skin_dirs(&app) {
+        if let Ok(entries) = std::fs::read_dir(&skins_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                            let filename = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
+                            if !seen.insert(filename.clone()) {
+                                continue;
+                            }
+                            let stem = path
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
+                            let name_clean = stem.replace('-', " ").replace('_', " ");
+                            let name_formatted = name_clean
+                                .split_whitespace()
+                                .map(|word| {
+                                    let mut c = word.chars();
+                                    match c.next() {
+                                        None => String::new(),
+                                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            list.push(SkinFileInfo {
+                                id: stem,
+                                name: name_formatted,
+                                filename,
+                                path: path.to_string_lossy().to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -267,10 +271,12 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
         return std::fs::read_to_string(path).map_err(|e| e.to_string());
     }
 
-    let skins_dir = get_skins_dir(&app);
-    let target = skins_dir.join(&filename_or_path);
-    if target.exists() {
-        return std::fs::read_to_string(&target).map_err(|e| e.to_string());
+    // Search all skin directories (user AppData first, then bundled).
+    for skins_dir in all_skin_dirs(&app) {
+        let target = skins_dir.join(&filename_or_path);
+        if target.exists() {
+            return std::fs::read_to_string(&target).map_err(|e| e.to_string());
+        }
     }
 
     // Check embedded fallback if filename matches
@@ -284,27 +290,72 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
     }
 }
 
+/// The writable per-user skins directory where imported custom skins are
+/// saved. Always AppData (or equivalent) on normal installs — never the
+/// read-only Program Files location.
+fn get_writable_skins_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let p = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("skins"))
+        .map_err(|e| format!("Cannot resolve AppData skins folder: {}", e))?;
+    std::fs::create_dir_all(&p)
+        .map_err(|e| format!("Cannot create skins folder at {}: {}", p.display(), e))?;
+    // Seed the writable folder with the built-in example on first run, so
+    // users have something to start from even in a per-machine install.
+    let example = p.join("full-html-example.html");
+    if !example.exists() {
+        let _ = std::fs::write(&example, DEFAULT_SKIN_FULL_EXAMPLE);
+    }
+    // If the directory exists but isn't actually writable, surface that now
+    // instead of failing silently on the file write.
+    if !dir_is_writable(&p) {
+        return Err(format!(
+            "The skins folder is not writable: {}",
+            p.display()
+        ));
+    }
+    Ok(p)
+}
+
 #[tauri::command]
 fn save_custom_skin_file(
     filename: String,
     content: String,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let skins_dir = get_skins_dir(&app);
+    let skins_dir = get_writable_skins_dir(&app)?;
     let safe_filename = if filename.ends_with(".html") || filename.ends_with(".htm") {
-        filename
+        sanitize_filename(&filename)
     } else {
-        format!("{}.html", filename)
+        format!("{}.html", sanitize_filename(&filename))
     };
     let target = skins_dir.join(&safe_filename);
-    std::fs::write(&target, content).map_err(|e| e.to_string())?;
+    std::fs::write(&target, &content).map_err(|e| {
+        format!(
+            "Could not write skin to {}: {}",
+            target.display(),
+            e
+        )
+    })?;
     Ok(target.to_string_lossy().to_string())
+}
+
+/// Strip path separators and illegal characters from a skin filename so it
+/// can't escape the skins directory.
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c => c,
+        })
+        .collect()
 }
 
 #[tauri::command]
 fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
-    let skins_dir = get_skins_dir(&app);
-    let _ = std::fs::create_dir_all(&skins_dir);
+    let skins_dir = get_writable_skins_dir(&app)?;
     let abs_path = skins_dir.canonicalize().unwrap_or(skins_dir);
     let mut path_str = abs_path.to_string_lossy().to_string();
     if path_str.starts_with(r"\\?\") {
