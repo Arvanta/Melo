@@ -124,39 +124,67 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return { ...track, cover: artworkUrl(track.cover), source: "scan" };
   }
 
-  const artworkQueue: Array<{ id: string; element: HTMLElement }> = [];
-  const artworkPending = new Set<string>();
+  // Maps a track/album id to every DOM element waiting for its artwork.
+  // Multiple rows can share the same id (e.g. tracks from one album that
+  // all resolve to the same artworkTrackId), so we must update all of
+  // them when the cover resolves — not just the first.
+  const artworkWaiters = new Map<string, HTMLElement[]>();
+  const artworkInFlight = new Set<string>();
   let artworkWorkers = 0;
   function enqueueArtwork(id: string | undefined, element: HTMLElement) {
-    if (!id || !invoke || artworkPending.has(id)) return;
-    artworkPending.add(id);
-    artworkQueue.push({ id, element });
-    pumpArtworkQueue();
+    if (!id) return;
+    const existing = artworkWaiters.get(id);
+    if (existing) {
+      // Already queued/in flight — register this element too so it gets
+      // the cover when the request resolves, instead of dropping it.
+      if (!existing.includes(element)) existing.push(element);
+      return;
+    }
+    artworkWaiters.set(id, [element]);
+    if (invoke) pumpArtworkQueue();
+  }
+  function applyArtwork(id: string, url: string | null) {
+    const elements = artworkWaiters.get(id);
+    if (!elements) return;
+    for (const el of elements) {
+      if (!el.isConnected) continue;
+      if (url) {
+        el.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
+        el.style.backgroundSize = "cover";
+        el.style.backgroundPosition = "center";
+        el.style.backgroundRepeat = "no-repeat";
+        el.classList.remove("cover-default");
+        el.textContent = "";
+      }
+    }
+    // Cache the resolved cover on the matching recent tracks.
+    if (url) {
+      const track = recentTracks.find(t => t.id === id);
+      if (track) track.cover = url;
+    }
   }
   function pumpArtworkQueue() {
-    while (invoke && artworkWorkers < 2 && artworkQueue.length) {
-      const item = artworkQueue.shift()!;
+    while (invoke && artworkWorkers < 6) {
+      // Pick the next id that has waiters and isn't already in flight.
+      const next = [...artworkWaiters.entries()].find(
+        ([id, els]) => els.length && !artworkInFlight.has(id),
+      );
+      if (!next) break;
+      const [id] = next;
+      artworkInFlight.add(id);
       artworkWorkers++;
-      invoke<string | null>("ensure_track_artwork", { id: item.id })
+      invoke<string | null>("ensure_track_artwork", { id })
         .then(path => {
-          if (!path || !item.element.isConnected) return;
-          const url = artworkUrl(path);
-          const track = recentTracks.find(t => t.id === item.id);
-          if (track) track.cover = url;
-          // Set the cover image and drop the fallback gradient class.
-          // .cover-default uses a `background:` shorthand which would
-          // otherwise reset background-size to auto (blurry/incorrect).
-          item.element.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
-          item.element.style.backgroundSize = "cover";
-          item.element.style.backgroundPosition = "center";
-          item.element.style.backgroundRepeat = "no-repeat";
-          item.element.classList.remove("cover-default");
-          item.element.textContent = "";
+          applyArtwork(id, path ? artworkUrl(path) : null);
         })
         .catch(() => {})
         .finally(() => {
           artworkWorkers--;
-          artworkPending.delete(item.id);
+          artworkInFlight.delete(id);
+          // Remove waiters whose elements are no longer in the DOM.
+          const remaining = (artworkWaiters.get(id) || []).filter((e) => e.isConnected);
+          if (remaining.length) artworkWaiters.set(id, remaining);
+          else artworkWaiters.delete(id);
           pumpArtworkQueue();
         });
     }
@@ -191,6 +219,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     invoke = core.invoke as typeof invoke;
     toAsset = core.convertFileSrc;
     initialized = true;
+    // Process any artwork that was enqueued before invoke was ready.
+    pumpArtworkQueue();
     await Promise.all([refreshStats(), refreshPlaylists()]);
     await renderLibraryVirtual(true);
     await renderQueueVirtual(true);

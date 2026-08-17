@@ -499,7 +499,8 @@ if (isTauri && !urlPanel) {
         }
       }
       // Default skin: fixed 960x240 window (height not user-resizable).
-      return { width: 960, height: 240, minWidth: 640, maxWidth: 960, minHeight: 240, maxHeight: 240, resizable: false, fixed: true };
+      // Default skin: fixed height (240), width freely resizable between 640 and 960.
+      return { width: 960, height: 240, minWidth: 640, maxWidth: 960, minHeight: 240, maxHeight: 240, resizable: true, fixed: false };
     };
 
     const applyWindowConstraints = async (forceSize = false) => {
@@ -516,31 +517,34 @@ if (isTauri && !urlPanel) {
       // drag-resize itself (prevents the visible "bounce" at edges).
       await mainWin.setMinSize(new LogicalSize(minW, minH));
       await mainWin.setMaxSize(new LogicalSize(maxW ?? 99999, maxH ?? 99999));
-      // Decide whether to actually resize. Fixed skins always get their
-      // declared size. For resizable skins we only resize when forced
-      // (first run / explicit request) OR when the current size falls
-      // outside the new min/max — otherwise we preserve the user's size
-      // when switching skins.
+      // Decide whether to actually resize. For resizable skins we clamp
+      // into the new min/max; a fixed height (min==max) is always enforced
+      // even when the width is free, and a forced/initial call restores
+      // the skin's declared size.
       let w = cur.width;
       let hgt = cur.height;
       let needsResize = false;
-      if (h.fixed && h.width && h.height) {
-        w = h.width;
-        hgt = h.height;
+      const fixedHeight = h.minHeight != null && h.maxHeight != null && h.minHeight === h.maxHeight;
+      const fixedWidth = h.minWidth != null && h.maxWidth != null && h.minWidth === h.maxWidth;
+      if (h.fixed) {
+        w = h.width ?? w;
+        hgt = h.height ?? hgt;
         needsResize = true;
       } else {
-        const clampedW = Math.max(minW, maxW ? Math.min(maxW, w) : w);
-        const clampedH = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
         if (forceSize && h.width && h.height) {
           w = h.width;
           hgt = h.height;
           needsResize = true;
-        } else if (clampedW !== w || clampedH !== hgt) {
-          w = clampedW;
-          hgt = clampedH;
-          needsResize = true;
+        } else {
+          // Preserve the user's width but clamp it; a fixed height wins.
+          w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
+          hgt = fixedHeight ? minH : Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
+          if (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5) {
+            needsResize = true;
+          }
         }
       }
+      void fixedWidth;
       if (needsResize && (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5)) {
         await mainWin.setSize(new LogicalSize(w, hgt));
       }
