@@ -483,13 +483,24 @@ if (isTauri && !urlPanel) {
         return { width: 780, height: 138, minWidth: 780, maxWidth: 780, minHeight: 138, maxHeight: 138, resizable: false, fixed: true };
       }
       if (activeSkin && activeSkin !== "default") {
-        const html = getLastAppliedSkinHtml();
+        // The skin HTML may not be applied yet on cold start (it is loaded
+        // by setupSkinEngine a moment later). Fall back to the persisted
+        // full-HTML skin copy in localStorage so the window opens at the
+        // correct size the first time, instead of flashing to the default.
+        const html =
+          getLastAppliedSkinHtml() ||
+          localStorage.getItem("melo-custom-skin") ||
+          null;
         if (html) {
           const h = parseSkinWindowHints(html);
-          return { ...h, fixed: false };
+          if (Object.keys(h).length > 0) {
+            return { ...h, fixed: false };
+          }
         }
       }
-      return { width: 960, height: 240, minWidth: 650, minHeight: 240, resizable: true, fixed: false };
+      // Default compact skin: fixed width 960, height resizable between
+      // 150 (compact) and 240 (original normal height — never taller).
+      return { width: 960, height: 180, minWidth: 960, maxWidth: 960, minHeight: 150, maxHeight: 240, resizable: true, fixed: false };
     };
 
     const applyWindowConstraints = async (useStartupSize: boolean) => {
@@ -1076,12 +1087,12 @@ function setupSettings(toast: ToastFn) {
       <option value="compact-pill">Minimal Compact (Pill Bar)</option>
     `;
     installed.forEach(item => {
-      if (item.filename !== "compact-pill-light.html" && item.filename !== "compact-pill-dark.html") {
-        const opt = document.createElement("option");
-        opt.value = item.filename;
-        opt.textContent = `${item.name} (${item.filename})`;
-        skinSelect.appendChild(opt);
-      }
+      // compact-pill.html is already offered above as "Minimal Compact".
+      if (item.filename === "compact-pill.html") return;
+      const opt = document.createElement("option");
+      opt.value = item.filename;
+      opt.textContent = `${item.name} (${item.filename})`;
+      skinSelect.appendChild(opt);
     });
     skinSelect.value = currentVal;
   }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Melo Skin - Minimal Compact (Light)</title>
+<title>Melo Skin - Minimal Compact</title>
 <style>
   :root {
     --card: #ffffff;
@@ -232,6 +232,42 @@
 
   /* Hidden audio support elements (kept for JS event listeners) */
   .hidden-helper { display: none !important; }
+
+  /* ---- Dark theme override (follows html[data-theme="dark"]) ---- */
+  html[data-theme="dark"] {
+    --card: #151b23;
+    --card-border: rgba(255, 255, 255, 0.10);
+    --text: #f3f4f6;
+    --text-soft: #9ca3af;
+    --text-muted: #6b7280;
+    --accent: #4db6ac;
+    --track-bg: #212833;
+    --shadow: 0 16px 36px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.30);
+  }
+  html[data-theme="dark"] .mini-btn.active { background: rgba(77,182,172,0.20); }
+  html[data-theme="dark"] .cover-wrap {
+    background: #0d1117 !important;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.40) !important;
+    border-color: #30363d !important;
+  }
+  html[data-theme="dark"] .cover-fallback {
+    background: linear-gradient(135deg, #1e293b, #0f766e) !important;
+    color: #5eead4 !important;
+  }
+  html[data-theme="dark"] input[type="range"].seek {
+    background: linear-gradient(to right, var(--accent,#4db6ac) 0%, var(--accent,#4db6ac) var(--progress,35%), #212833 var(--progress,35%), #212833 100%) !important;
+  }
+  html[data-theme="dark"] input[type="range"].seek::-webkit-slider-thumb {
+    border-color: var(--accent,#4db6ac) !important;
+    box-shadow: 0 0 8px rgba(77,182,172,0.40) !important;
+  }
+  html[data-theme="dark"] .transport button,
+  html[data-theme="dark"] .transport .icon-btn,
+  html[data-theme="dark"] .transport .play-btn { color: #9ca3af !important; }
+  html[data-theme="dark"] .transport button:hover,
+  html[data-theme="dark"] .transport .play-btn:hover { color: #ffffff !important; }
+  html[data-theme="dark"] .transport button.active { background: rgba(77,182,172,0.22) !important; }
+
 </style>
 </head>
 <body>

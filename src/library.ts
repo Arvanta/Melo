@@ -169,6 +169,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       elements.forEach(el => enqueueArtwork(el.dataset.artworkId, el));
       return;
     }
+    // Use the viewport as the observer root with a large pre-load margin so
+    // covers visible immediately after a search/filter (no scroll needed).
     const observer = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
@@ -176,8 +178,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         observer.unobserve(el);
         enqueueArtwork(el.dataset.artworkId, el);
       });
-    }, { root, rootMargin: "120px" });
+    }, { rootMargin: "600px" });
     elements.forEach(el => observer.observe(el));
+    // Eagerly load artwork for elements already in the viewport right now.
+    requestAnimationFrame(() => {
+      elements.forEach(el => {
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom >= 0 && rect.top <= window.innerHeight + 600) {
+          observer.unobserve(el);
+          enqueueArtwork(el.dataset.artworkId, el);
+        }
+      });
+    });
   }
 
   async function loadCore() {

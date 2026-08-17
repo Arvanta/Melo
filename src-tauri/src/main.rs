@@ -40,8 +40,7 @@ pub struct SkinFileInfo {
 }
 
 // Embedded default skin templates to ensure the skins folder is always populated on disk
-const DEFAULT_SKIN_COMPACT_LIGHT: &str = include_str!("../../skins/compact-pill-light.html");
-const DEFAULT_SKIN_COMPACT_DARK: &str = include_str!("../../skins/compact-pill-dark.html");
+const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
 
 // ---- Helpers ----
@@ -193,68 +192,61 @@ fn get_track_lyrics(path: String) -> Option<String> {
     None
 }
 
-/// All directories that may contain skin files, in priority order:
-/// 1. The writable per-user AppData skins folder (custom skins)
-/// 2. The bundled skins folder next to the executable (default skins)
-fn all_skin_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
-    use tauri::Manager;
-    let mut dirs = Vec::new();
-    if let Ok(app_data) = app.path().app_data_dir() {
-        dirs.push(app_data.join("skins"));
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            dirs.push(parent.join("skins"));
+/// Seed the writable skins folder with the built-in default skins so that
+/// there is only ONE skins directory the user ever deals with (AppData).
+/// Missing defaults are copied in; existing files (including the user's
+/// edited copies) are never overwritten.
+fn ensure_default_skins(skins_dir: &Path) {
+    let defaults = [
+        ("compact-pill.html", DEFAULT_SKIN_COMPACT),
+        ("full-html-example.html", DEFAULT_SKIN_FULL_EXAMPLE),
+    ];
+    for (name, content) in defaults {
+        let target = skins_dir.join(name);
+        if !target.exists() {
+            let _ = std::fs::write(target, content);
         }
     }
-    dirs
 }
 
 #[tauri::command]
 fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, String> {
+    let skins_dir = get_writable_skins_dir(&app)?;
     let mut list = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // User skins come first and take precedence over bundled defaults with
-    // the same filename.
-    for skins_dir in all_skin_dirs(&app) {
-        if let Ok(entries) = std::fs::read_dir(&skins_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.is_file() {
-                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
-                            let filename = path
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string();
-                            if !seen.insert(filename.clone()) {
-                                continue;
-                            }
-                            let stem = path
-                                .file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string();
-                            let name_clean = stem.replace('-', " ").replace('_', " ");
-                            let name_formatted = name_clean
-                                .split_whitespace()
-                                .map(|word| {
-                                    let mut c = word.chars();
-                                    match c.next() {
-                                        None => String::new(),
-                                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" ");
-                            list.push(SkinFileInfo {
-                                id: stem,
-                                name: name_formatted,
-                                filename,
-                                path: path.to_string_lossy().to_string(),
-                            });
-                        }
+    if let Ok(entries) = std::fs::read_dir(&skins_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                        let filename = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let stem = path
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let name_clean = stem.replace('-', " ").replace('_', " ");
+                        let name_formatted = name_clean
+                            .split_whitespace()
+                            .map(|word| {
+                                let mut c = word.chars();
+                                match c.next() {
+                                    None => String::new(),
+                                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        list.push(SkinFileInfo {
+                            id: stem,
+                            name: name_formatted,
+                            filename,
+                            path: path.to_string_lossy().to_string(),
+                        });
                     }
                 }
             }
@@ -271,20 +263,15 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
         return std::fs::read_to_string(path).map_err(|e| e.to_string());
     }
 
-    // Search all skin directories (user AppData first, then bundled).
-    for skins_dir in all_skin_dirs(&app) {
-        let target = skins_dir.join(&filename_or_path);
-        if target.exists() {
-            return std::fs::read_to_string(&target).map_err(|e| e.to_string());
-        }
+    let skins_dir = get_writable_skins_dir(&app)?;
+    let target = skins_dir.join(&filename_or_path);
+    if target.exists() {
+        return std::fs::read_to_string(&target).map_err(|e| e.to_string());
     }
 
-    // Check embedded fallback if filename matches
+    // Last-resort embedded fallback.
     match filename_or_path.as_str() {
-        "compact-pill-light.html" | "compact-pill-light" => {
-            Ok(DEFAULT_SKIN_COMPACT_LIGHT.to_string())
-        }
-        "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT_DARK.to_string()),
+        "compact-pill.html" | "compact-pill" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }
@@ -302,12 +289,9 @@ fn get_writable_skins_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Cannot resolve AppData skins folder: {}", e))?;
     std::fs::create_dir_all(&p)
         .map_err(|e| format!("Cannot create skins folder at {}: {}", p.display(), e))?;
-    // Seed the writable folder with the built-in example on first run, so
-    // users have something to start from even in a per-machine install.
-    let example = p.join("full-html-example.html");
-    if !example.exists() {
-        let _ = std::fs::write(&example, DEFAULT_SKIN_FULL_EXAMPLE);
-    }
+    // Seed the single skins folder with the built-in defaults (only copies
+    // files that don't already exist, so user edits are preserved).
+    ensure_default_skins(&p);
     // If the directory exists but isn't actually writable, surface that now
     // instead of failing silently on the file write.
     if !dir_is_writable(&p) {
