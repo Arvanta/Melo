@@ -459,30 +459,51 @@ fn parse_folder_into_tracks(
 
 fn queue_page(
     conn: &Connection,
+    search: Option<&str>,
     limit: usize,
     offset: usize,
 ) -> Result<QueuePage<QueueEntry>, String> {
-    let total = entry_count(conn)?;
     let shuffle = queue_shuffle(conn)?;
     let current = current_seq_value(conn)?;
-    let order = order_clause(shuffle);
     let columns = "t.id,t.path,t.title,t.artist,t.album,t.genre,t.year,t.duration,t.artwork_path,t.codec,t.specs,t.replay_gain";
+    let q = search.unwrap_or("").trim();
+    let (where_sql, total): (String, i64) = if q.is_empty() {
+        ("".to_string(), entry_count(conn)?)
+    } else {
+        let like = format!("%{}%", q);
+        let total = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playing_queue q JOIN tracks t ON t.id=q.track_id
+                 WHERE t.title LIKE ?1 OR t.artist LIKE ?1 OR t.album LIKE ?1",
+                params![like],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        (
+            " WHERE t.title LIKE ?1 OR t.artist LIKE ?1 OR t.album LIKE ?1 ".to_string(),
+            total,
+        )
+    };
+    let order = order_clause(shuffle);
     let sql = format!(
         "SELECT q.seq, {} FROM playing_queue q
-         JOIN tracks t ON t.id=q.track_id
+         JOIN tracks t ON t.id=q.track_id{}
          ORDER BY {} LIMIT ? OFFSET ?",
-        columns, order
+        columns, where_sql, order
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let items = stmt
-        .query_map(params![limit as i64, offset as i64], |row| {
-            let seq: i64 = row.get(0)?;
-            let track = library_db::row_track_indexed(row, 1)?;
-            Ok(QueueEntry { seq, track })
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(Result::ok)
-        .collect();
+    let items: Vec<QueueEntry> = if q.is_empty() {
+        stmt.query_map(params![limit as i64, offset as i64], queue_row)
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect()
+    } else {
+        let like = format!("%{}%", q);
+        stmt.query_map(params![like, limit as i64, offset as i64], queue_row)
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect()
+    };
     Ok(QueuePage {
         items,
         total,
@@ -490,6 +511,12 @@ fn queue_page(
         offset,
         current_seq: current,
     })
+}
+
+fn queue_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueEntry> {
+    let seq: i64 = row.get(0)?;
+    let track = library_db::row_track_indexed(row, 1)?;
+    Ok(QueueEntry { seq, track })
 }
 
 fn state_from_conn(conn: &Connection) -> Result<QueueState, String> {
@@ -669,6 +696,7 @@ pub async fn queue_get_state(state: State<'_, LibraryState>) -> Result<QueueStat
 
 #[tauri::command]
 pub async fn queue_get_page(
+    search: Option<String>,
     limit: usize,
     offset: usize,
     state: State<'_, LibraryState>,
@@ -676,7 +704,7 @@ pub async fn queue_get_page(
     let db_path = state.db_path.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = library_db::open_db(&db_path)?;
-        queue_page(&conn, limit, offset)
+        queue_page(&conn, search.as_deref(), limit, offset)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1307,7 +1335,7 @@ mod tests {
         let tx = conn.transaction().unwrap();
         build_queue_from_source(&tx, &QueueSource::Tracks { ids }, Path::new("/tmp")).unwrap();
         tx.commit().unwrap();
-        let page = queue_page(&conn, 4, 6).unwrap();
+        let page = queue_page(&conn, None, 4, 6).unwrap();
         assert_eq!(page.items.len(), 4);
         assert_eq!(page.total, 12);
     }

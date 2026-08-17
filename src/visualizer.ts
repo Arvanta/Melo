@@ -356,6 +356,17 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.stroke();
   }
 
+  // Skins may override the bar count for the bar-based modes via
+  // <div id="vizBars" data-bars="40"></div>. Any positive integer is
+  // accepted; out-of-range values fall back to the mode default.
+  function barsForMode(defaultN: number): number {
+    const raw = container?.dataset?.bars;
+    if (!raw) return defaultN;
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 4 && n <= 256) return Math.round(n);
+    return defaultN;
+  }
+
   function draw() {
     const w = canvas.width, h = canvas.height;
     if (!w || !h) return;
@@ -364,12 +375,12 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       drawWave();
       return;
     }
-    const n = mode === "bars" ? 16
-      : mode === "thin" ? 56
+    const n = mode === "bars" ? barsForMode(16)
+      : mode === "thin" ? barsForMode(56)
       : mode === "line" ? 64
       : mode === "spectrumWave" ? 72
       : mode === "blocks" ? 22
-      : 24;
+      : barsForMode(24);
     const data = getLevels(n);
     if (mode === "bars") drawBars(data, w, h, 0.34);
     else if (mode === "thin") drawBars(data, w, h, 0.32);

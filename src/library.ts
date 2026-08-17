@@ -4,7 +4,13 @@ import {
   populateQueue,
   appendToQueue,
   onQueueState,
+  getQueuePage,
+  jumpQueue,
+  removeFromQueue,
+  reorderQueue,
+  clearQueue,
   type QueueSource,
+  type QueueEntry,
 } from "./queue";
 
 const role = new URLSearchParams(location.search).get("panel") || "main";
@@ -33,19 +39,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const scanButton = document.getElementById("btn-scan") as HTMLButtonElement | null;
   const clearLibraryButton = document.getElementById("btn-clear-library") as HTMLButtonElement | null;
 
-  const playlistList = document.getElementById("winPlaylistTracks") as HTMLElement | null;
-  const playlistEmpty = document.getElementById("winPlaylistEmpty") as HTMLElement | null;
-  const playlistSelect = document.getElementById("playlistSelect") as HTMLSelectElement | null;
-  const playlistSearch = document.getElementById("playlistSearchInput") as HTMLInputElement | null;
-  const playlistSort = document.getElementById("playlistSortSelect") as HTMLSelectElement | null;
-  const clearPlaylistButton = document.getElementById("btn-clear-playlist") as HTMLButtonElement | null;
-  const exportButton = document.getElementById("btn-export-playlist") as HTMLButtonElement | null;
-  const newPlaylistButton = document.getElementById("btn-new-playlist") as HTMLButtonElement | null;
+  const queueList = document.getElementById("winPlaylistTracks") as HTMLElement | null;
+  const queueEmpty = document.getElementById("winPlaylistEmpty") as HTMLElement | null;
+  const queueSearch = document.getElementById("playlistSearchInput") as HTMLInputElement | null;
+  const queueCount = document.getElementById("queueCount") as HTMLElement | null;
+  const clearQueueButton = document.getElementById("btn-clear-playlist") as HTMLButtonElement | null;
 
   let invoke: (<T>(command: string, args?: Record<string, unknown>) => Promise<T>) | null = null;
   let toAsset: ((path: string) => string) | null = null;
   let initialized = false;
-  let currentPlaylistId = localStorage.getItem("melo-currentPlaylist") || "p1";
   let playlists: PlaylistRow[] = [];
   let activeScanId: string | null = null;
   let ownedScanId: string | null = null;
@@ -61,11 +63,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let librarySearch = "";
 
   const libraryRowHeight = 54;
-  const playlistRowHeight = 52;
+  const queueRowHeight = 52;
   let libraryRequest = 0;
-  let playlistRequest = 0;
+  let queueRequest = 0;
   let libraryScrollTimer = 0;
-  let playlistScrollTimer = 0;
+  let queueScrollTimer = 0;
+  let queueSearchTimer = 0;
   let contextTrackId: string | null = null;
   const libraryContextMenu = document.createElement("div");
   libraryContextMenu.className = "ctx-menu";
@@ -189,7 +192,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     initialized = true;
     await Promise.all([refreshStats(), refreshPlaylists()]);
     await renderLibraryVirtual(true);
-    await renderPlaylistVirtual(true);
+    await renderQueueVirtual(true);
   }
 
   function renderBrowserEmpty() {
@@ -202,6 +205,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const stats = await invoke<Stats>("library_stats");
       libraryStats.textContent = `${stats.tracks} tracks • ${stats.artists} artists • ${stats.albums} albums`;
     } catch {}
+  }
+
+  async function refreshPlaylists() {
+    if (!invoke) return;
+    try { playlists = await invoke<PlaylistRow[]>("list_playlists"); } catch {}
   }
 
   function resetLibrarySelection() {
@@ -303,7 +311,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
           <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>
           <span class="t-dur">${fmtDur(track.duration)}</span>
-          <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
+          <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to queue">+</button>
         </div>`;
       }).join("");
       const artistHeader = artistDetail && artistAlbums
@@ -360,9 +368,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     trackList.querySelectorAll<HTMLElement>("[data-add-track]").forEach(button => {
       button.onclick = async event => {
         event.stopPropagation();
-        if (!invoke || !button.dataset.addTrack) return;
-        await invoke("add_tracks_to_playlist", { playlistId: currentPlaylistId, trackIds: [button.dataset.addTrack] });
-        busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+        if (!button.dataset.addTrack) return;
+        await appendToQueue([button.dataset.addTrack]);
+        toast("Added to queue");
       };
     });
     trackList.querySelectorAll<HTMLElement>("[data-track-id]").forEach(row => {
@@ -402,58 +410,74 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     });
   }
 
-  async function refreshPlaylists() {
-    if (!invoke) return;
-    playlists = await invoke<PlaylistRow[]>("list_playlists");
-    if (!playlists.some(p => p.id === currentPlaylistId)) currentPlaylistId = playlists[0]?.id || "p1";
-    localStorage.setItem("melo-currentPlaylist", currentPlaylistId);
-    if (playlistSelect) {
-      playlistSelect.innerHTML = playlists.map(p => `<option value="${esc(p.id)}" ${p.id === currentPlaylistId ? "selected" : ""}>${esc(p.name)} (${p.trackCount})</option>`).join("");
-    }
-  }
+  // ---- Playing Queue list (virtualized, DB-backed) ----
+  let dragFromSeq: number | null = null;
 
-  async function renderPlaylistVirtual(reset = false) {
-    if (!playlistList || !invoke) return;
-    if (reset) playlistList.scrollTop = 0;
-    playlistList.style.display = "block";
-    playlistList.style.position = "relative";
-    playlistList.style.overflowY = "auto";
-    const viewport = Math.max(260, playlistList.clientHeight || 420);
-    const start = Math.max(0, Math.floor(playlistList.scrollTop / playlistRowHeight) - 8);
-    const limit = Math.max(40, Math.ceil(viewport / playlistRowHeight) + 16);
-    const request = ++playlistRequest;
-    const page = await invoke<Page<Track>>("playlist_tracks", {
-      playlistId: currentPlaylistId,
-      search: playlistSearch?.value || null,
-      sort: playlistSort?.value || "default",
-      limit,
-      offset: start,
-    });
-    if (request !== playlistRequest) return;
-    page.items = page.items.map(normalizeTrack);
-    recentTracks = page.items;
-    if (playlistEmpty) playlistEmpty.style.display = page.total ? "none" : "block";
-    playlistList.style.display = page.total ? "block" : "none";
-    if (!page.total) { playlistList.innerHTML = ""; return; }
-    const rows = page.items.map((track, i) => `<div class="track-row virtual-row" data-pl-track="${esc(track.id)}" data-page-index="${i}" style="position:absolute;left:0;right:0;top:${(page.offset+i)*playlistRowHeight}px;height:${playlistRowHeight}px"><span class="num">${page.offset+i+1}</span>${track.cover?`<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`:`<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}<div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div><span class="t-dur">${fmtDur(track.duration)}</span><button class="btn small ghost" data-remove-track="${esc(track.id)}">×</button></div>`).join("");
-    playlistList.innerHTML = `<div style="position:relative;height:${Math.max(viewport,page.total*playlistRowHeight)}px">${rows}</div>`;
-    bindLazyArtwork(playlistList);
+  async function renderQueueVirtual(reset = false) {
+    if (!queueList) return;
+    if (reset) queueList.scrollTop = 0;
+    queueList.style.display = "block";
+    queueList.style.position = "relative";
+    queueList.style.overflowY = "auto";
+    const viewport = Math.max(260, queueList.clientHeight || 420);
+    const search = queueSearch?.value?.trim() || "";
+    const start = Math.max(0, Math.floor(queueList.scrollTop / queueRowHeight) - 8);
+    const limit = Math.max(40, Math.ceil(viewport / queueRowHeight) + 16);
+    const request = ++queueRequest;
+    let page: Page<QueueEntry>;
+    try {
+      page = await getQueuePage(limit, start, search);
+    } catch {
+      return;
+    }
+    if (request !== queueRequest) return;
+    const items = page.items;
+    if (queueCount) queueCount.textContent = search ? `${page.total} matches` : `${page.total} track${page.total === 1 ? "" : "s"}`;
+    if (queueEmpty) queueEmpty.style.display = page.total ? "none" : "block";
+    queueList.style.display = page.total ? "block" : "none";
+    if (!page.total) { queueList.innerHTML = ""; return; }
+
+    // Each row must remember its real seq, not its position in the (possibly
+    // searched) page. Reorder drag is disabled while a search filter is set.
+    const rows = items.map((entry, i) => {
+      const track = entry;
+      const absoluteIndex = page.offset + i;
+      const top = absoluteIndex * queueRowHeight;
+      return `<div class="track-row virtual-row queue-row" data-queue-seq="${esc(track.seq)}" data-track-id="${esc(track.id)}" draggable="${search ? "false" : "true"}" style="position:absolute;left:0;right:0;top:${top}px;height:${queueRowHeight}px">
+        <span class="num">${absoluteIndex + 1}</span>
+        ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
+        <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>
+        <span class="t-dur">${fmtDur(track.duration)}</span>
+        <button class="btn small ghost" data-remove-seq="${esc(track.seq)}" title="Remove from queue">×</button>
+      </div>`;
+    }).join("");
+    queueList.innerHTML = `<div style="position:relative;height:${Math.max(viewport, page.total * queueRowHeight)}px">${rows}</div>`;
+    bindLazyArtwork(queueList);
     markActiveTracks();
-    playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
+
+    queueList.querySelectorAll<HTMLElement>(".queue-row").forEach(row => {
       row.onclick = async event => {
-        if ((event.target as HTMLElement).closest("[data-remove-track]")) return;
-        const trackId = row.dataset.plTrack || null;
-        await populateQueue(
-          { type: "playlist", id: currentPlaylistId },
-          { autoplay: true, startTrackId: trackId },
-        );
+        if ((event.target as HTMLElement).closest("[data-remove-seq]")) return;
+        const seq = Number(row.dataset.queueSeq);
+        if (Number.isFinite(seq)) await jumpQueue(seq, 0);
+      };
+      row.ondragstart = () => { dragFromSeq = Number(row.dataset.queueSeq); row.classList.add("dragging"); };
+      row.ondragend = () => { row.classList.remove("dragging"); dragFromSeq = null; };
+      row.ondragover = (event) => { event.preventDefault(); };
+      row.ondrop = async (event) => {
+        event.preventDefault();
+        const toSeq = Number(row.dataset.queueSeq);
+        if (Number.isFinite(dragFromSeq) && Number.isFinite(toSeq) && dragFromSeq !== toSeq && !search) {
+          await reorderQueue(dragFromSeq!, toSeq);
+        }
+        dragFromSeq = null;
       };
     });
-    playlistList.querySelectorAll<HTMLElement>("[data-remove-track]").forEach(button => {
+    queueList.querySelectorAll<HTMLElement>("[data-remove-seq]").forEach(button => {
       button.onclick = async event => {
         event.stopPropagation();
-        await invoke!("remove_track_from_playlist", { playlistId: currentPlaylistId, trackId: button.dataset.removeTrack });
-        busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+        const seq = Number(button.dataset.removeSeq);
+        if (Number.isFinite(seq)) await removeFromQueue(seq);
       };
     });
   }
@@ -470,11 +494,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!invoke || !paths.length) return [];
     const list = await invoke<Track[]>("import_audio_files", {
       paths,
-      playlistId: mode === "none" ? null : currentPlaylistId,
+      playlistId: mode === "none" ? null : "p1",
       replacePlaylist: mode === "replace",
     });
     const hydrated = list.map(normalizeTrack);
-    await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(), renderPlaylistVirtual()]);
+    await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual()]);
     busEmit("melo:library-changed", { imported: hydrated.length });
     return hydrated;
   }
@@ -527,19 +551,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     window.clearTimeout(libraryScrollTimer);
     libraryScrollTimer = window.setTimeout(() => renderLibraryVirtual(), 60);
   });
-  playlistList?.addEventListener("scroll", () => {
-    window.clearTimeout(playlistScrollTimer);
-    playlistScrollTimer = window.setTimeout(() => renderPlaylistVirtual(), 60);
+  queueList?.addEventListener("scroll", () => {
+    window.clearTimeout(queueScrollTimer);
+    queueScrollTimer = window.setTimeout(() => renderQueueVirtual(), 60);
   });
-  playlistSearch?.addEventListener("input", () => {
-    window.clearTimeout(playlistScrollTimer);
-    playlistScrollTimer = window.setTimeout(() => renderPlaylistVirtual(true), 180);
-  });
-  playlistSort?.addEventListener("change", () => renderPlaylistVirtual(true));
-  playlistSelect?.addEventListener("change", () => {
-    currentPlaylistId = playlistSelect.value;
-    localStorage.setItem("melo-currentPlaylist", currentPlaylistId);
-    renderPlaylistVirtual(true);
+  queueSearch?.addEventListener("input", () => {
+    window.clearTimeout(queueSearchTimer);
+    queueSearchTimer = window.setTimeout(() => renderQueueVirtual(true), 160);
   });
   scanButton?.addEventListener("click", chooseAndScanFolder);
   clearLibraryButton?.addEventListener("click", async () => {
@@ -552,38 +570,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     await invoke("clear_library_database");
     recentTracks = [];
     artistAlbumsCache.clear();
-    await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true), renderPlaylistVirtual(true)]);
+    await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true)]);
     busEmit("melo:library-changed", { cleared: true });
   });
-  clearPlaylistButton?.addEventListener("click", async () => {
-    await invokeSafe("clear_playlist", { playlistId: currentPlaylistId });
-    await Promise.all([refreshPlaylists(), renderPlaylistVirtual(true)]);
-    busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
-  });
-  newPlaylistButton?.addEventListener("click", async () => {
-    const name = prompt("New playlist name:")?.trim();
-    if (!name) return;
-    const created = await invokeSafe<PlaylistRow>("create_playlist", { name });
-    if (created) currentPlaylistId = created.id;
-    await Promise.all([refreshPlaylists(), renderPlaylistVirtual(true)]);
-  });
-  exportButton?.addEventListener("click", async () => {
-    if (!invoke) return;
-    const all: Track[] = [];
-    let offset = 0;
-    while (true) {
-      const page = await invoke<Page<Track>>("playlist_tracks", { playlistId: currentPlaylistId, search: null, sort: "default", limit: 500, offset });
-      all.push(...page.items);
-      offset += page.items.length;
-      if (offset >= page.total || !page.items.length) break;
-    }
-    if (!all.length) return;
-    const text = "#EXTM3U\n" + all.map(t => `#EXTINF:${Math.floor(t.duration)},${t.artist} - ${t.title}\n${t.path}`).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([text], { type: "audio/x-mpegurl" }));
-    a.download = `${playlists.find(p => p.id === currentPlaylistId)?.name || "playlist"}.m3u`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  clearQueueButton?.addEventListener("click", async () => {
+    await clearQueue();
   });
 
   if (isTauri) {
@@ -622,10 +613,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
     if (progress.finished) {
       const shouldReplace = progress.scanId === ownedScanId && replacePlaylistAfterScan && !progress.cancelled;
-      if (shouldReplace && invoke) {
-        await invoke("replace_playlist_from_scan", { playlistId: currentPlaylistId, scanId: progress.scanId });
+      if (shouldReplace) {
         await populateQueue({ type: "scan", scanId: progress.scanId }, { autoplay: true });
-        busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
       }
       activeScanId = null;
       ownedScanId = null;
@@ -635,7 +624,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         scanButton.classList.remove("scanning");
         scanButton.style.setProperty("--scan-progress", "0%");
       }
-      await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(), renderPlaylistVirtual()]);
+      await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual()]);
     }
   });
   let refreshTimer = 0;
@@ -645,13 +634,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     refreshTimer = window.setTimeout(() => {
       refreshStats();
       renderLibraryVirtual();
-      renderPlaylistVirtual();
     }, 500);
   });
-  busOn("melo:playlist-changed", () => {
-    refreshPlaylists();
-    renderPlaylistVirtual();
-  });
+
+  // Re-render the queue whenever it changes (adds, removes, reorders,
+  // track changes). The queue window is a separate OS webview, so it listens
+  // to the same cross-window event bus as the main window.
+  busOn("melo:queue-changed", () => renderQueueVirtual());
+  busOn("melo:queue-cleared", () => renderQueueVirtual(true));
 
   (window as any).MeloLibrary = {
     get tracks() { return recentTracks; },
@@ -661,17 +651,27 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     getTrack,
     render: () => renderLibraryVirtual(),
     addToCurrentPlaylist: async (list: Track[]) => {
-      if (!invoke || !list.length) return;
-      await invoke("add_tracks_to_playlist", { playlistId: currentPlaylistId, trackIds: list.map(t => t.id) });
-      busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+      if (!list.length) return;
+      await appendToQueue(list.map(t => t.id));
     },
-    currentPlaylistName: () => playlists.find(p => p.id === currentPlaylistId)?.name || "Playlist",
+    currentPlaylistName: () => "Playing Queue",
   };
 
   onQueueState((s) => {
     currentTrackId = s.currentTrack?.id || null;
     markActiveTracks();
+    if (queueCount) {
+      queueCount.textContent = `${s.total} track${s.total === 1 ? "" : "s"}`;
+    }
   });
 
-  loadCore().catch(() => toast("Could not initialize the Library database"));
+  // The queue panel also needs to paint its initial list even before the
+  // first mutation event fires.
+  if (role === "playlist") {
+    loadCore()
+      .then(() => renderQueueVirtual(true))
+      .catch(() => toast("Could not initialize the Library database"));
+  } else {
+    loadCore().catch(() => toast("Could not initialize the Library database"));
+  }
 }

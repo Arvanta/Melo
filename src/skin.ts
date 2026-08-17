@@ -702,15 +702,60 @@ const EMBEDDED_SKINS: Record<string, string> = {
 const WEB_SKINS_LIST: SkinItem[] = [
   { id: "compact-pill-light", name: "Minimal Compact (Light)", filename: "compact-pill-light.html" },
   { id: "compact-pill-dark", name: "Minimal Compact (Dark)", filename: "compact-pill-dark.html" },
-  { id: "full-html-example", name: "Full HTML Example", filename: "full-html-example.html" },
-  { id: "example-custom", name: "Custom CSS Example", filename: "example-custom.html" },
+  { id: "full-html-example", name: "Full HTML Example (Vertical)", filename: "full-html-example.html" },
 ];
+
+// Last full HTML skin applied, so callers (e.g. main window sizing) can read
+// its <meta name="melo-window"> hints without re-reading the file.
+let lastAppliedSkinHtml: string | null = null;
+export function getLastAppliedSkinHtml(): string | null {
+  return lastAppliedSkinHtml;
+}
 
 export function isFullHtmlSkin(htmlText: string): boolean {
   const markers = ["trackTitle", "btnPlay", "seekBar", "coverImg"];
   let count = 0;
   for (const m of markers) if (htmlText.includes(m)) count++;
   return count >= 3;
+}
+
+export interface SkinWindowHints {
+  width?: number;
+  height?: number;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  resizable?: boolean;
+  transparent?: boolean;
+}
+
+/**
+ * Parse an optional <meta name="melo-window" content="..."> tag that lets a
+ * skin declare its own window geometry. Values are comma-separated CSS-like
+ * key/value pairs, e.g.:
+ *   content="width=340, height=580, resizable=true"
+ */
+export function parseSkinWindowHints(htmlText: string): SkinWindowHints {
+  const hints: SkinWindowHints = {};
+  const match = htmlText.match(
+    /<meta[^>]+name=["']melo-window["'][^>]*content=["']([^"']*)["']/i,
+  );
+  if (!match) return hints;
+  for (const part of match[1].split(",")) {
+    const [rawKey, rawVal] = part.split("=").map((s) => s.trim());
+    if (!rawKey || rawVal === undefined) continue;
+    const key = rawKey as keyof SkinWindowHints;
+    if (key === "resizable" || key === "transparent") {
+      (hints as Record<string, unknown>)[key] = /^(1|true|yes)$/i.test(rawVal);
+    } else {
+      const n = parseInt(rawVal, 10);
+      if (Number.isFinite(n) && n > 0) {
+        (hints as Record<string, unknown>)[key] = n;
+      }
+    }
+  }
+  return hints;
 }
 
 export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
@@ -746,6 +791,7 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
   if (meloRoot) bodyHTML = meloRoot.innerHTML;
 
   if (isFull && bodyHTML.trim().length > 20) {
+    lastAppliedSkinHtml = htmlText;
     const trimmed = bodyHTML.trim();
     playerCard.innerHTML = trimmed;
     if (toast) toast("Skin applied");
@@ -766,6 +812,7 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
 }
 
 export function resetSkin(toast?: (m: string) => void, broadcast = true) {
+  lastAppliedSkinHtml = null;
   document.documentElement.classList.remove("compact-skin-active");
   document.body.classList.remove("compact-skin-active");
   if (customStyleEl) { customStyleEl.remove(); customStyleEl = null; }

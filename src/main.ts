@@ -5,7 +5,7 @@ import { setupLibrary } from "./library";
 import { setupEqualizer } from "./equalizer";
 import { setupVisualizer } from "./visualizer";
 import { setupLyrics } from "./lyrics";
-import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk } from "./skin";
+import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, getLastAppliedSkinHtml, parseSkinWindowHints, type SkinWindowHints } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
 import { busEmit, busOn, isTauri } from "./bus";
 import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
@@ -77,44 +77,31 @@ app.innerHTML = `
       <div class="resize-handle" data-resize="win-library">◢</div>
     </div>
 
-    <!-- PLAYLIST WINDOW -->
+    <!-- PLAYING QUEUE WINDOW -->
     <div class="float-win" id="win-playlist" style="left:370px; top:12px; width:360px; height:480px; z-index:3;">
       <div class="float-header" data-drag="win-playlist">
         <div class="float-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          Playlist
+          Playing Queue
         </div>
         <div class="float-actions">
-          <button class="float-btn" data-close="win-playlist" title="Hide">—</button>
-          <button class="float-btn close" data-close="win-playlist">×</button>
+          <button class="float-btn" data-close="win-playlist" title="Hide">&mdash;</button>
+          <button class="float-btn close" data-close="win-playlist">&times;</button>
         </div>
       </div>
       <div class="float-body" style="padding:8px; display:flex; flex-direction:column; gap:6px;">
         <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap;">
-          <select id="playlistSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; flex:1 1 140px;" title="Current playlist"></select>
-          <button class="btn small ghost" id="btn-new-playlist" style="height:26px; font-size:11px;">+ New</button>
-          <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="flex:1; height:26px; font-size:11px; padding-left:8px;" />
-          <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; width:110px;" title="Sort tracks">
-            <option value="default">Sort: Default</option>
-            <option value="title-asc">Title (A-Z)</option>
-            <option value="artist-asc">Artist (A-Z)</option>
-            <option value="album-asc">Album (A-Z)</option>
-            <option value="dur-asc">Duration (Shortest)</option>
-            <option value="dur-desc">Duration (Longest)</option>
-          </select>
+          <input id="playlistSearchInput" class="search-input" placeholder="Search queue..." style="flex:1; height:26px; font-size:11px; padding-left:8px;" />
+          <span id="queueCount" style="font-size:11px; color:var(--text-muted); white-space:nowrap;">0 tracks</span>
         </div>
         <div id="winPlaylistTracks" class="drop-zone" style="flex:1; overflow:auto; display:flex; flex-direction:column; min-height:140px;"></div>
         <div id="winPlaylistEmpty" style="display:none; border:1px dashed var(--card-border); border-radius:10px; padding:16px 10px; background:var(--track-bg); text-align:center; font-size:11px; color:var(--text-muted); line-height:1.8;">
-          Playlist is empty<br/>Drag tracks from Library or drop audio files here
+          Queue is empty<br/>Open files, scan a folder, or click a track in the Library
         </div>
         <div class="playlist-footer-actions" style="display:flex; gap:6px; flex-shrink:0;">
-          <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the current playlist">
+          <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the playing queue">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
-            Clear
-          </button>
-          <button class="btn small block" id="btn-export-playlist">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export M3U
+            Clear Queue
           </button>
         </div>
       </div>
@@ -409,7 +396,7 @@ app.innerHTML = `
           <button class="sbtn active" id="btnToggleLibrary" title="Library">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
           </button>
-          <button class="sbtn active" id="btnTogglePlaylist" title="Playlist">
+          <button class="sbtn active" id="btnTogglePlaylist" title="Playing Queue">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
           </button>
           <button class="sbtn active" id="btnToggleEq" title="Equalizer">
@@ -483,21 +470,52 @@ if (isTauri && !urlPanel) {
 if (isTauri && !urlPanel) {
   import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
     const mainWin = getCurrentWindow();
-    
-    const getTargetSize = () => {
+
+    // Geometry the active skin declares. Compact pills are fixed; full HTML
+    // skins may declare their own <meta name="melo-window">. The default
+    // skin is freely resizable (>= 650px wide, >= 240px tall).
+    const getSkinHints = (): SkinWindowHints & { fixed: boolean } => {
       const activeSkin = localStorage.getItem("melo-active-skin-id");
-      const isCompact = activeSkin === "compact-pill" || (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
-      return { w: isCompact ? 780 : 960, h: isCompact ? 138 : 240 };
+      const isCompact =
+        activeSkin === "compact-pill" ||
+        (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
+      if (isCompact) {
+        return { width: 780, height: 138, minWidth: 780, maxWidth: 780, minHeight: 138, maxHeight: 138, resizable: false, fixed: true };
+      }
+      if (activeSkin && activeSkin !== "default") {
+        const html = getLastAppliedSkinHtml();
+        if (html) {
+          const h = parseSkinWindowHints(html);
+          return { ...h, fixed: false };
+        }
+      }
+      return { width: 960, height: 240, minWidth: 650, minHeight: 240, resizable: true, fixed: false };
+    };
+
+    const applyWindowConstraints = async (useStartupSize: boolean) => {
+      const { LogicalSize } = await import("@tauri-apps/api/dpi");
+      const h = getSkinHints();
+      await mainWin.setResizable(!!h.resizable);
+      const sf = await mainWin.scaleFactor();
+      const cur = (await mainWin.innerSize()).toLogical(sf);
+      const minW = h.minWidth ?? (h.resizable ? 280 : h.width ?? cur.width);
+      const minH = h.minHeight ?? (h.resizable ? 200 : h.height ?? cur.height);
+      const maxW = h.maxWidth;
+      const maxH = h.maxHeight;
+      let w = cur.width, hgt = cur.height;
+      if (useStartupSize && h.width) w = h.width;
+      if (useStartupSize && h.height) hgt = h.height;
+      w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
+      hgt = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
+      if (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5) {
+        await mainWin.setSize(new LogicalSize(w, hgt));
+      }
     };
 
     try {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
-      const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
-      const sz = getTargetSize();
-      const isCompactStartup = sz.w === 780;
-      const startupW = isCompactStartup ? sz.w : (g?.w ? Math.max(650, g.w) : sz.w);
-      await mainWin.setSize(new LogicalSize(startupW, sz.h));
-      await mainWin.setResizable(!isCompactStartup);
+      const { LogicalPosition } = await import("@tauri-apps/api/dpi");
+      await applyWindowConstraints(true);
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -507,21 +525,28 @@ if (isTauri && !urlPanel) {
       try {
         const pos = await mainWin.outerPosition();
         const size = await mainWin.innerSize();
-        const sz = getTargetSize();
-        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: sz.h }));
+        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: size.height }));
       } catch {}
     };
     mainWin.onMoved(saveGeo);
     mainWin.onResized(async () => {
       try {
-        const sz = await mainWin.innerSize();
-        const target = getTargetSize();
-        const isCompact = target.w === 780;
-        const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (!isCompact) {
-          const logical = sz.toLogical(await mainWin.scaleFactor());
-          if (logical.width < 650 || logical.height !== target.h) {
-            await mainWin.setSize(new LogicalSize(Math.max(650, logical.width), target.h));
+        const h = getSkinHints();
+        if (!h.resizable) {
+          // Fixed skins (compact pill): snap back if the OS/window manager
+          // tried to resize us.
+          await applyWindowConstraints(true);
+        } else {
+          // Resizable skins: enforce declared min/max only.
+          const sf = await mainWin.scaleFactor();
+          const cur = (await mainWin.innerSize()).toLogical(sf);
+          const minW = h.minWidth ?? 280, minH = h.minHeight ?? 200;
+          const maxW = h.maxWidth, maxH = h.maxHeight;
+          let w = Math.max(minW, maxW ? Math.min(maxW, cur.width) : cur.width);
+          let hgt = Math.max(minH, maxH ? Math.min(maxH, cur.height) : cur.height);
+          if (w !== cur.width || hgt !== cur.height) {
+            const { LogicalSize } = await import("@tauri-apps/api/dpi");
+            await mainWin.setSize(new LogicalSize(w, hgt));
           }
         }
       } catch {}
@@ -533,15 +558,10 @@ if (isTauri && !urlPanel) {
         if (!urlPanel && skinId) {
           await applySkinChoice(skinId, theme, undefined, false);
         }
-        const isCompact = skinId === "compact-pill" || (typeof skinId === "string" && skinId.startsWith("compact-pill"));
-        const targetW = isCompact ? 780 : 960;
-        const targetH = isCompact ? 138 : 240;
-        const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        await mainWin.setSize(new LogicalSize(targetW, targetH));
-        // Compact Pill is a fixed-size design; lock resizing so the window
-        // can't be dragged wider/taller than the skin's actual artwork,
-        // which previously showed as a visible transparent strip around it.
-        await mainWin.setResizable(!isCompact);
+        // Wait a frame so the new skin DOM is in place, then resize the
+        // native window to match the skin's declared geometry.
+        await new Promise(r => setTimeout(r, 60));
+        await applyWindowConstraints(true);
         saveGeo();
       } catch {}
     });
@@ -571,7 +591,7 @@ if (isTauri && !urlPanel) {
         setTimeout(async () => {
           const lib = (window as any).MeloLibrary;
       const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-      const imported = await lib?.importPaths(paths, "replace") || [];
+      const imported = await lib?.importPaths(paths, "none") || [];
       if (imported.length) {
         await populateQueue({ type: "tracks", ids: imported.map((t: Track) => t.id) }, { autoplay: true });
       }
@@ -585,7 +605,7 @@ if (isTauri && !urlPanel) {
       const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
       setTimeout(async () => {
         const lib = (window as any).MeloLibrary;
-        const imported = await lib?.importPaths(paths, "replace") || [];
+        const imported = await lib?.importPaths(paths, "none") || [];
         if (imported.length) {
           await populateQueue({ type: "tracks", ids: imported.map((t: Track) => t.id) }, { autoplay: true });
         }
@@ -677,7 +697,7 @@ async function openPanelWindow(panel: string) {
   if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
   const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
   const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
-  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
+  const titles: Record<string, string> = { library: "Library", playlist: "Playing Queue", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
   const sz = sizes[panel] || [420, 520];
   let geo: any = null;
   try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}

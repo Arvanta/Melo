@@ -42,7 +42,6 @@ pub struct SkinFileInfo {
 // Embedded default skin templates to ensure the skins folder is always populated on disk
 const DEFAULT_SKIN_COMPACT_LIGHT: &str = include_str!("../../skins/compact-pill-light.html");
 const DEFAULT_SKIN_COMPACT_DARK: &str = include_str!("../../skins/compact-pill-dark.html");
-const DEFAULT_SKIN_EXAMPLE: &str = include_str!("../../skins/example-custom.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
 
 // ---- Helpers ----
@@ -176,10 +175,6 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
     if !f2.exists() {
         let _ = std::fs::write(f2, DEFAULT_SKIN_COMPACT_DARK);
     }
-    let f3 = skins_dir.join("example-custom.html");
-    if !f3.exists() {
-        let _ = std::fs::write(f3, DEFAULT_SKIN_EXAMPLE);
-    }
     let f4 = skins_dir.join("full-html-example.html");
     if !f4.exists() {
         let _ = std::fs::write(f4, DEFAULT_SKIN_FULL_EXAMPLE);
@@ -284,7 +279,6 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
             Ok(DEFAULT_SKIN_COMPACT_LIGHT.to_string())
         }
         "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT_DARK.to_string()),
-        "example-custom.html" | "example-custom" => Ok(DEFAULT_SKIN_EXAMPLE.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }

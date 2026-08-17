@@ -133,10 +133,12 @@ export function getCurrentTrack(): Track | null {
 export async function getQueuePage(
   limit: number,
   offset: number,
+  search?: string,
 ): Promise<QueuePage<QueueEntry>> {
   await loadCore();
   if (isTauri && invoke) {
     const page = await invoke<QueuePage<any>>("queue_get_page", {
+      search: search && search.trim() ? search : null,
       limit,
       offset,
     });
