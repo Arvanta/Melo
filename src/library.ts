@@ -143,7 +143,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           const url = artworkUrl(path);
           const track = recentTracks.find(t => t.id === item.id);
           if (track) track.cover = url;
+          // Set the cover image and drop the fallback gradient class.
+          // .cover-default uses a `background:` shorthand which would
+          // otherwise reset background-size to auto (blurry/incorrect).
           item.element.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
+          item.element.style.backgroundSize = "cover";
+          item.element.style.backgroundPosition = "center";
+          item.element.style.backgroundRepeat = "no-repeat";
+          item.element.classList.remove("cover-default");
           item.element.textContent = "";
         })
         .catch(() => {})
@@ -165,31 +172,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   function bindLazyArtwork(root: HTMLElement) {
     const elements = [...root.querySelectorAll<HTMLElement>("[data-artwork-id]")];
-    if (!("IntersectionObserver" in window)) {
-      elements.forEach(el => enqueueArtwork(el.dataset.artworkId, el));
-      return;
-    }
-    // Use the viewport as the observer root with a large pre-load margin so
-    // covers visible immediately after a search/filter (no scroll needed).
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (!entry.isIntersecting) return;
-        const el = entry.target as HTMLElement;
-        observer.unobserve(el);
-        enqueueArtwork(el.dataset.artworkId, el);
-      });
-    }, { rootMargin: "600px" });
-    elements.forEach(el => observer.observe(el));
-    // Eagerly load artwork for elements already in the viewport right now.
-    requestAnimationFrame(() => {
-      elements.forEach(el => {
-        const rect = el.getBoundingClientRect();
-        if (rect.bottom >= 0 && rect.top <= window.innerHeight + 600) {
-          observer.unobserve(el);
-          enqueueArtwork(el.dataset.artworkId, el);
-        }
-      });
-    });
+    // Covers are tiny (32px) thumbnails already cached as PNG files, so
+    // there is no benefit to lazy loading — it only caused visible covers
+    // to stay as the gradient fallback until a scroll event. Load them
+    // all immediately. Same-ID requests are de-duplicated by the
+    // artworkPending set.
+    elements.forEach((el) => enqueueArtwork(el.dataset.artworkId, el));
   }
 
   async function loadCore() {
@@ -598,21 +586,22 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (!paths.length) return;
         // Separate audio files from folders. Folders are scanned (which
         // recurses into subfolders); files are imported directly.
-        const isDir = async (p: string) => {
+        // Use the Rust `path_kind` command rather than plugin-fs so folder
+        // detection works regardless of which Tauri plugins are enabled.
+        const kindOf = async (p: string): Promise<"folder" | "file" | "missing"> => {
           try {
-            const { stat } = await import("@tauri-apps/plugin-fs");
-            const meta = await stat(p);
-            // isDirectory is a boolean in @tauri-apps/plugin-fs v2.
-            return Boolean((meta as any).isDirectory);
+            const { invoke } = await import("@tauri-apps/api/core");
+            return (await invoke("path_kind", { path: p })) as any;
           } catch {
-            return false;
+            return "file";
           }
         };
         const files: string[] = [];
         const folders: string[] = [];
         for (const p of paths) {
-          if (await isDir(p)) folders.push(p);
-          else files.push(p);
+          const k = await kindOf(p);
+          if (k === "folder") folders.push(p);
+          else if (k === "file") files.push(p);
         }
         const imported = files.length
           ? await importPaths(files, role === "playlist" ? "append" : "none")

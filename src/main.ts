@@ -498,11 +498,10 @@ if (isTauri && !urlPanel) {
           }
         }
       }
-      // Default skin: compact by default but resizable vertically between
-      // 150 (compact) and 240 (normal — never taller). Width is free
-      // (was responsive before); the last size the user chose is restored
-      // on startup from localStorage.
-      return { height: 180, minWidth: 560, minHeight: 150, maxHeight: 240, resizable: true, fixed: false };
+      // Default skin: normal height 240px. The user can drag the bottom
+      // edge down to ~150px to enter compact mode. The last size is
+      // restored on restart.
+      return { width: 960, height: 240, minWidth: 560, minHeight: 150, maxHeight: 240, resizable: true, fixed: false };
     };
 
     const applyWindowConstraints = async (forceSize = false) => {
@@ -589,21 +588,29 @@ if (isTauri && !urlPanel) {
         localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: size.height }));
       } catch {}
     };
+    // Toggle a "compact-mode" class on the default skin when the window
+    // is dragged short. CSS shrinks cover/buttons/spacing so the player
+    // stays usable down to ~150px tall, without changing behaviour at
+    // the normal 240px height.
+    const syncCompactMode = async () => {
+      try {
+        const sf = await mainWin.scaleFactor();
+        const sz = (await mainWin.innerSize()).toLogical(sf);
+        document.body.classList.toggle("compact-mode", sz.height < 195);
+      } catch {}
+    };
     mainWin.onMoved(saveGeo);
     mainWin.onResized(async () => {
       try {
         const h = getSkinHints();
         if (!h.resizable) {
-          // Fixed skins (compact pill): snap back if the OS/window manager
-          // somehow tried to resize us.
           await applyWindowConstraints(true);
         }
-        // For resizable skins, do NOT clamp/setSize here. The min/max
-        // constraints were pushed to the OS via setMinSize/setMaxSize, so
-        // the pointer drag is stopped at the edge without a bounce.
+        await syncCompactMode();
       } catch {}
       saveGeo();
     });
+    void syncCompactMode();
 
     busOn("melo:skin-changed", async (skinId: any) => {
       try {
@@ -681,27 +688,6 @@ if (isTauri && !urlPanel) {
 
 document.addEventListener("contextmenu", (e) => { e.preventDefault(); });
 
-// Expose the main player's pixel height as a CSS variable so the default
-// skin can fluidly scale (cover, fonts, controls) as the user drags the
-// window taller/shorter. Unlike vh, this tracks the actual window size.
-if (isTauri && !urlPanel) {
-  const updatePlayerScale = () => {
-    const card = document.getElementById("playerCard");
-    if (card) {
-      document.documentElement.style.setProperty(
-        "--player-h",
-        card.clientHeight + "px"
-      );
-    }
-  };
-  updatePlayerScale();
-  const card = document.getElementById("playerCard");
-  if (card && "ResizeObserver" in window) {
-    new ResizeObserver(updatePlayerScale).observe(card);
-  } else {
-    window.addEventListener("resize", updatePlayerScale);
-  }
-}
 
 const toastEl = document.getElementById("toast") as HTMLDivElement;
 const showToast: ToastFn = (msg) => {

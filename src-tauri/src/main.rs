@@ -280,6 +280,35 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
 /// The writable per-user skins directory where imported custom skins are
 /// saved. Always AppData (or equivalent) on normal installs — never the
 /// read-only Program Files location.
+/// Best-effort migration: older builds wrote/read skins next to the
+/// executable (e.g. `C:\Program Files\Melo\_up_\skins`). Move any skin
+/// files from there into the writable AppData folder, then try to remove
+/// the old directory. Failures are ignored — they don't affect the app.
+fn migrate_legacy_skins(app_data_skins: &Path) {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let legacy = parent.join("skins");
+            if legacy.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&legacy) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file() {
+                            if let Some(name) = path.file_name() {
+                                let dest = app_data_skins.join(name);
+                                if !dest.exists() {
+                                    let _ = std::fs::copy(&path, &dest);
+                                }
+                            }
+                        }
+                    }
+                }
+                // Try to remove the legacy folder (may fail in Program Files).
+                let _ = std::fs::remove_dir_all(&legacy);
+            }
+        }
+    }
+}
+
 fn get_writable_skins_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
     let p = app
@@ -289,6 +318,8 @@ fn get_writable_skins_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Cannot resolve AppData skins folder: {}", e))?;
     std::fs::create_dir_all(&p)
         .map_err(|e| format!("Cannot create skins folder at {}: {}", p.display(), e))?;
+    // Migrate any skins left over from old installs next to the exe.
+    migrate_legacy_skins(&p);
     // Seed the single skins folder with the built-in defaults (only copies
     // files that don't already exist, so user edits are preserved).
     ensure_default_skins(&p);
@@ -363,19 +394,27 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Collect every audio file passed on the command line. We only skip args
-/// that look like actual flags (`--foo`/`-f`); bare paths (including any
-/// starting with a dash on some shells) are checked against the filesystem.
+/// Collect every audio file passed on the command line. We iterate ALL
+/// arguments (including argv[0]) and simply keep any that exists on disk
+/// and has a supported audio extension — this is robust whether the OS
+/// passes the executable path as the first arg or not, and avoids
+/// accidentally dropping the first selected file.
 fn args_to_tracks(args: impl IntoIterator<Item = String>) -> Vec<Track> {
+    let exe = std::env::current_exe().ok();
     let mut tracks = Vec::new();
     for arg in args {
-        // Skip well-known Tauri/webview flags.
-        if arg.starts_with("--") || (arg.starts_with('-') && arg.len() <= 2 && !arg.ends_with(['\\', '/']))
-        {
+        // Skip flags/options (but never a path that exists as a file).
+        if arg.starts_with("--") {
             continue;
         }
         let p = Path::new(&arg);
-        if p.exists() && p.is_file() && supported_ext(p) {
+        // Skip our own executable path if it appears as argv[0].
+        if let Some(ref exe) = exe {
+            if p == exe.as_path() {
+                continue;
+            }
+        }
+        if p.is_file() && supported_ext(p) {
             if let Some(t) = parse_track(p) {
                 tracks.push(t);
             }
@@ -386,7 +425,22 @@ fn args_to_tracks(args: impl IntoIterator<Item = String>) -> Vec<Track> {
 
 #[tauri::command]
 fn get_cli_tracks() -> Vec<Track> {
-    args_to_tracks(std::env::args().skip(1))
+    args_to_tracks(std::env::args())
+}
+
+/// Returns "folder", "file", or "missing" for a filesystem path.
+/// Used by the frontend to decide whether to import dropped items
+/// directly or scan them as folders.
+#[tauri::command]
+fn path_kind(path: String) -> &'static str {
+    let p = Path::new(&path);
+    if p.is_dir() {
+        "folder"
+    } else if p.is_file() {
+        "file"
+    } else {
+        "missing"
+    }
 }
 
 #[tauri::command]
@@ -470,7 +524,7 @@ fn main() {
                 let _ = window.set_focus();
             }
 
-            let tracks = args_to_tracks(args.into_iter().skip(1));
+            let tracks = args_to_tracks(args.into_iter());
             if !tracks.is_empty() {
                 let _ = app.emit("melo:open-files", &tracks);
             }
@@ -520,7 +574,8 @@ fn main() {
             open_skins_folder,
             write_tags,
             get_audio_devices,
-            open_url
+            open_url,
+            path_kind
         ])
         .setup(|app| {
             let library_state = library_db::LibraryState::new(app.handle())
