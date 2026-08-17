@@ -705,17 +705,18 @@ export async function setupPlayer(
   };
   (window as any).__MELO_REBIND__ = bindDOM;
 
-  // Restore resume position on cold start. queue_get_state restores the
-  // current track and the database position; we just need to seek after the
-  // media has loaded. Actual autoplay is intentionally false on cold start.
+  // Restore the last track/position on cold start. "Resume playback on
+  // reopen" is ON by default; only an explicit "0" turns it off.
+  const resumeOnReopen =
+    localStorage.getItem("melo-pref-resume") !== "0";
   const restored = getQueueState();
   if (restored.currentTrack && restored.currentPosition > 1) {
     void applyTrack(
       restored.currentTrack,
-      false,
+      resumeOnReopen,
       restored.currentPosition,
     );
   } else if (restored.currentTrack) {
-    void applyTrack(restored.currentTrack, false);
+    void applyTrack(restored.currentTrack, resumeOnReopen);
   }
 }

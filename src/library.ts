@@ -594,9 +594,29 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     import("@tauri-apps/api/webviewWindow").then(({ getCurrentWebviewWindow }) => {
       getCurrentWebviewWindow().onDragDropEvent(async event => {
         if (event.payload.type !== "drop") return;
-        const paths = event.payload.paths || [];
+        const paths: string[] = event.payload.paths || [];
         if (!paths.length) return;
-        const imported = await importPaths(paths, role === "playlist" ? "append" : "none");
+        // Separate audio files from folders. Folders are scanned (which
+        // recurses into subfolders); files are imported directly.
+        const isDir = async (p: string) => {
+          try {
+            const { stat } = await import("@tauri-apps/plugin-fs");
+            const meta = await stat(p);
+            // isDirectory is a boolean in @tauri-apps/plugin-fs v2.
+            return Boolean((meta as any).isDirectory);
+          } catch {
+            return false;
+          }
+        };
+        const files: string[] = [];
+        const folders: string[] = [];
+        for (const p of paths) {
+          if (await isDir(p)) folders.push(p);
+          else files.push(p);
+        }
+        const imported = files.length
+          ? await importPaths(files, role === "playlist" ? "append" : "none")
+          : [];
         if (imported.length) {
           if (role === "playlist") {
             await appendToQueue(imported.map(t => t.id));
@@ -606,10 +626,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
               { autoplay: true },
             );
           }
-        } else {
-          for (const path of paths) {
-            try { await scanFolder(path, role !== "playlist"); } catch {}
-          }
+        }
+        for (const folder of folders) {
+          try { await scanFolder(folder, role !== "playlist"); } catch {}
         }
       });
     }).catch(() => {});

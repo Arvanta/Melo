@@ -363,12 +363,15 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn get_cli_tracks() -> Vec<Track> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+/// Collect every audio file passed on the command line. We only skip args
+/// that look like actual flags (`--foo`/`-f`); bare paths (including any
+/// starting with a dash on some shells) are checked against the filesystem.
+fn args_to_tracks(args: impl IntoIterator<Item = String>) -> Vec<Track> {
     let mut tracks = Vec::new();
     for arg in args {
-        if arg.starts_with("--") || arg.starts_with("-") {
+        // Skip well-known Tauri/webview flags.
+        if arg.starts_with("--") || (arg.starts_with('-') && arg.len() <= 2 && !arg.ends_with(['\\', '/']))
+        {
             continue;
         }
         let p = Path::new(&arg);
@@ -379,6 +382,11 @@ fn get_cli_tracks() -> Vec<Track> {
         }
     }
     tracks
+}
+
+#[tauri::command]
+fn get_cli_tracks() -> Vec<Track> {
+    args_to_tracks(std::env::args().skip(1))
 }
 
 #[tauri::command]
@@ -462,17 +470,7 @@ fn main() {
                 let _ = window.set_focus();
             }
 
-            let mut tracks = Vec::new();
-            for arg in args.into_iter().skip(1) {
-                if !arg.starts_with("-") {
-                    let p = Path::new(&arg);
-                    if p.exists() && p.is_file() && supported_ext(p) {
-                        if let Some(t) = parse_track(p) {
-                            tracks.push(t);
-                        }
-                    }
-                }
-            }
+            let tracks = args_to_tracks(args.into_iter().skip(1));
             if !tracks.is_empty() {
                 let _ = app.emit("melo:open-files", &tracks);
             }

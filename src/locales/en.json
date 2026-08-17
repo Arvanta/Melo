@@ -21,7 +21,7 @@
   "settings.playback.replaygain.label": "ReplayGain normalization",
   "settings.playback.replaygain.desc": "Equalize track volume levels automatically",
   "settings.playback.fadepause.label": "Fade out on pause",
-  "settings.playback.fadepause.desc": "Smooth 0.3s fade-out on pause, fade back in on resume",
+  "settings.playback.fadepause.desc": "Smooth 0.5s fade-out on pause, fade back in on resume",
 
   "settings.appearance.showstop.label": "Show Stop button",
   "settings.appearance.showstop.desc": "Display a Stop control next to Play/Pause in the player"

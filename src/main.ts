@@ -498,56 +498,85 @@ if (isTauri && !urlPanel) {
           }
         }
       }
-      // Default compact skin: fixed width 960, height resizable between
-      // 150 (compact) and 240 (original normal height — never taller).
-      return { width: 960, height: 180, minWidth: 960, maxWidth: 960, minHeight: 150, maxHeight: 240, resizable: true, fixed: false };
+      // Default skin: compact by default but resizable vertically between
+      // 150 (compact) and 240 (normal — never taller). Width is free
+      // (was responsive before); the last size the user chose is restored
+      // on startup from localStorage.
+      return { height: 180, minWidth: 560, minHeight: 150, maxHeight: 240, resizable: true, fixed: false };
     };
 
-    const applyWindowConstraints = async (useStartupSize: boolean) => {
+    const applyWindowConstraints = async (forceSize = false) => {
       const { LogicalSize } = await import("@tauri-apps/api/dpi");
       const h = getSkinHints();
       await mainWin.setResizable(!!h.resizable);
       const sf = await mainWin.scaleFactor();
       const cur = (await mainWin.innerSize()).toLogical(sf);
-      const minW = h.minWidth ?? (h.resizable ? 280 : h.width ?? cur.width);
-      const minH = h.minHeight ?? (h.resizable ? 200 : h.height ?? cur.height);
+      const minW = h.minWidth ?? (h.resizable ? 560 : h.width ?? cur.width);
+      const minH = h.minHeight ?? (h.resizable ? 150 : h.height ?? cur.height);
       const maxW = h.maxWidth;
       const maxH = h.maxHeight;
       // Hand the min/max limits to the OS so it enforces them DURING the
-      // drag-resize itself. Without this, the window is allowed past the
-      // limit first and then setSize() pulls it back, which causes the
-      // visible "bounce/snap back" at the minimum and maximum edges.
+      // drag-resize itself (prevents the visible "bounce" at edges).
       await mainWin.setMinSize(new LogicalSize(minW, minH));
-      if (maxW && maxH) {
-        await mainWin.setMaxSize(new LogicalSize(maxW, maxH));
-      } else if (maxW) {
-        await mainWin.setMaxSize(new LogicalSize(maxW, 99999));
-      } else if (maxH) {
-        await mainWin.setMaxSize(new LogicalSize(99999, maxH));
+      await mainWin.setMaxSize(new LogicalSize(maxW ?? 99999, maxH ?? 99999));
+      // Decide whether to actually resize. Fixed skins always get their
+      // declared size. For resizable skins we only resize when forced
+      // (first run / explicit request) OR when the current size falls
+      // outside the new min/max — otherwise we preserve the user's size
+      // when switching skins.
+      let w = cur.width;
+      let hgt = cur.height;
+      let needsResize = false;
+      if (h.fixed && h.width && h.height) {
+        w = h.width;
+        hgt = h.height;
+        needsResize = true;
       } else {
-        // Clear any previous maximum.
-        await mainWin.setMaxSize(new LogicalSize(99999, 99999));
-      }
-      // For fixed (non-resizable) skins and for the initial application of
-      // a skin, force the exact declared size. For normal interactive
-      // resizing of a resizable skin we deliberately do NOT call setSize
-      // here — the OS constraints above do the clamping, which is what
-      // removes the bounce.
-      if (useStartupSize || h.fixed) {
-        let w = useStartupSize && h.width ? h.width : cur.width;
-        let hgt = useStartupSize && h.height ? h.height : cur.height;
-        w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
-        hgt = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
-        if (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5) {
-          await mainWin.setSize(new LogicalSize(w, hgt));
+        const clampedW = Math.max(minW, maxW ? Math.min(maxW, w) : w);
+        const clampedH = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
+        if (forceSize && h.width && h.height) {
+          w = h.width;
+          hgt = h.height;
+          needsResize = true;
+        } else if (clampedW !== w || clampedH !== hgt) {
+          w = clampedW;
+          hgt = clampedH;
+          needsResize = true;
         }
+      }
+      if (needsResize && (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5)) {
+        await mainWin.setSize(new LogicalSize(w, hgt));
       }
     };
 
     try {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
-      const { LogicalPosition } = await import("@tauri-apps/api/dpi");
-      await applyWindowConstraints(true);
+      const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
+      // Restore the last size the user left the window at, clamped to the
+      // active skin's min/max. On a first run, fall back to the skin's
+      // declared default so the player starts compact.
+      const h = getSkinHints();
+      const sf = await mainWin.scaleFactor();
+      const minW = h.minWidth ?? 560;
+      const minH = h.minHeight ?? 150;
+      const maxW = h.maxWidth;
+      const maxH = h.maxHeight ?? 240;
+      let w: number, hgt: number;
+      if (g && typeof g.w === "number" && typeof g.h === "number") {
+        w = g.w;
+        hgt = g.h;
+      } else {
+        w = h.width ?? 960;
+        hgt = h.height ?? 180;
+      }
+      w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
+      hgt = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
+      await mainWin.setMinSize(new LogicalSize(minW, minH));
+      if (maxW || maxH) {
+        await mainWin.setMaxSize(new LogicalSize(maxW ?? 99999, maxH ?? 99999));
+      }
+      await mainWin.setSize(new LogicalSize(w, hgt));
+      await mainWin.setResizable(!!h.resizable);
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -581,10 +610,12 @@ if (isTauri && !urlPanel) {
         if (!urlPanel && skinId) {
           await applySkinChoice(skinId, theme, undefined, false);
         }
-        // Wait a frame so the new skin DOM is in place, then resize the
-        // native window to match the skin's declared geometry.
+        // Wait a frame so the new skin DOM is in place, then apply the
+        // window constraints. We do NOT force a size (unless the skin is
+        // fixed) so the user's current/last size is preserved across
+        // responsive custom skins.
         await new Promise(r => setTimeout(r, 60));
-        await applyWindowConstraints(true);
+        await applyWindowConstraints(false);
         saveGeo();
       } catch {}
     });
@@ -609,18 +640,33 @@ if (isTauri && !urlPanel) {
   });
 
   // Handle Windows Explorer "Open With" / CLI file arguments & single-instance file opening
+  async function handleOpenPaths(paths: string[]) {
+    if (!paths.length) return;
+    // Wait until the library/queue is initialized (MeloLibrary is exposed
+    // once setupLibrary finishes). On a cold start via "Open With" this
+    // can take a moment; polling avoids dropping multi-file opens.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const lib = (window as any).MeloLibrary;
+      if (lib?.importPaths) {
+        const imported = (await lib.importPaths(paths, "none")) || [];
+        if (imported.length) {
+          await populateQueue(
+            { type: "tracks", ids: imported.map((t: Track) => t.id) },
+            { autoplay: true },
+          );
+        }
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
   import("@tauri-apps/api/core").then(async ({ invoke }) => {
     try {
       const cliTracks: any[] = await invoke("get_cli_tracks");
       if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-        setTimeout(async () => {
-          const lib = (window as any).MeloLibrary;
-      const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-      const imported = await lib?.importPaths(paths, "none") || [];
-      if (imported.length) {
-        await populateQueue({ type: "tracks", ids: imported.map((t: Track) => t.id) }, { autoplay: true });
-      }
-        }, 350);
+        const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
+        setTimeout(() => handleOpenPaths(paths), 350);
       }
     } catch {}
   });
@@ -628,18 +674,34 @@ if (isTauri && !urlPanel) {
   busOn("melo:open-files", (cliTracks: any) => {
     if (Array.isArray(cliTracks) && cliTracks.length > 0) {
       const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-      setTimeout(async () => {
-        const lib = (window as any).MeloLibrary;
-        const imported = await lib?.importPaths(paths, "none") || [];
-        if (imported.length) {
-          await populateQueue({ type: "tracks", ids: imported.map((t: Track) => t.id) }, { autoplay: true });
-        }
-      }, 100);
+      setTimeout(() => handleOpenPaths(paths), 100);
     }
   });
 }
 
 document.addEventListener("contextmenu", (e) => { e.preventDefault(); });
+
+// Expose the main player's pixel height as a CSS variable so the default
+// skin can fluidly scale (cover, fonts, controls) as the user drags the
+// window taller/shorter. Unlike vh, this tracks the actual window size.
+if (isTauri && !urlPanel) {
+  const updatePlayerScale = () => {
+    const card = document.getElementById("playerCard");
+    if (card) {
+      document.documentElement.style.setProperty(
+        "--player-h",
+        card.clientHeight + "px"
+      );
+    }
+  };
+  updatePlayerScale();
+  const card = document.getElementById("playerCard");
+  if (card && "ResizeObserver" in window) {
+    new ResizeObserver(updatePlayerScale).observe(card);
+  } else {
+    window.addEventListener("resize", updatePlayerScale);
+  }
+}
 
 const toastEl = document.getElementById("toast") as HTMLDivElement;
 const showToast: ToastFn = (msg) => {
