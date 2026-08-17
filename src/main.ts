@@ -498,10 +498,8 @@ if (isTauri && !urlPanel) {
           }
         }
       }
-      // Default skin: normal height 240px. The user can drag the bottom
-      // edge down to ~150px to enter compact mode. The last size is
-      // restored on restart.
-      return { width: 960, height: 240, minWidth: 560, minHeight: 150, maxHeight: 240, resizable: true, fixed: false };
+      // Default skin: fixed 960x240 window (height not user-resizable).
+      return { width: 960, height: 240, minWidth: 640, maxWidth: 960, minHeight: 240, maxHeight: 240, resizable: false, fixed: true };
     };
 
     const applyWindowConstraints = async (forceSize = false) => {
@@ -566,7 +564,7 @@ if (isTauri && !urlPanel) {
         hgt = g.h;
       } else {
         w = h.width ?? 960;
-        hgt = h.height ?? 180;
+        hgt = h.height ?? 240;
       }
       w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
       hgt = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
@@ -588,17 +586,6 @@ if (isTauri && !urlPanel) {
         localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: size.height }));
       } catch {}
     };
-    // Toggle a "compact-mode" class on the default skin when the window
-    // is dragged short. CSS shrinks cover/buttons/spacing so the player
-    // stays usable down to ~150px tall, without changing behaviour at
-    // the normal 240px height.
-    const syncCompactMode = async () => {
-      try {
-        const sf = await mainWin.scaleFactor();
-        const sz = (await mainWin.innerSize()).toLogical(sf);
-        document.body.classList.toggle("compact-mode", sz.height < 195);
-      } catch {}
-    };
     mainWin.onMoved(saveGeo);
     mainWin.onResized(async () => {
       try {
@@ -606,11 +593,9 @@ if (isTauri && !urlPanel) {
         if (!h.resizable) {
           await applyWindowConstraints(true);
         }
-        await syncCompactMode();
       } catch {}
       saveGeo();
     });
-    void syncCompactMode();
 
     busOn("melo:skin-changed", async (skinId: any) => {
       try {

@@ -16,14 +16,15 @@
         "title": "Melo",
         "width": 960,
         "height": 240,
-        "minWidth": 560,
-        "minHeight": 150,
+        "minWidth": 640,
+        "minHeight": 240,
         "maxHeight": 240,
-        "resizable": true,
+        "resizable": false,
         "decorations": false,
         "transparent": true,
         "center": true,
-        "shadow": false
+        "shadow": false,
+        "maxWidth": 960
       }
     ],
     "security": {

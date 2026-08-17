@@ -137,8 +137,8 @@ body {
   gap: 0;
   padding: 12px 20px 14px 20px;
   position: relative;
-  min-height: 135px;
-  height: 100%;
+  min-height: 240px;
+  height: 240px;
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -219,33 +219,6 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
 }
 .visualizer-bars canvas { width: 100%; height: 100%; display: block; }
 
-/* ---- Compact mode (default skin when window height < ~195px) ----
-   Only shrinks spacing/sizes; layout and IDs stay identical. */
-body.tauri-main.compact-mode .player-card { padding: 6px 14px 8px 14px; }
-body.tauri-main.compact-mode .player-titlebar { height: 22px; margin-bottom: 2px; }
-body.tauri-main.compact-mode .app-name-static { font-size: 12px; padding: 4px 6px; }
-body.tauri-main.compact-mode .player-main { gap: 14px; }
-body.tauri-main.compact-mode .cover-col { gap: 5px; }
-body.tauri-main.compact-mode .cover-wrap,
-body.tauri-main.compact-mode .volume-under { width: 96px; }
-body.tauri-main.compact-mode .cover-wrap { height: 96px; }
-body.tauri-main.compact-mode .cover-fallback { font-size: 24px; }
-body.tauri-main.compact-mode .track-info { gap: 2px; }
-body.tauri-main.compact-mode .track-title { font-size: 15px; }
-body.tauri-main.compact-mode .track-artist,
-body.tauri-main.compact-mode .track-album { font-size: 12px; margin-top: 1px; }
-body.tauri-main.compact-mode .track-format { margin-top: 3px; gap: 6px; }
-body.tauri-main.compact-mode .transport { gap: 8px; margin: 1px 0; }
-body.tauri-main.compact-mode .transport .icon-btn { width: 28px; height: 28px; }
-body.tauri-main.compact-mode .transport .icon-btn svg { width: 15px; height: 15px; }
-body.tauri-main.compact-mode .transport .play-btn { width: 34px; height: 34px; }
-body.tauri-main.compact-mode .transport .play-btn svg { width: 17px; height: 17px; }
-body.tauri-main.compact-mode .seek-row { gap: 9px; }
-body.tauri-main.compact-mode .seek-wrap { height: 16px; }
-body.tauri-main.compact-mode .right-panel { width: 200px; gap: 8px; padding-left: 12px; }
-body.tauri-main.compact-mode .right-main { gap: 5px; }
-body.tauri-main.compact-mode .visualizer-bars { height: 56px; }
-body.tauri-main.compact-mode .win-btn { width: 28px; height: 24px; }
 .viz-menu {
   position: fixed; z-index: 3000; min-width: 180px;
   background: var(--card); border: 1px solid var(--card-border);
