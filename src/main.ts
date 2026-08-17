@@ -1,4 +1,5 @@
 import "./app.css";
+import { populateQueue } from "./queue";
 import { setupPlayer } from "./player";
 import { setupLibrary } from "./library";
 import { setupEqualizer } from "./equalizer";
@@ -303,7 +304,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.4.0 Beta</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.5.0 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -568,10 +569,12 @@ if (isTauri && !urlPanel) {
       const cliTracks: any[] = await invoke("get_cli_tracks");
       if (Array.isArray(cliTracks) && cliTracks.length > 0) {
         setTimeout(async () => {
-          const lib = (window as any).LumiLibrary;
-          const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-          const imported = await lib?.importPaths(paths, "replace") || [];
-          if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+          const lib = (window as any).MeloLibrary;
+      const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
+      const imported = await lib?.importPaths(paths, "replace") || [];
+      if (imported.length) {
+        await populateQueue({ type: "tracks", ids: imported.map((t: Track) => t.id) }, { autoplay: true });
+      }
         }, 350);
       }
     } catch {}
@@ -581,9 +584,11 @@ if (isTauri && !urlPanel) {
     if (Array.isArray(cliTracks) && cliTracks.length > 0) {
       const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
       setTimeout(async () => {
-        const lib = (window as any).LumiLibrary;
+        const lib = (window as any).MeloLibrary;
         const imported = await lib?.importPaths(paths, "replace") || [];
-        if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+        if (imported.length) {
+          await populateQueue({ type: "tracks", ids: imported.map((t: Track) => t.id) }, { autoplay: true });
+        }
       }, 100);
     }
   });
@@ -602,7 +607,7 @@ const showToast: ToastFn = (msg) => {
 const audio = new Audio();
 audio.preload = "metadata";
 audio.crossOrigin = "anonymous";
-(window as any).__LUMI_AUDIO__ = audio;
+(window as any).__MELO_AUDIO__ = audio;
 (window as any).__TOAST__ = showToast;
 
 // Theme logic
@@ -611,10 +616,10 @@ audio.crossOrigin = "anonymous";
 if (localStorage.getItem("melo-dynamic-theme") === null) {
   localStorage.setItem("melo-dynamic-theme", "1");
 }
-let theme: "light" | "dark" = (localStorage.getItem("lumi-theme") as any) || "dark";
+let theme: "light" | "dark" = (localStorage.getItem("melo-theme") as any) || "dark";
 function applyThemeLocal(t: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem("lumi-theme", t);
+  localStorage.setItem("melo-theme", t);
   theme = t;
 }
 function applyTheme(t: "light" | "dark") {
@@ -624,7 +629,7 @@ function applyTheme(t: "light" | "dark") {
 applyThemeLocal(theme);
 busOn("melo:theme", (t: any) => { if (t === "light" || t === "dark") applyThemeLocal(t); });
 setInterval(() => {
-  const t = localStorage.getItem("lumi-theme");
+  const t = localStorage.getItem("melo-theme");
   if ((t === "light" || t === "dark") && t !== theme) applyThemeLocal(t);
 }, 1000);
 
@@ -725,7 +730,7 @@ function setVisible(id: string, visible: boolean) {
   const el = document.getElementById(id);
   if (!el) return;
   el.classList.toggle("hidden", !visible);
-  localStorage.setItem("lumiv2-" + id, visible ? "1" : "0");
+  localStorage.setItem("melov2-" + id, visible ? "1" : "0");
   if (visible) clampIntoDesktop(el);
   const active = visible;
   if (id === "win-library") {
@@ -752,7 +757,7 @@ function setVisible(id: string, visible: boolean) {
 
 if (!urlPanel) {
   winIds.forEach(id => {
-    const saved = localStorage.getItem("lumiv2-" + id);
+    const saved = localStorage.getItem("melov2-" + id);
     if (saved !== null) {
       setVisible(id, saved === "1");
     } else {
@@ -843,7 +848,7 @@ window.addEventListener("mouseup", () => {
     const win = document.getElementById(dragState.id);
     if (win) {
       win.classList.remove("dragging");
-      localStorage.setItem("lumiv2-pos-" + dragState.id, JSON.stringify({ left: win.style.left, top: win.style.top }));
+      localStorage.setItem("melov2-pos-" + dragState.id, JSON.stringify({ left: win.style.left, top: win.style.top }));
     }
     dragState = null;
   }
@@ -851,7 +856,7 @@ window.addEventListener("mouseup", () => {
     const win = document.getElementById(resizeState.id);
     if (win) {
       win.classList.remove("resizing");
-      localStorage.setItem("lumiv2-size-" + resizeState.id, JSON.stringify({ width: win.style.width, height: win.style.height }));
+      localStorage.setItem("melov2-size-" + resizeState.id, JSON.stringify({ width: win.style.width, height: win.style.height }));
     }
     resizeState = null;
   }
@@ -859,17 +864,16 @@ window.addEventListener("mouseup", () => {
 
 // Add files / folder dialogs
 async function addFilesViaDialog() {
-  const lib = (window as any).LumiLibrary;
-  const player = (window as any).LumiPlayer;
+  const lib = (window as any).MeloLibrary;
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
-      const list: any[] = await lib?.importPaths(paths, "replace") || [];
+      const list: any[] = await lib?.importPaths(paths, "none") || [];
       if (list.length) {
-        busEmit("melo:play-tracks", { tracks: list, index: 0 });
+        await populateQueue({ type: "tracks", ids: list.map((t: Track) => t.id) }, { autoplay: true });
         showToast(`${list.length} file(s) added`);
       }
     } catch { showToast("Error opening files"); }
@@ -892,18 +896,13 @@ async function addFilesViaDialog() {
       await withCover(f, t);
       list.push(t);
     }
-    lib?.addTracks(list, true);
-    lib?.addToCurrentPlaylist(list);
-    list.forEach(t => player?.queue.push(t));
-    busEmit("melo:play-tracks", { tracks: list, index: 0 });
-    showToast(`${list.length} file(s) added`);
+    showToast("Direct browser file playback is not used in desktop builds.");
   };
   input.click();
 }
 
 async function addFolderViaDialog() {
-  const lib = (window as any).LumiLibrary;
-  const player = (window as any).LumiPlayer;
+  const lib = (window as any).MeloLibrary;
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -911,6 +910,7 @@ async function addFolderViaDialog() {
       if (!sel) return;
       const folder = sel as string;
       await lib?.scanFolder(folder, true);
+      await populateQueue({ type: "folder", path: folder }, { autoplay: true });
     } catch { showToast("Error scanning folder"); }
     return;
   }
@@ -931,11 +931,7 @@ async function addFolderViaDialog() {
       await withCover(f, t);
       list.push(t);
     }
-    lib?.addTracks(list, true);
-    lib?.addToCurrentPlaylist(list);
-    list.forEach(t => player?.queue.push(t));
-    busEmit("melo:play-tracks", { tracks: list, index: 0 });
-    showToast(`${list.length} file(s) added from folder`);
+    showToast("Direct browser folder playback is not used in desktop builds.");
   };
   input.click();
 }
@@ -1005,10 +1001,9 @@ function setupSettings(toast: ToastFn) {
       const isNowOn = !swDynamic.classList.contains("on");
       swDynamic.classList.toggle("on", isNowOn);
       localStorage.setItem("melo-dynamic-theme", isNowOn ? "1" : "0");
-      const queue = (window as any).__LUMI_QUEUE__;
-      const curIdx = (window as any).LumiPlayer?.currentIndex ?? 0;
-      if (queue && queue[curIdx]) {
-        applyDynamicAmbientTheme(isNowOn ? queue[curIdx].cover : null);
+      const currentTrack = (window as any).MeloPlayer?.currentTrack || null;
+      if (currentTrack) {
+        applyDynamicAmbientTheme(isNowOn ? currentTrack.cover : null);
       }
     };
   }
@@ -1106,7 +1101,7 @@ function bindWinControls() {
 }
 bindWinControls();
 
-(window as any).__LUMI_REBIND_MAIN__ = () => {
+(window as any).__MELO_REBIND_MAIN__ = () => {
   bindWinControls();
   Object.entries(toggleMap).forEach(([btnId, winId]) => {
     const b = document.getElementById(btnId);
@@ -1125,7 +1120,7 @@ document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement)?.closest("#btnAbout")) return;
   e.stopPropagation();
   aboutPop.innerHTML = `
-    <div class="about-head">Melo <b>0.4.0 Beta</b></div>
+    <div class="about-head">Melo <b>0.5.0 Beta</b></div>
     <div style="font-size:11.5px; color:var(--text-soft); margin:6px 0 10px;">
       Modern Windows Music Player<br/>
       Tauri 2 + TypeScript + Rust
@@ -1161,23 +1156,9 @@ if (isTauri && urlPanel) {
   setupSkinEngine(showToast);
   setupSettings(showToast);
   initLocale();
-
-  // Resume playback on reopen: restore the last-played track, paused, at
-  // the position it was left at. Only runs once, shortly after boot, so the
-  // library has had a chance to load from localStorage first.
-  setTimeout(async () => {
-    if (localStorage.getItem("melo-pref-resume") === "0") return;
-    try {
-      const state = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
-      const lib = (window as any).LumiLibrary;
-      const p = (window as any).LumiPlayer;
-      if (!state?.trackId || !lib || !p) return;
-      const track = await lib.getTrack(state.trackId);
-      if (!track) return;
-      p.queue = [track];
-      p.loadTrack(0, false, state.position || 0);
-    } catch {}
-  }, 500);
+  // Resume-on-reopen is handled inside setupPlayer by reading queue_get_state
+  // from the SQLite-backed playing queue. The localStorage resume key is kept
+  // only as a diagnostic snapshot and is no longer the source of truth.
 }
 
 

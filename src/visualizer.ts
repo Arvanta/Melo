@@ -480,5 +480,5 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     bindContainer();
     startLoop();
   }
-  (window as any).__LUMI_REBIND_VISUALIZER__ = rebind;
+  (window as any).__MELO_REBIND_VISUALIZER__ = rebind;
 }

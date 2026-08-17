@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod library_db;
+mod queue_db;
 
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::tag::{Accessor, TagExt};
@@ -47,7 +48,11 @@ const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-exam
 // ---- Helpers ----
 
 fn codec_from_ext(path: &Path) -> String {
-    match path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+    {
         Some(ext) => match ext.as_str() {
             "mp3" => "MP3".to_string(),
             "flac" => "FLAC".to_string(),
@@ -197,7 +202,10 @@ fn get_track_lyrics(path: String) -> Option<String> {
     }
 
     // 2. Check embedded lyrics via lofty
-    if let Some(tagged) = lofty::probe::Probe::open(p).ok().and_then(|pr| pr.read().ok()) {
+    if let Some(tagged) = lofty::probe::Probe::open(p)
+        .ok()
+        .and_then(|pr| pr.read().ok())
+    {
         let tag = tagged.primary_tag().or(tagged.first_tag());
         if let Some(t) = tag {
             if let Some(lyrics) = t.get_string(&lofty::tag::ItemKey::Lyrics) {
@@ -220,10 +228,19 @@ fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, Stri
             if path.is_file() {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
-                        let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                        let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                        let filename = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let stem = path
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
                         let name_clean = stem.replace('-', " ").replace('_', " ");
-                        let name_formatted = name_clean.split_whitespace()
+                        let name_formatted = name_clean
+                            .split_whitespace()
                             .map(|word| {
                                 let mut c = word.chars();
                                 match c.next() {
@@ -263,7 +280,9 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
 
     // Check embedded fallback if filename matches
     match filename_or_path.as_str() {
-        "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT_LIGHT.to_string()),
+        "compact-pill-light.html" | "compact-pill-light" => {
+            Ok(DEFAULT_SKIN_COMPACT_LIGHT.to_string())
+        }
         "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT_DARK.to_string()),
         "example-custom.html" | "example-custom" => Ok(DEFAULT_SKIN_EXAMPLE.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
@@ -272,7 +291,11 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
 }
 
 #[tauri::command]
-fn save_custom_skin_file(filename: String, content: String, app: tauri::AppHandle) -> Result<String, String> {
+fn save_custom_skin_file(
+    filename: String,
+    content: String,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
     let skins_dir = get_skins_dir(&app);
     let safe_filename = if filename.ends_with(".html") || filename.ends_with(".htm") {
         filename
@@ -339,7 +362,13 @@ fn write_tags(path: String, tags: TagWriteRequest) -> Result<(), String> {
 
     if tagged.primary_tag().is_none() && tagged.first_tag().is_none() {
         use lofty::tag::TagType;
-        let ty = match p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str() {
+        let ty = match p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase()
+            .as_str()
+        {
             "mp3" => TagType::Id3v2,
             "flac" => TagType::VorbisComments,
             "ogg" => TagType::VorbisComments,
@@ -364,7 +393,8 @@ fn write_tags(path: String, tags: TagWriteRequest) -> Result<(), String> {
     if let Some(v) = tags.album {
         t.set_album(v);
     }
-    t.save_to_path(p, Default::default()).map_err(|e| e.to_string())?;
+    t.save_to_path(p, Default::default())
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -440,6 +470,21 @@ fn main() {
             library_db::ensure_track_artwork,
             library_db::get_track_by_id,
             library_db::delete_tracks,
+            queue_db::queue_get_state,
+            queue_db::queue_get_page,
+            queue_db::queue_populate,
+            queue_db::queue_append,
+            queue_db::queue_play_next,
+            queue_db::queue_remove,
+            queue_db::queue_reorder,
+            queue_db::queue_clear,
+            queue_db::queue_next,
+            queue_db::queue_prev,
+            queue_db::queue_jump,
+            queue_db::queue_set_position,
+            queue_db::queue_set_shuffle,
+            queue_db::queue_set_repeat,
+            queue_db::queue_history,
             get_cli_tracks,
             get_track_lyrics,
             list_installed_skins,
@@ -518,7 +563,12 @@ fn main() {
                         }
                     })
                     .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
                             let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
                                 if window.is_visible().unwrap_or(false) {

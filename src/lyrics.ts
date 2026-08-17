@@ -159,7 +159,7 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
 
   audio.addEventListener("timeupdate", updateActiveLine);
 
-  window.addEventListener("lumi:trackChange", (e: any) => {
+  window.addEventListener("melo:trackChange", (e: any) => {
     loadTrackLyrics(e.detail);
   });
   busOn("melo:track-changed", (t: any) => {
@@ -177,9 +177,9 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
   });
 
   // Initial load works even when this window was closed during track import.
-  const queue = (window as any).__LUMI_QUEUE__;
-  if (Array.isArray(queue) && queue.length > 0) {
-    loadTrackLyrics(queue[(window as any).LumiPlayer?.currentIndex || 0]);
+  const current = (window as any).MeloPlayer?.currentTrack || null;
+  if (current) {
+    loadTrackLyrics(current);
   } else {
     try {
       const saved = JSON.parse(localStorage.getItem("melo-current-track") || "null");
@@ -191,5 +191,5 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
   busEmit("melo:request-playback-state");
   setTimeout(() => busEmit("melo:request-playback-state"), 250);
 
-  (window as any).LumiLyrics = { loadTrackLyrics, parseLRC };
+  (window as any).MeloLyrics = { loadTrackLyrics, parseLRC };
 }

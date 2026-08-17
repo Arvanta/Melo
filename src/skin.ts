@@ -247,7 +247,7 @@ const COMPACT_PILL_LIGHT = `<!doctype html>
 </style>
 </head>
 <body>
-<div id="lumi-player">
+<div id="melo-player">
   <div class="player-titlebar" data-tauri-drag-region>
     <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
@@ -588,7 +588,7 @@ const COMPACT_PILL_DARK = `<!doctype html>
 </style>
 </head>
 <body>
-<div id="lumi-player">
+<div id="melo-player">
   <div class="player-titlebar" data-tauri-drag-region>
     <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
@@ -742,27 +742,27 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
   }
   const tempDiv = document.createElement("div");
   tempDiv.innerHTML = bodyHTML;
-  const lumiRoot = tempDiv.querySelector("#lumi-player");
-  if (lumiRoot) bodyHTML = lumiRoot.innerHTML;
+  const meloRoot = tempDiv.querySelector("#melo-player");
+  if (meloRoot) bodyHTML = meloRoot.innerHTML;
 
   if (isFull && bodyHTML.trim().length > 20) {
     const trimmed = bodyHTML.trim();
     playerCard.innerHTML = trimmed;
     if (toast) toast("Skin applied");
     setTimeout(() => {
-      (window as any).__LUMI_REBIND__?.();
-      const audio = (window as any).__LUMI_AUDIO__ as HTMLAudioElement;
-      if (audio && (window as any).__LUMI_REBIND_VISUALIZER__) {
-        (window as any).__LUMI_REBIND_VISUALIZER__(audio);
+      (window as any).__MELO_REBIND__?.();
+      const audio = (window as any).__MELO_AUDIO__ as HTMLAudioElement;
+      if (audio && (window as any).__MELO_REBIND_VISUALIZER__) {
+        (window as any).__MELO_REBIND_VISUALIZER__(audio);
       }
-      (window as any).__LUMI_REBIND_MAIN__?.();
+      (window as any).__MELO_REBIND_MAIN__?.();
     }, 40);
   } else if (css && toast) {
     toast("Skin CSS applied");
   }
 
-  localStorage.setItem("lumi-custom-skin", htmlText);
-  localStorage.setItem("lumi-custom-skin-isFull", isFull ? "1" : "0");
+  localStorage.setItem("melo-custom-skin", htmlText);
+  localStorage.setItem("melo-custom-skin-isFull", isFull ? "1" : "0");
 }
 
 export function resetSkin(toast?: (m: string) => void, broadcast = true) {
@@ -774,16 +774,16 @@ export function resetSkin(toast?: (m: string) => void, broadcast = true) {
   if (playerCard && (playerCard as any)._originalHTML) {
     playerCard.innerHTML = (playerCard as any)._originalHTML;
     setTimeout(() => {
-      (window as any).__LUMI_REBIND__?.();
-      const audio = (window as any).__LUMI_AUDIO__ as HTMLAudioElement;
-      if (audio && (window as any).__LUMI_REBIND_VISUALIZER__) {
-        (window as any).__LUMI_REBIND_VISUALIZER__(audio);
+      (window as any).__MELO_REBIND__?.();
+      const audio = (window as any).__MELO_AUDIO__ as HTMLAudioElement;
+      if (audio && (window as any).__MELO_REBIND_VISUALIZER__) {
+        (window as any).__MELO_REBIND_VISUALIZER__(audio);
       }
-      (window as any).__LUMI_REBIND_MAIN__?.();
+      (window as any).__MELO_REBIND_MAIN__?.();
     }, 40);
   }
-  localStorage.removeItem("lumi-custom-skin");
-  localStorage.removeItem("lumi-custom-skin-isFull");
+  localStorage.removeItem("melo-custom-skin");
+  localStorage.removeItem("melo-custom-skin-isFull");
   localStorage.setItem("melo-active-skin-id", "default");
   if (broadcast) busEmit("melo:skin-changed", "default");
   if (toast) toast("Switched to Default Melo skin");
@@ -895,7 +895,7 @@ export function setupSkinEngine(toast: (m: string) => void) {
   }
 
   const savedSkinId = localStorage.getItem("melo-active-skin-id") || "default";
-  const theme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";
+  const theme = (localStorage.getItem("melo-theme") as "light" | "dark") || "dark";
 
   if (savedSkinId && savedSkinId !== "default") {
     setTimeout(() => {
@@ -912,7 +912,7 @@ export function setupSkinEngine(toast: (m: string) => void) {
 
   busOn("melo:skin-changed", (skinChoice: any) => {
     if (skinChoice && typeof skinChoice === "string") {
-      const currentTheme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";
+      const currentTheme = (localStorage.getItem("melo-theme") as "light" | "dark") || "dark";
       applySkinChoice(skinChoice, currentTheme, undefined, false);
     }
   });
@@ -964,5 +964,5 @@ export function setupSkinEngine(toast: (m: string) => void) {
     }
   });
 
-  (window as any).LumiSkin = { applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk };
+  (window as any).MeloSkin = { applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk };
 }

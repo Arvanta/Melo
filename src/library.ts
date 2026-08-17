@@ -1,5 +1,11 @@
 import type { Track } from "./types";
 import { busEmit, busOn, isTauri } from "./bus";
+import {
+  populateQueue,
+  appendToQueue,
+  onQueueState,
+  type QueueSource,
+} from "./queue";
 
 const role = new URLSearchParams(location.search).get("panel") || "main";
 
@@ -45,6 +51,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let ownedScanId: string | null = null;
   let replacePlaylistAfterScan = false;
   let recentTracks: Track[] = [];
+  let currentTrackId: string | null = null;
   const artistAlbumsCache = new Map<string, GroupRow[]>();
 
   let libTab: "artists" | "albums" | "genres" = "artists";
@@ -143,6 +150,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         });
     }
   }
+  function markActiveTracks() {
+    if (!currentTrackId) return;
+    document.querySelectorAll(".track-row").forEach((el) => {
+      const row = el as HTMLElement;
+      const id = row.dataset.trackId || row.dataset.plTrack;
+      row.classList.toggle("active", id === currentTrackId);
+    });
+  }
+
   function bindLazyArtwork(root: HTMLElement) {
     const elements = [...root.querySelectorAll<HTMLElement>("[data-artwork-id]")];
     if (!("IntersectionObserver" in window)) {
@@ -308,9 +324,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       trackList.innerHTML = `<div class="virtual-list-space" style="position:relative;height:${Math.max(totalHeight, viewport)}px">${artistHeader}${rows}</div>`;
       bindLibraryRows(page.items, artistAlbums || []);
       bindLazyArtwork(trackList);
+      markActiveTracks();
     } catch (error) {
       trackList.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Could not read the Library database.</div>`;
     }
+  }
+
+  function currentLibraryQueueSource(): QueueSource {
+    return {
+      type: "library",
+      search: librarySearch || null,
+      artist: selectedArtist,
+      album: selectedAlbum,
+      genre: selectedGenre,
+      sort: "title-asc",
+    };
   }
 
   function bindLibraryRows(items: Array<GroupRow | Track>, artistAlbums: GroupRow[] = []) {
@@ -340,13 +368,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     trackList.querySelectorAll<HTMLElement>("[data-track-id]").forEach(row => {
       row.onclick = async event => {
         if ((event.target as HTMLElement).closest("[data-add-track]")) return;
-        const index = Number(row.dataset.pageIndex || 0);
-        const list = items.filter((x): x is Track => "path" in x).map(normalizeTrack);
-        if (invoke && list.length) {
-          await invoke("replace_playlist_tracks", { playlistId: currentPlaylistId, trackIds: list.map(t => t.id) });
-          busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
-        }
-        busEmit("melo:play-tracks", { tracks: list, index });
+        const trackId = row.dataset.trackId || null;
+        const source = currentLibraryQueueSource();
+        await populateQueue(source, { autoplay: true, startTrackId: trackId });
       };
       row.oncontextmenu = event => {
         event.preventDefault();
@@ -414,10 +438,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const rows = page.items.map((track, i) => `<div class="track-row virtual-row" data-pl-track="${esc(track.id)}" data-page-index="${i}" style="position:absolute;left:0;right:0;top:${(page.offset+i)*playlistRowHeight}px;height:${playlistRowHeight}px"><span class="num">${page.offset+i+1}</span>${track.cover?`<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`:`<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}<div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div><span class="t-dur">${fmtDur(track.duration)}</span><button class="btn small ghost" data-remove-track="${esc(track.id)}">×</button></div>`).join("");
     playlistList.innerHTML = `<div style="position:relative;height:${Math.max(viewport,page.total*playlistRowHeight)}px">${rows}</div>`;
     bindLazyArtwork(playlistList);
+    markActiveTracks();
     playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
-      row.onclick = event => {
+      row.onclick = async event => {
         if ((event.target as HTMLElement).closest("[data-remove-track]")) return;
-        busEmit("melo:play-tracks", { tracks: page.items, index: Number(row.dataset.pageIndex || 0) });
+        const trackId = row.dataset.plTrack || null;
+        await populateQueue(
+          { type: "playlist", id: currentPlaylistId },
+          { autoplay: true, startTrackId: trackId },
+        );
       };
     });
     playlistList.querySelectorAll<HTMLElement>("[data-remove-track]").forEach(button => {
@@ -563,9 +592,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (event.payload.type !== "drop") return;
         const paths = event.payload.paths || [];
         if (!paths.length) return;
-        const imported = await importPaths(paths, role === "playlist" ? "append" : "replace");
+        const imported = await importPaths(paths, role === "playlist" ? "append" : "none");
         if (imported.length) {
-          if (role !== "playlist") busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+          if (role === "playlist") {
+            await appendToQueue(imported.map(t => t.id));
+          } else {
+            await populateQueue(
+              { type: "tracks", ids: imported.map(t => t.id) },
+              { autoplay: true },
+            );
+          }
         } else {
           for (const path of paths) {
             try { await scanFolder(path, role !== "playlist"); } catch {}
@@ -588,9 +624,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const shouldReplace = progress.scanId === ownedScanId && replacePlaylistAfterScan && !progress.cancelled;
       if (shouldReplace && invoke) {
         await invoke("replace_playlist_from_scan", { playlistId: currentPlaylistId, scanId: progress.scanId });
-        const first = await invoke<Page<Track>>("playlist_tracks", { playlistId: currentPlaylistId, search: null, sort: "default", limit: 100, offset: 0 });
-        const list = first.items.map(normalizeTrack);
-        if (list.length) busEmit("melo:play-tracks", { tracks: list, index: 0 });
+        await populateQueue({ type: "scan", scanId: progress.scanId }, { autoplay: true });
         busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
       }
       activeScanId = null;
@@ -619,14 +653,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     renderPlaylistVirtual();
   });
 
-  (window as any).LumiLibrary = {
+  (window as any).MeloLibrary = {
     get tracks() { return recentTracks; },
     get playlists() { return playlists; },
     scanFolder,
     importPaths,
     getTrack,
     render: () => renderLibraryVirtual(),
-    addTracks: () => {},
     addToCurrentPlaylist: async (list: Track[]) => {
       if (!invoke || !list.length) return;
       await invoke("add_tracks_to_playlist", { playlistId: currentPlaylistId, trackIds: list.map(t => t.id) });
@@ -634,6 +667,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     },
     currentPlaylistName: () => playlists.find(p => p.id === currentPlaylistId)?.name || "Playlist",
   };
+
+  onQueueState((s) => {
+    currentTrackId = s.currentTrack?.id || null;
+    markActiveTracks();
+  });
 
   loadCore().catch(() => toast("Could not initialize the Library database"));
 }

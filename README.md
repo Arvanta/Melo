@@ -4,7 +4,7 @@ A lightweight, native-feeling desktop music player built with **Tauri 2**, **Typ
 The main window is a compact player card; the Library, Playlist, Equalizer, Synced Lyrics and Settings each open as
 **independent native OS windows** that stay in sync with the player.
 
-Version: **0.4.0 Beta** • License: **GPL-3.0**
+Version: **0.5.0 Beta** • License: **GPL-3.0**
 
 ![Melo — main player window](assets/main-window.png)
 
@@ -29,16 +29,16 @@ Version: **0.4.0 Beta** • License: **GPL-3.0**
    ```bash
    git init
    git add .
-   git commit -m "Melo 0.4.0 Beta"
+   git commit -m "Melo 0.5.0 Beta"
    git branch -M main
    git remote add origin https://github.com/Arvanta/Melo.git
    git push -u origin main
    ```
 2. The `Build Melo` workflow runs automatically on push (or via **Actions → Run workflow**).
 3. Get the installers:
-   - **Releases** → draft release `Melo v0.4.0 Beta` (contains `Melo_0.4.0_x64-setup.exe` and the `.msi`) — publish to keep it permanent.
+   - **Releases** → draft release `Melo v0.5.0 Beta` (contains `Melo_0.5.0_x64-setup.exe` and the `.msi`) — publish to keep it permanent.
    - **Actions → run → Artifacts → melo-windows** (zip with the same installers).
-4. Install `Melo_0.4.0_x64-setup.exe` (installs to standard `C:\Program Files\Melo`).
+4. Install `Melo_0.5.0_x64-setup.exe` (installs to standard `C:\Program Files\Melo`).
 
 ## 🌐 Web Demo / Local Development
 
