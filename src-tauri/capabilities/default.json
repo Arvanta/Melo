@@ -4,6 +4,11 @@
   "description": "Main capabilities for Melo Music Player",
   "windows": [
     "main",
+    "panel-library",
+    "panel-playlist",
+    "panel-equalizer",
+    "panel-lyrics",
+    "panel-settings",
     "panel-*",
     "*"
   ],

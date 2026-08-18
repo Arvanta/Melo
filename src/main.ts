@@ -433,20 +433,29 @@ app.innerHTML = `
 `;
 
 const urlPanel = new URLSearchParams(location.search).get("panel");
-if (urlPanel) {
-  document.documentElement.classList.add("panel-window", `panel-${urlPanel}`);
-  document.body.classList.add("panel-window", `panel-${urlPanel}`);
+// Tauri secondary windows keep their label even if the query string is dropped.
+let resolvedPanel = urlPanel;
+if (isTauri && !resolvedPanel) {
+  try {
+    const internals = (window as any).__TAURI_INTERNALS__;
+    const lbl = internals?.metadata?.currentWindow?.label || "";
+    if (typeof lbl === "string" && lbl.startsWith("panel-")) resolvedPanel = lbl.slice(6);
+  } catch {}
+}
+if (resolvedPanel) {
+  document.documentElement.classList.add("panel-window", `panel-${resolvedPanel}`);
+  document.body.classList.add("panel-window", `panel-${resolvedPanel}`);
 }
 
 // Tauri: secondary OS windows render a single panel full-size (real native windows)
-if (isTauri && urlPanel) {
+if (isTauri && resolvedPanel) {
   import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
     const pw = getCurrentWindow();
-    persistGeometry(pw, "melo-geo-panel-" + urlPanel);
-    pw.onCloseRequested(() => { busEmit("melo:panel-closed", urlPanel); });
-    window.addEventListener("beforeunload", () => { busEmit("melo:panel-closed", urlPanel); });
+    persistGeometry(pw, "melo-geo-panel-" + resolvedPanel);
+    pw.onCloseRequested(() => { busEmit("melo:panel-closed", resolvedPanel); });
+    window.addEventListener("beforeunload", () => { busEmit("melo:panel-closed", resolvedPanel); });
   });
-  const winEl = document.getElementById("win-" + urlPanel);
+  const winEl = document.getElementById("win-" + resolvedPanel);
   const titleHtml = winEl?.querySelector(".float-title")?.innerHTML || "";
   const bodyHtml = winEl?.querySelector(".float-body")?.innerHTML || "";
   app.innerHTML = `
@@ -463,7 +472,7 @@ if (isTauri && urlPanel) {
 </div>`;
 }
 
-if (isTauri && !urlPanel) {
+if (isTauri && !resolvedPanel) {
   document.documentElement.classList.add("tauri-main");
   document.body.classList.add("tauri-main");
   document.querySelectorAll(".side-actions .sbtn").forEach(b => b.classList.remove("active"));
@@ -482,7 +491,7 @@ if (isTauri && !urlPanel) {
 }
 
 // Desktop: closing the player closes the whole app (panels included)
-if (isTauri && !urlPanel) {
+if (isTauri && !resolvedPanel) {
   import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
     const mainWin = getCurrentWindow();
     
@@ -561,7 +570,7 @@ if (isTauri && !urlPanel) {
     busOn("melo:skin-window", onSkinWindow);
     busOn("melo:skin-changed", async (skinId: any) => {
       try {
-        if (!urlPanel && skinId) {
+        if (!resolvedPanel && skinId) {
           await applySkinChoice(skinId, theme, undefined, false);
         }
         await applyWindowSpec();
@@ -689,70 +698,41 @@ async function persistGeometry(win: any, key: string) {
   win.onResized(save);
 }
 
+const panelBusy = new Set<string>();
+
 async function openPanelWindow(panel: string) {
+  if (panelBusy.has(panel)) return;
+  panelBusy.add(panel);
+  const btn = document.getElementById(panelBtnMap[panel]);
+  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
+  const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
+  const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
+  const sz = sizes[panel] || [420, 520];
+  let geo: any = null;
+  try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
+  const useSavedPos = Number.isFinite(geo?.x) && Number.isFinite(geo?.y);
+  const width = Math.max((mins[panel] || [360, 360])[0], Number(geo?.w) || sz[0]);
+  const height = Math.max((mins[panel] || [360, 360])[1], Number(geo?.h) || sz[1]);
   try {
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const label = "panel-" + panel;
-    const btn = document.getElementById(panelBtnMap[panel]);
-    const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
-    let existing: any = null;
-    try { existing = await WebviewWindow.getByLabel(label); } catch { existing = null; }
-    if (existing) {
-      try {
-        const visible = await existing.isVisible();
-        if (visible) {
-          await existing.close();
-          btn?.classList.remove("active");
-          return;
-        }
-        await existing.show();
-        try { await existing.unminimize(); } catch {}
-        try { await existing.setFocus(); } catch {}
-        btn?.classList.add("active");
-        return;
-      } catch {
-        try { await existing.close(); } catch {}
-      }
-    }
-    const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
-    const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
-    const sz = sizes[panel] || [420, 520];
-    let geo: any = null;
-    try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
-    const useSavedPos = Number.isFinite(geo?.x) && Number.isFinite(geo?.y) && geo.x > -2000 && geo.y > -2000 && geo.x < 8000 && geo.y < 8000;
-    const width = Math.max((mins[panel] || [360, 360])[0], Number(geo?.w) || sz[0]);
-    const height = Math.max((mins[panel] || [360, 360])[1], Number(geo?.h) || sz[1]);
-    const created = new WebviewWindow(label, {
-      url: `index.html?panel=${encodeURIComponent(panel)}`,
+    const { invoke } = await import("@tauri-apps/api/core");
+    const result = await invoke<string>("toggle_panel_window", {
+      panel,
       title: titles[panel] || panel,
       width,
       height,
       minWidth: (mins[panel] || [360, 360])[0],
       minHeight: (mins[panel] || [360, 360])[1],
-      ...(useSavedPos ? { x: geo.x, y: geo.y } : { center: true }),
-      decorations: false,
-      transparent: false,
-      shadow: true,
-      skipTaskbar: false,
-      focus: true,
-      visible: true,
+      x: useSavedPos ? geo.x : null,
+      y: useSavedPos ? geo.y : null,
     });
-    try {
-      created.once("tauri://created", async () => {
-        btn?.classList.add("active");
-        try { await created.show(); } catch {}
-        try { await created.setFocus(); } catch {}
-      });
-      created.once("tauri://error", (ev: any) => {
-        btn?.classList.remove("active");
-        showToast(`Could not open ${titles[panel] || panel}`);
-        console.error("panel window error", ev);
-      });
-    } catch {}
-    btn?.classList.add("active");
+    if (result === "closed") btn?.classList.remove("active");
+    else btn?.classList.add("active");
   } catch (err) {
     showToast("Could not open window");
     console.error(err);
+    btn?.classList.remove("active");
+  } finally {
+    setTimeout(() => panelBusy.delete(panel), 450);
   }
 }
 
@@ -817,7 +797,7 @@ function setVisible(id: string, visible: boolean) {
   }
 }
 
-if (!urlPanel) {
+if (!resolvedPanel) {
   winIds.forEach(id => {
     const saved = localStorage.getItem("melov2-" + id) ?? localStorage.getItem("lumiv2-" + id);
     if (saved !== null) {
@@ -830,11 +810,12 @@ if (!urlPanel) {
 }
 
 document.addEventListener("click", (e) => {
-  const hit = (e.target as HTMLElement | null)?.closest?.("[id]");
+  const hit = (e.target as HTMLElement | null)?.closest?.(".sbtn, [id^='btnToggle'], [id^='menuToggle'], #btnOpenSettings");
   if (!hit) return;
   const winId = toggleMap[(hit as HTMLElement).id];
   if (!winId) return;
   e.preventDefault();
+  e.stopPropagation();
   toggleWin(winId);
 });
 
@@ -1214,11 +1195,11 @@ document.addEventListener("click", (e) => {
 });
 
 // App Initialization
-if (isTauri && urlPanel) {
-  if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
-  else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
-  else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
-  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); }
+if (isTauri && resolvedPanel) {
+  if (resolvedPanel === "library" || resolvedPanel === "playlist") setupLibrary(audio, showToast);
+  else if (resolvedPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
+  else if (resolvedPanel === "lyrics") setupLyrics(audio, showToast);
+  else if (resolvedPanel === "settings") { initLocale(); setupSettings(showToast); }
 } else {
   setupPlayer(audio, showToast);
   setupLibrary(audio, showToast);

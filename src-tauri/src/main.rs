@@ -380,6 +380,54 @@ fn get_audio_devices() -> Result<Vec<String>, String> {
     Ok(vec!["Default".to_string()])
 }
 
+/// Open or close a secondary panel window from Rust so the JS WebviewWindow
+/// constructor cannot race (flash-open then immediately destroy / label-in-use).
+#[tauri::command]
+fn toggle_panel_window(
+    app: tauri::AppHandle,
+    panel: String,
+    title: String,
+    width: f64,
+    height: f64,
+    min_width: f64,
+    min_height: f64,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<String, String> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+    let allowed = ["library", "playlist", "equalizer", "lyrics", "settings"];
+    if !allowed.contains(&panel.as_str()) {
+        return Err(format!("unknown panel: {panel}"));
+    }
+    let label = format!("panel-{panel}");
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.close();
+        return Ok("closed".into());
+    }
+    let url = WebviewUrl::App(format!("index.html?panel={panel}").into());
+    let mut builder = WebviewWindowBuilder::new(&app, &label, url)
+        .title(title)
+        .inner_size(width, height)
+        .min_inner_size(min_width, min_height)
+        .decorations(false)
+        .transparent(false)
+        .shadow(true)
+        .skip_taskbar(false)
+        .focused(true)
+        .visible(true)
+        .resizable(true);
+    match (x, y) {
+        (Some(px), Some(py)) if px.is_finite() && py.is_finite() => {
+            builder = builder.position(px, py);
+        }
+        _ => {
+            builder = builder.center();
+        }
+    }
+    builder.build().map_err(|e| e.to_string())?;
+    Ok("opened".into())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -435,7 +483,8 @@ fn main() {
             open_skins_folder,
             write_tags,
             get_audio_devices,
-            open_url
+            open_url,
+            toggle_panel_window
         ])
         .setup(|app| {
             let library_state = library_db::LibraryState::new(app.handle())
