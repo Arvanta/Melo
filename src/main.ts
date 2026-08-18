@@ -693,7 +693,8 @@ async function openPanelWindow(panel: string) {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
   const label = "panel-" + panel;
   const btn = document.getElementById(panelBtnMap[panel]);
-  const existing = await WebviewWindow.getByLabel(label);
+  let existing: any = null;
+  try { existing = await WebviewWindow.getByLabel(label); } catch { existing = null; }
   if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
   const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
   const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
@@ -983,11 +984,12 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.shiftKey) { e.preventDefault(); addFolderViaDialog(); }
     else { e.preventDefault(); addFilesViaDialog(); }
   }
-  if (((e.ctrlKey || e.metaKey) && e.key === ",") || e.key === "F2") {
+  const comma = e.key === "," || e.code === "Comma";
+  if (((e.ctrlKey || e.metaKey) && comma) || e.key === "F2" || e.code === "F2") {
     e.preventDefault();
     toggleWin("win-settings");
   }
-});
+}, true);
 
 // Setup Settings panel handlers (works in floating window and Tauri secondary window)
 function setupSettings(toast: ToastFn) {
@@ -1186,22 +1188,3 @@ if (isTauri && urlPanel) {
   setupSettings(showToast);
   initLocale();
 }
-
-
-urlPanel) {
-  if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
-  else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
-  else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
-  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); }
-} else {
-  setupPlayer(audio, showToast);
-  setupLibrary(audio, showToast);
-  setupEqualizer(audio, showToast);
-  setupVisualizer(audio);
-  setupLyrics(audio, showToast);
-  setupSkinEngine(showToast);
-  setupSettings(showToast);
-  initLocale();
-}
-
-
