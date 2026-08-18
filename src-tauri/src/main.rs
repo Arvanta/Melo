@@ -42,6 +42,10 @@ pub struct SkinFileInfo {
 const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
 const DEFAULT_SKIN_GUIDE: &str = include_str!("../../skins/README.md");
+const DEFAULT_SKIN_SLATE: &str = include_str!("../../skins/slate.html");
+const DEFAULT_SKIN_SILK_ORBIT: &str = include_str!("../../skins/silk-orbit.html");
+const DEFAULT_SKIN_IVORY: &str = include_str!("../../skins/ivory.html");
+const DEFAULT_SKIN_MICROLINE: &str = include_str!("../../skins/microline.html");
 
 // ---- Helpers ----
 
@@ -179,6 +183,23 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
     if !f4.exists() {
         let _ = std::fs::write(f4, DEFAULT_SKIN_GUIDE);
     }
+    // Bundled community/user skins
+    let f5 = skins_dir.join("slate.html");
+    if !f5.exists() {
+        let _ = std::fs::write(f5, DEFAULT_SKIN_SLATE);
+    }
+    let f6 = skins_dir.join("silk-orbit.html");
+    if !f6.exists() {
+        let _ = std::fs::write(f6, DEFAULT_SKIN_SILK_ORBIT);
+    }
+    let f7 = skins_dir.join("ivory.html");
+    if !f7.exists() {
+        let _ = std::fs::write(f7, DEFAULT_SKIN_IVORY);
+    }
+    let f8 = skins_dir.join("microline.html");
+    if !f8.exists() {
+        let _ = std::fs::write(f8, DEFAULT_SKIN_MICROLINE);
+    }
 }
 
 // ---- Tauri Commands ----
@@ -268,6 +289,10 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
         "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
         "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
+        "slate.html" | "slate" => Ok(DEFAULT_SKIN_SLATE.to_string()),
+        "silk-orbit.html" | "silk-orbit" => Ok(DEFAULT_SKIN_SILK_ORBIT.to_string()),
+        "ivory.html" | "ivory" => Ok(DEFAULT_SKIN_IVORY.to_string()),
+        "microline.html" | "microline" => Ok(DEFAULT_SKIN_MICROLINE.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }
 }

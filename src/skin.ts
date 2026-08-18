@@ -457,6 +457,10 @@ const EMBEDDED_SKINS: Record<string, string> = {
 const WEB_SKINS_LIST: SkinItem[] = [
   { id: "compact-pill", name: "Minimal Compact (Light/Dark)", filename: "compact-pill.html" },
   { id: "full-html-example", name: "Full HTML Example", filename: "full-html-example.html" },
+  { id: "slate", name: "Slate", filename: "slate.html" },
+  { id: "silk-orbit", name: "Silk Orbit", filename: "silk-orbit.html" },
+  { id: "ivory", name: "Ivory", filename: "ivory.html" },
+  { id: "microline", name: "Microline", filename: "microline.html" },
 ];
 
 export function isFullHtmlSkin(htmlText: string): boolean {
@@ -469,7 +473,7 @@ export function isFullHtmlSkin(htmlText: string): boolean {
   return count >= 3;
 }
 
-export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
+export function applyCustomSkin(htmlText: string, toast?: (m: string) => void, applyGeometry = true) {
   const playerCard = document.getElementById("playerCard") as HTMLElement;
   if (!playerCard) return;
   const originalPlayerHTML = (playerCard as any)._originalHTML || playerCard.innerHTML;
@@ -517,13 +521,16 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
     toast("Skin CSS applied");
   }
 
-  // Persist the window geometry declared by a full skin (any size/shape),
-  // so the native window can be resized to match it.
+  // Persist the window geometry declared by a full skin (any size/shape).
+  // The geometry is always saved (so a restart can honour it), but the
+  // resize event is only emitted when the user explicitly picks/imports a
+  // skin — re-applying the same skin at boot or on a theme change must NOT
+  // snap the window back to the skin's default size.
   if (isFull) {
     const geometry = parseSkinGeometry(htmlText);
     if (geometry) {
       localStorage.setItem("melo-skin-geometry", JSON.stringify(geometry));
-      busEmit("melo:skin-geometry", geometry);
+      if (applyGeometry) busEmit("melo:skin-geometry", geometry);
     } else {
       localStorage.removeItem("melo-skin-geometry");
     }
@@ -573,14 +580,14 @@ export async function listInstalledSkins(): Promise<SkinItem[]> {
   return WEB_SKINS_LIST;
 }
 
-export async function loadSkinFromDisk(filenameOrPath: string, toast?: (m: string) => void): Promise<boolean> {
+export async function loadSkinFromDisk(filenameOrPath: string, toast?: (m: string) => void, applyGeometry = true): Promise<boolean> {
   // 1. Try reading directly from disk via Rust command
   if (isTauri) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const content: string = await invoke("read_skin_file", { filenameOrPath });
       if (content && content.trim().length > 0) {
-        applyCustomSkin(content, toast);
+        applyCustomSkin(content, toast, applyGeometry);
         return true;
       }
     } catch {}
@@ -592,7 +599,7 @@ export async function loadSkinFromDisk(filenameOrPath: string, toast?: (m: strin
     const resp = await fetch(cleanPath);
     if (resp.ok) {
       const text = await resp.text();
-      applyCustomSkin(text, toast);
+      applyCustomSkin(text, toast, applyGeometry);
       return true;
     }
   } catch {}
@@ -600,7 +607,7 @@ export async function loadSkinFromDisk(filenameOrPath: string, toast?: (m: strin
   // 3. Guaranteed embedded fallback
   const baseName = filenameOrPath.replace(/^.*[\\/]/, "");
   if (EMBEDDED_SKINS[baseName]) {
-    applyCustomSkin(EMBEDDED_SKINS[baseName], toast);
+    applyCustomSkin(EMBEDDED_SKINS[baseName], toast, applyGeometry);
     return true;
   }
 
@@ -608,7 +615,7 @@ export async function loadSkinFromDisk(filenameOrPath: string, toast?: (m: strin
   return false;
 }
 
-export async function applySkinChoice(skinChoice: string, currentTheme: "light" | "dark", toast?: (m: string) => void, broadcast = true) {
+export async function applySkinChoice(skinChoice: string, currentTheme: "light" | "dark", toast?: (m: string) => void, broadcast = true, applyGeometry = true) {
   if (skinChoice === "default") {
     resetSkin(toast, broadcast);
     return;
@@ -633,10 +640,10 @@ export async function applySkinChoice(skinChoice: string, currentTheme: "light" 
   // from silently overriding layout and bug fixes in a newer version.
   let success = false;
   if (isCompact && EMBEDDED_SKINS[targetFile]) {
-    applyCustomSkin(EMBEDDED_SKINS[targetFile], toast);
+    applyCustomSkin(EMBEDDED_SKINS[targetFile], toast, applyGeometry);
     success = true;
   } else {
-    success = await loadSkinFromDisk(targetFile, toast);
+    success = await loadSkinFromDisk(targetFile, toast, applyGeometry);
   }
   if (success) {
     localStorage.setItem("melo-active-skin-id", skinChoice);
@@ -666,21 +673,23 @@ export function setupSkinEngine(toast: (m: string) => void) {
 
   if (savedSkinId && savedSkinId !== "default") {
     setTimeout(() => {
-      applySkinChoice(savedSkinId, theme, undefined, false);
+      // Boot re-application must not snap the window back to the skin's
+      // default size — a resizable skin keeps its saved dimensions.
+      applySkinChoice(savedSkinId, theme, undefined, false, false);
     }, 150);
   }
 
   busOn("melo:theme", (t: any) => {
     const activeSkin = localStorage.getItem("melo-active-skin-id");
     if (activeSkin && activeSkin !== "default") {
-      applySkinChoice(activeSkin, t, undefined, false);
+      applySkinChoice(activeSkin, t, undefined, false, false);
     }
   });
 
   busOn("melo:skin-changed", (skinChoice: any) => {
     if (skinChoice && typeof skinChoice === "string") {
       const currentTheme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";
-      applySkinChoice(skinChoice, currentTheme, undefined, false);
+      applySkinChoice(skinChoice, currentTheme, undefined, false, false);
     }
   });
 

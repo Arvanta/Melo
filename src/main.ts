@@ -543,15 +543,34 @@ if (isTauri && !urlPanel) {
       } catch {}
     };
 
+    // Clamp a saved window size to the active skin's declared bounds.
+    const clampToBounds = (v: number, fallback: number, min?: number, max?: number) => {
+      let out = Number.isFinite(v) && v > 0 ? v : fallback;
+      if (min != null && out < min) out = min;
+      if (max != null && out > max) out = max;
+      return out;
+    };
+
     try {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
       const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
       const sz = getTargetSize();
-      const activeSkin = localStorage.getItem("melo-active-skin-id") || "default";
       if (sz.force) {
-        const useSavedWidth = !sz.fixed && activeSkin === "default" && g?.w;
-        const startupW = useSavedWidth ? Math.max(650, g.w) : sz.w;
-        await mainWin.setSize(new LogicalSize(startupW, sz.h));
+        let startupW = sz.w;
+        let startupH = sz.h;
+        if (g && !sz.fixed) {
+          if (sz.custom) {
+            // Custom (resizable) skins keep the user's saved size across
+            // restarts, clamped to the skin's declared min/max bounds.
+            startupW = clampToBounds(g.w, sz.w, sz.minW, sz.maxW);
+            startupH = clampToBounds(g.h, sz.h, sz.minH, sz.maxH);
+          } else {
+            // Default skin: keep the saved width, fixed height.
+            startupW = Math.max(650, g.w);
+            startupH = sz.h;
+          }
+        }
+        await mainWin.setSize(new LogicalSize(startupW, startupH));
       }
       await applySizeConstraints(sz);
       if (g?.x != null && g?.y != null) {
@@ -590,7 +609,7 @@ if (isTauri && !urlPanel) {
     busOn("melo:skin-changed", async (skinId: any) => {
       try {
         if (!urlPanel && skinId) {
-          await applySkinChoice(skinId, theme, undefined, false);
+          await applySkinChoice(skinId, theme, undefined, false, false);
         }
         const sz = getTargetSize();
         if (sz.force) {
