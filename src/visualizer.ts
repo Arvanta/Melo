@@ -29,7 +29,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   if (!VIZ_MODES.some((m) => m.id === mode)) mode = "bars";
 
   let raf = 0;
-  let idleRaf = 0;
   let levels: number[] = [];
   let slowMax = 0.45;
   let menuEl: HTMLElement | null = null;
@@ -141,26 +140,15 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
   function resize() {
     const dpr = window.devicePixelRatio || 1;
-    const host = container || canvas.parentElement;
-    // Prefer the container's box (the canvas fills it). Observing the
-    // canvas itself can miss the initial layout and leave a 300x150
-    // default buffer until the user manually resizes the window.
-    const w = canvas.clientWidth || host?.clientWidth || 0;
-    const h = canvas.clientHeight || host?.clientHeight || 0;
+    const w = canvas.clientWidth || container?.clientWidth || 200;
+    const h = canvas.clientHeight || container?.clientHeight || 56;
     if (w > 0 && h > 0) {
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
     }
   }
-  const resizeTarget = container || canvas.parentElement || canvas;
-  new ResizeObserver(resize).observe(resizeTarget);
+  new ResizeObserver(resize).observe(canvas);
   resize();
-  // Re-run after the browser has performed layout, in case the container
-  // had zero size at construction (this fixes the "too big on launch" bug).
-  requestAnimationFrame(() => {
-    resize();
-    requestAnimationFrame(resize);
-  });
 
   function drawBars(data: number[], w: number, h: number, gapFrac: number) {
     const dpr = dprOf();
@@ -368,17 +356,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.stroke();
   }
 
-  // Skins may override the bar count for the bar-based modes via
-  // <div id="vizBars" data-bars="40"></div>. Any positive integer is
-  // accepted; out-of-range values fall back to the mode default.
-  function barsForMode(defaultN: number): number {
-    const raw = container?.dataset?.bars;
-    if (!raw) return defaultN;
-    const n = parseInt(raw, 10);
-    if (Number.isFinite(n) && n >= 4 && n <= 256) return Math.round(n);
-    return defaultN;
-  }
-
   function draw() {
     const w = canvas.width, h = canvas.height;
     if (!w || !h) return;
@@ -387,12 +364,15 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       drawWave();
       return;
     }
-    const n = mode === "bars" ? barsForMode(16)
-      : mode === "thin" ? barsForMode(56)
+    const skinBars = Number(container?.dataset.bars || document.documentElement.dataset.meloVizBars || 0);
+    const n = (Number.isFinite(skinBars) && skinBars >= 4)
+      ? Math.min(128, Math.round(skinBars))
+      : mode === "bars" ? 16
+      : mode === "thin" ? 56
       : mode === "line" ? 64
       : mode === "spectrumWave" ? 72
       : mode === "blocks" ? 22
-      : barsForMode(24);
+      : 24;
     const data = getLevels(n);
     if (mode === "bars") drawBars(data, w, h, 0.34);
     else if (mode === "thin") drawBars(data, w, h, 0.32);
@@ -406,22 +386,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     raf = requestAnimationFrame(loop);
     draw();
   }
-  // Idle loop: used when nothing is playing to keep a gentle animation
-  // without burning a full 60fps rAF on every open window.
-  function idleLoop() {
-    draw();
-    idleRaf = window.setTimeout(() => {
-      idleRaf = window.setTimeout(idleLoop, 250);
-    }, 250) as unknown as number;
-  }
-  function stopLoops() {
-    if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    if (idleRaf) { clearTimeout(idleRaf); idleRaf = 0; }
-  }
   function startLoop() {
-    stopLoops();
-    if (!audio.paused) loop();
-    else idleLoop();
+    if (!raf) loop();
   }
 
   function setMode(m: VizMode, silent = false) {
@@ -496,27 +462,24 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
 
   audio.addEventListener("play", start);
-  audio.addEventListener("pause", startLoop);
   start();
   bindContainer();
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopLoops();
-    else startLoop();
+    if (document.hidden) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    } else startLoop();
   });
 
   function rebind() {
-    stopLoops();
+    cancelAnimationFrame(raf);
+    raf = 0;
     container = document.getElementById("vizBars") as HTMLElement | null;
     if (!container) return;
     canvas = ensureCanvas(container);
     g2d = canvas.getContext("2d")!;
-    const resizeTarget = container || canvas.parentElement || canvas;
-    new ResizeObserver(resize).observe(resizeTarget);
+    new ResizeObserver(resize).observe(canvas);
     resize();
-    requestAnimationFrame(() => {
-      resize();
-      requestAnimationFrame(resize);
-    });
     bindContainer();
     startLoop();
   }

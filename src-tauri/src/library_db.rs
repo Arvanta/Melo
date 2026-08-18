@@ -80,14 +80,21 @@ pub struct ScanStarted {
     scan_id: String,
 }
 
-pub(crate) fn now_ms() -> i64 {
+fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
 }
 
-pub(crate) fn supported_ext(path: &Path) -> bool {
+fn now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+fn supported_ext(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .map(|e| {
@@ -97,30 +104,6 @@ pub(crate) fn supported_ext(path: &Path) -> bool {
             )
         })
         .unwrap_or(false)
-}
-
-#[cfg(test)]
-pub(crate) fn make_test_track(id: &str, title: &str) -> DbTrack {
-    DbTrack {
-        id: id.to_string(),
-        path: id.to_string(),
-        title: title.to_string(),
-        artist: "Test Artist".into(),
-        album: "Test Album".into(),
-        genre: "Test".into(),
-        year: 2024,
-        duration: 120.0,
-        cover: None,
-        codec: "MP3".into(),
-        specs: "MP3 · 44.1 kHz · 16 bit".into(),
-        replay_gain: None,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn insert_test_track(conn: &Connection, id: &str, title: &str, library_owned: bool) {
-    let track = make_test_track(id, title);
-    upsert_track(conn, &track, 100, 0, None, library_owned).unwrap();
 }
 
 fn codec_from_ext(path: &Path) -> String {
@@ -140,7 +123,7 @@ fn codec_from_ext(path: &Path) -> String {
     }
 }
 
-pub(crate) fn open_db(path: &Path) -> Result<Connection, String> {
+fn open_db(path: &Path) -> Result<Connection, String> {
     let conn = Connection::open(path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
@@ -149,7 +132,7 @@ pub(crate) fn open_db(path: &Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
-pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
+fn init_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS tracks (
@@ -205,10 +188,7 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| e.to_string())?;
-    let _ = conn.execute(
-        "ALTER TABLE tracks ADD COLUMN library_owned INTEGER NOT NULL DEFAULT 1",
-        [],
-    );
+    let _ = conn.execute("ALTER TABLE tracks ADD COLUMN library_owned INTEGER NOT NULL DEFAULT 1", []);
     conn.execute(
         "INSERT OR IGNORE INTO playlists(id,name,created_at) VALUES('p1','Favorites',?1)",
         params![now_ms()],
@@ -230,7 +210,6 @@ impl LibraryState {
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| e.to_string())?;
         init_schema(&conn)?;
-        crate::queue_db::ensure_queue_schema(&conn)?;
         Ok(Self {
             db_path,
             artwork_dir,
@@ -264,11 +243,7 @@ fn cache_artwork(data: &[u8], artwork_dir: &Path) -> Option<String> {
     Some(target.to_string_lossy().to_string())
 }
 
-pub(crate) fn parse_track_cached(
-    path: &Path,
-    artwork_dir: &Path,
-    extract_artwork: bool,
-) -> Option<(DbTrack, u64, i64)> {
+fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) -> Option<(DbTrack, u64, i64)> {
     let metadata = std::fs::metadata(path).ok()?;
     let file_size = metadata.len();
     let modified_at = metadata
@@ -336,30 +311,26 @@ pub(crate) fn parse_track_cached(
     ))
 }
 
-pub(crate) fn row_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbTrack> {
-    row_track_indexed(row, 0)
-}
-
-pub(crate) fn row_track_indexed(row: &rusqlite::Row<'_>, base: usize) -> rusqlite::Result<DbTrack> {
+fn row_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbTrack> {
     Ok(DbTrack {
-        id: row.get(base)?,
-        path: row.get(base + 1)?,
-        title: row.get(base + 2)?,
-        artist: row.get(base + 3)?,
-        album: row.get(base + 4)?,
-        genre: row.get(base + 5)?,
-        year: row.get::<_, i64>(base + 6)? as u32,
-        duration: row.get(base + 7)?,
-        cover: row.get(base + 8)?,
-        codec: row.get(base + 9)?,
-        specs: row.get(base + 10)?,
-        replay_gain: row.get(base + 11)?,
+        id: row.get(0)?,
+        path: row.get(1)?,
+        title: row.get(2)?,
+        artist: row.get(3)?,
+        album: row.get(4)?,
+        genre: row.get(5)?,
+        year: row.get::<_, i64>(6)? as u32,
+        duration: row.get(7)?,
+        cover: row.get(8)?,
+        codec: row.get(9)?,
+        specs: row.get(10)?,
+        replay_gain: row.get(11)?,
     })
 }
 
-pub(crate) const TRACK_SELECT: &str = "SELECT id,path,title,artist,album,genre,year,duration,artwork_path,codec,specs,replay_gain FROM tracks";
+const TRACK_SELECT: &str = "SELECT id,path,title,artist,album,genre,year,duration,artwork_path,codec,specs,replay_gain FROM tracks";
 
-pub(crate) fn upsert_track(
+fn upsert_track(
     conn: &Connection,
     track: &DbTrack,
     size: u64,
@@ -397,8 +368,8 @@ pub(crate) fn upsert_track(
             if library_owned {1} else {0}
         ],
     )
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn unchanged(conn: &Connection, path: &Path, size: u64, modified: i64) -> bool {
@@ -447,21 +418,14 @@ fn worker_loop(
             .map(|c| unchanged(c, &path, meta.len(), modified))
             .unwrap_or(false)
         {
-            if output
-                .send(ScanResult::Unchanged(path.to_string_lossy().to_string()))
-                .is_err()
-            {
-                break;
-            }
+            if output.send(ScanResult::Unchanged(path.to_string_lossy().to_string())).is_err() { break; }
             continue;
         }
         let message = match parse_track_cached(&path, &artwork_dir, false) {
             Some((track, size, modified)) => ScanResult::Parsed(track, size, modified),
             None => ScanResult::Failed,
         };
-        if output.send(message).is_err() {
-            break;
-        }
+        if output.send(message).is_err() { break; }
     }
 }
 
@@ -476,10 +440,7 @@ pub async fn start_library_scan(
         return Err("Path does not exist".into());
     }
     {
-        let jobs = state
-            .jobs
-            .lock()
-            .map_err(|_| "Scan state is unavailable".to_string())?;
+        let jobs = state.jobs.lock().map_err(|_| "Scan state is unavailable".to_string())?;
         if !jobs.is_empty() {
             return Err("Another Library scan is already running".into());
         }
@@ -500,10 +461,7 @@ pub async fn start_library_scan(
         let conn = match open_db(&db_path) {
             Ok(c) => c,
             Err(e) => {
-                let _ = app.emit(
-                    "melo:scan-error",
-                    serde_json::json!({"scanId":id,"error":e}),
-                );
+                let _ = app.emit("melo:scan-error", serde_json::json!({"scanId":id,"error":e}));
                 return;
             }
         };
@@ -545,9 +503,7 @@ pub async fn start_library_scan(
             let art = artwork_dir.clone();
             let cancel = cancelled.clone();
             let db = db_path.clone();
-            workers.push(std::thread::spawn(move || {
-                worker_loop(rx, tx, art, cancel, db)
-            }));
+            workers.push(std::thread::spawn(move || worker_loop(rx, tx, art, cancel, db)));
         }
         drop(result_tx);
 
@@ -575,9 +531,7 @@ pub async fn start_library_scan(
                             Ok(()) => break,
                             Err(crossbeam_channel::SendTimeoutError::Timeout(value)) => {
                                 pending = value;
-                                if producer_cancel.load(Ordering::Relaxed) {
-                                    return;
-                                }
+                                if producer_cancel.load(Ordering::Relaxed) { return; }
                             }
                             Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => return,
                         }
@@ -590,7 +544,6 @@ pub async fn start_library_scan(
         let added = AtomicUsize::new(0);
         let mut batch = Vec::with_capacity(25);
         let mut last_flush = std::time::Instant::now();
-        let mut last_progress_emit = std::time::Instant::now();
         loop {
             let mut disconnected = false;
             let timed_out = match result_rx.recv_timeout(std::time::Duration::from_millis(150)) {
@@ -612,9 +565,7 @@ pub async fn start_library_scan(
                 let tx = match conn.unchecked_transaction() {
                     Ok(t) => t,
                     Err(_) => {
-                        if disconnected {
-                            break;
-                        }
+                        if disconnected { break; }
                         continue;
                     }
                 };
@@ -625,11 +576,8 @@ pub async fn start_library_scan(
                     completed += 1;
                     match result {
                         ScanResult::Parsed(track, size, modified) => {
-                            if upsert_track(&tx, &track, size, modified, Some(&id), true).is_ok() {
-                                changed += 1;
-                            } else {
-                                failed += 1;
-                            }
+                            if upsert_track(&tx, &track, size, modified, Some(&id), true).is_ok() { changed += 1; }
+                            else { failed += 1; }
                         }
                         ScanResult::Unchanged(path) => {
                             if tx.execute("UPDATE tracks SET last_seen_scan=?2,library_owned=1 WHERE path=?1", params![path,id]).is_err() { failed += 1; }
@@ -646,27 +594,17 @@ pub async fn start_library_scan(
                     "UPDATE scan_jobs SET processed=?2,added=?3 WHERE id=?1",
                     params![id, done as i64, added.load(Ordering::Relaxed) as i64],
                 );
-                // Throttle progress updates to ~4/sec. The frontend only
-                // needs a coarse progress bar; emitting on every batch for
-                // thousands of files wastes IPC/CPU and can keep the UI
-                // thread busy long after the scan finishes.
-                let now = std::time::Instant::now();
-                if now.duration_since(last_progress_emit).as_millis() >= 250 {
-                    last_progress_emit = now;
-                    let _ = app.emit(
-                        "melo:scan-progress",
-                        serde_json::json!({"scanId":id,"done":done,"total":total,"added":added.load(Ordering::Relaxed),"errors":failed}),
-                    );
-                }
+                let _ = app.emit(
+                    "melo:scan-progress",
+                    serde_json::json!({"scanId":id,"done":done,"total":total,"added":added.load(Ordering::Relaxed),"errors":failed}),
+                );
+                let _ = app.emit(
+                    "melo:library-changed",
+                    serde_json::json!({"scanId":id,"added":changed}),
+                );
             }
             if disconnected {
                 break;
-            }
-            // No results right now and the queue is empty. Yield briefly
-            // so the collector threads don't busy-spin the main thread
-            // while the scan is draining.
-            if batch.is_empty() {
-                std::thread::sleep(std::time::Duration::from_millis(20));
             }
         }
         let _ = producer.join();
@@ -686,10 +624,7 @@ pub async fn start_library_scan(
             "melo:scan-progress",
             serde_json::json!({"scanId":id,"done":total,"total":total,"added":added.load(Ordering::Relaxed),"finished":true,"cancelled":status=="cancelled"}),
         );
-        let _ = app.emit(
-            "melo:library-changed",
-            serde_json::json!({"scanId":id,"finished":true}),
-        );
+        let _ = app.emit("melo:library-changed", serde_json::json!({"scanId":id,"finished":true}));
         if let Ok(mut map) = jobs.lock() {
             map.remove(&id);
         }
@@ -733,47 +668,17 @@ pub async fn library_groups(
 ) -> Result<Page<GroupRow>, String> {
     let conn = open_db(&state.db_path)?;
     let q = format!("%{}%", search.unwrap_or_default());
-    let (group_expr, key_expr, subtitle_expr, extra_where, extra): (
-        &str,
-        &str,
-        &str,
-        &str,
-        Option<String>,
-    ) = match kind.as_str() {
-        "albums" => (
-            "album",
-            "artist || char(0) || album",
-            "artist",
-            if artist.is_some() {
-                " AND artist=?2"
-            } else {
-                ""
-            },
-            artist,
-        ),
+    let (group_expr, key_expr, subtitle_expr, extra_where, extra): (&str, &str, &str, &str, Option<String>) = match kind.as_str() {
+        "albums" => ("album", "artist || char(0) || album", "artist", if artist.is_some() {" AND artist=?2"} else {""}, artist),
         "genres" => ("genre", "genre", "COUNT(*) || ' tracks'", "", None),
         _ => ("artist", "artist", "COUNT(*) || ' tracks'", "", None),
     };
-    let where_sql = format!(
-        " WHERE library_owned=1 AND {} LIKE ?1 COLLATE NOCASE{}",
-        group_expr, extra_where
-    );
-    let count_sql = format!(
-        "SELECT COUNT(*) FROM (SELECT {} FROM tracks{} GROUP BY {})",
-        group_expr,
-        where_sql,
-        if kind == "albums" {
-            "artist,album"
-        } else {
-            group_expr
-        }
-    );
+    let where_sql = format!(" WHERE library_owned=1 AND {} LIKE ?1 COLLATE NOCASE{}", group_expr, extra_where);
+    let count_sql = format!("SELECT COUNT(*) FROM (SELECT {} FROM tracks{} GROUP BY {})", group_expr, where_sql, if kind=="albums" {"artist,album"} else {group_expr});
     let total: i64 = if let Some(ref x) = extra {
-        conn.query_row(&count_sql, params![q, x], |r| r.get(0))
-            .map_err(|e| e.to_string())?
+        conn.query_row(&count_sql, params![q, x], |r| r.get(0)).map_err(|e| e.to_string())?
     } else {
-        conn.query_row(&count_sql, params![q], |r| r.get(0))
-            .map_err(|e| e.to_string())?
+        conn.query_row(&count_sql, params![q], |r| r.get(0)).map_err(|e| e.to_string())?
     };
     let sql = format!(
         "SELECT {key},{name},{subtitle},COUNT(*),MAX(artwork_path),MIN(id) FROM tracks{where_sql} GROUP BY {group_by} ORDER BY {name} COLLATE NOCASE LIMIT ?{li} OFFSET ?{oi}",
@@ -790,8 +695,7 @@ pub async fn library_groups(
         stmt.query(params![q, x, limit as i64, offset as i64])
     } else {
         stmt.query(params![q, limit as i64, offset as i64])
-    }
-    .map_err(|e| e.to_string())?;
+    }.map_err(|e| e.to_string())?;
     let mut items = Vec::new();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         items.push(GroupRow {
@@ -803,12 +707,7 @@ pub async fn library_groups(
             artwork_track_id: row.get(5).map_err(|e| e.to_string())?,
         });
     }
-    Ok(Page {
-        items,
-        total,
-        limit,
-        offset,
-    })
+    Ok(Page { items, total, limit, offset })
 }
 
 #[tauri::command]
@@ -828,30 +727,18 @@ pub async fn library_tracks(
     if let Some(q) = search.filter(|x| !x.trim().is_empty()) {
         clauses.push("(title LIKE ? OR artist LIKE ? OR album LIKE ?)");
         let q = format!("%{}%", q);
-        values.push(q.clone().into());
-        values.push(q.clone().into());
-        values.push(q.into());
+        values.push(q.clone().into()); values.push(q.clone().into()); values.push(q.into());
     }
     for (column, value) in [("artist", artist), ("album", album), ("genre", genre)] {
         if let Some(v) = value.filter(|x| !x.is_empty()) {
-            clauses.push(match column {
-                "artist" => "artist=?",
-                "album" => "album=?",
-                _ => "genre=?",
-            });
+            clauses.push(match column {"artist"=>"artist=?","album"=>"album=?",_=>"genre=?"});
             values.push(v.into());
         }
     }
-    let where_sql = if clauses.is_empty() {
-        String::new()
-    } else {
-        format!(" WHERE {}", clauses.join(" AND "))
-    };
+    let where_sql = if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) };
     let count_sql = format!("SELECT COUNT(*) FROM tracks{}", where_sql);
     let refs: Vec<&dyn ToSql> = values.iter().map(|v| v as &dyn ToSql).collect();
-    let total: i64 = conn
-        .query_row(&count_sql, params_from_iter(refs.clone()), |r| r.get(0))
-        .map_err(|e| e.to_string())?;
+    let total: i64 = conn.query_row(&count_sql, params_from_iter(refs.clone()), |r| r.get(0)).map_err(|e| e.to_string())?;
     let order = match sort.as_deref() {
         Some("artist-asc") => "artist COLLATE NOCASE,title COLLATE NOCASE",
         Some("album-asc") => "album COLLATE NOCASE,title COLLATE NOCASE",
@@ -859,10 +746,7 @@ pub async fn library_tracks(
         Some("dur-desc") => "duration DESC",
         _ => "title COLLATE NOCASE",
     };
-    let sql = format!(
-        "{}{} ORDER BY {} LIMIT ? OFFSET ?",
-        TRACK_SELECT, where_sql, order
-    );
+    let sql = format!("{}{} ORDER BY {} LIMIT ? OFFSET ?", TRACK_SELECT, where_sql, order);
     values.push((limit as i64).into());
     values.push((offset as i64).into());
     let refs: Vec<&dyn ToSql> = values.iter().map(|v| v as &dyn ToSql).collect();
@@ -872,215 +756,85 @@ pub async fn library_tracks(
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
         .collect();
-    Ok(Page {
-        items,
-        total,
-        limit,
-        offset,
-    })
+    Ok(Page { items, total, limit, offset })
 }
 
 #[tauri::command]
 pub async fn list_playlists(state: State<'_, LibraryState>) -> Result<Vec<PlaylistRow>, String> {
     let conn = open_db(&state.db_path)?;
     let mut stmt = conn.prepare("SELECT p.id,p.name,p.created_at,COUNT(pt.track_id) FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id GROUP BY p.id ORDER BY p.created_at").map_err(|e| e.to_string())?;
-    let mapped = stmt
-        .query_map([], |r| {
-            Ok(PlaylistRow {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                created_at: r.get(2)?,
-                track_count: r.get(3)?,
-            })
-        })
-        .map_err(|e| e.to_string())?;
+    let mapped = stmt.query_map([], |r| Ok(PlaylistRow{id:r.get(0)?,name:r.get(1)?,created_at:r.get(2)?,track_count:r.get(3)?})).map_err(|e|e.to_string())?;
     let rows = mapped.filter_map(Result::ok).collect();
     Ok(rows)
 }
 
 #[tauri::command]
-pub async fn create_playlist(
-    name: String,
-    state: State<'_, LibraryState>,
-) -> Result<PlaylistRow, String> {
+pub async fn create_playlist(name: String, state: State<'_, LibraryState>) -> Result<PlaylistRow, String> {
     let conn = open_db(&state.db_path)?;
-    let row = PlaylistRow {
-        id: format!("pl-{}", now_ms()),
-        name,
-        created_at: now_ms(),
-        track_count: 0,
-    };
-    conn.execute(
-        "INSERT INTO playlists(id,name,created_at) VALUES(?1,?2,?3)",
-        params![row.id, row.name, row.created_at],
-    )
-    .map_err(|e| e.to_string())?;
+    let row = PlaylistRow { id: format!("pl-{}", now_ms()), name, created_at: now_ms(), track_count: 0 };
+    conn.execute("INSERT INTO playlists(id,name,created_at) VALUES(?1,?2,?3)",params![row.id,row.name,row.created_at]).map_err(|e|e.to_string())?;
     Ok(row)
 }
 
 #[tauri::command]
-pub async fn playlist_tracks(
-    playlist_id: String,
-    search: Option<String>,
-    sort: Option<String>,
-    limit: usize,
-    offset: usize,
-    state: State<'_, LibraryState>,
-) -> Result<Page<DbTrack>, String> {
+pub async fn playlist_tracks(playlist_id: String, search: Option<String>, sort: Option<String>, limit: usize, offset: usize, state: State<'_, LibraryState>) -> Result<Page<DbTrack>, String> {
     let conn = open_db(&state.db_path)?;
     let q = format!("%{}%", search.unwrap_or_default());
     let total:i64=conn.query_row("SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 OR t.artist LIKE ?2 OR t.album LIKE ?2)",params![playlist_id,q],|r|r.get(0)).map_err(|e|e.to_string())?;
-    let order = match sort.as_deref() {
-        Some("title-asc") => "t.title COLLATE NOCASE",
-        Some("artist-asc") => "t.artist COLLATE NOCASE",
-        Some("album-asc") => "t.album COLLATE NOCASE",
-        Some("dur-asc") => "t.duration",
-        Some("dur-desc") => "t.duration DESC",
-        _ => "pt.position",
-    };
+    let order=match sort.as_deref(){Some("title-asc")=>"t.title COLLATE NOCASE",Some("artist-asc")=>"t.artist COLLATE NOCASE",Some("album-asc")=>"t.album COLLATE NOCASE",Some("dur-asc")=>"t.duration",Some("dur-desc")=>"t.duration DESC",_=>"pt.position"};
     let sql=format!("SELECT t.id,t.path,t.title,t.artist,t.album,t.genre,t.year,t.duration,t.artwork_path,t.codec,t.specs,t.replay_gain FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 OR t.artist LIKE ?2 OR t.album LIKE ?2) ORDER BY {} LIMIT ?3 OFFSET ?4",order);
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let items = stmt
-        .query_map(
-            params![playlist_id, q, limit as i64, offset as i64],
-            row_track,
-        )
-        .map_err(|e| e.to_string())?
-        .filter_map(Result::ok)
-        .collect();
-    Ok(Page {
-        items,
-        total,
-        limit,
-        offset,
-    })
+    let mut stmt=conn.prepare(&sql).map_err(|e|e.to_string())?;
+    let items=stmt.query_map(params![playlist_id,q,limit as i64,offset as i64],row_track).map_err(|e|e.to_string())?.filter_map(Result::ok).collect();
+    Ok(Page{items,total,limit,offset})
 }
 
 #[tauri::command]
-pub async fn add_tracks_to_playlist(
-    playlist_id: String,
-    track_ids: Vec<String>,
-    state: State<'_, LibraryState>,
-) -> Result<(), String> {
-    let mut conn = open_db(&state.db_path)?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let mut pos: i64 = tx
-        .query_row(
-            "SELECT COALESCE(MAX(position),-1)+1 FROM playlist_tracks WHERE playlist_id=?1",
-            params![playlist_id],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-    for id in track_ids {
-        let changed=tx.execute("INSERT OR IGNORE INTO playlist_tracks(playlist_id,track_id,position) VALUES(?1,?2,?3)",params![playlist_id,id,pos]).map_err(|e|e.to_string())?;
-        if changed > 0 {
-            pos += 1;
-        }
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+pub async fn add_tracks_to_playlist(playlist_id:String, track_ids:Vec<String>, state:State<'_,LibraryState>)->Result<(),String>{
+    let mut conn=open_db(&state.db_path)?; let tx=conn.transaction().map_err(|e|e.to_string())?;
+    let mut pos:i64=tx.query_row("SELECT COALESCE(MAX(position),-1)+1 FROM playlist_tracks WHERE playlist_id=?1",params![playlist_id],|r|r.get(0)).unwrap_or(0);
+    for id in track_ids { let changed=tx.execute("INSERT OR IGNORE INTO playlist_tracks(playlist_id,track_id,position) VALUES(?1,?2,?3)",params![playlist_id,id,pos]).map_err(|e|e.to_string())?; if changed>0{pos+=1;} }
+    tx.commit().map_err(|e|e.to_string())?; Ok(())
 }
 
 #[tauri::command]
-pub async fn remove_track_from_playlist(
-    playlist_id: String,
-    track_id: String,
-    state: State<'_, LibraryState>,
-) -> Result<(), String> {
-    let conn = open_db(&state.db_path)?;
-    conn.execute(
-        "DELETE FROM playlist_tracks WHERE playlist_id=?1 AND track_id=?2",
-        params![playlist_id, track_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+pub async fn remove_track_from_playlist(playlist_id:String,track_id:String,state:State<'_,LibraryState>)->Result<(),String>{let conn=open_db(&state.db_path)?;conn.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1 AND track_id=?2",params![playlist_id,track_id]).map_err(|e|e.to_string())?;Ok(())}
+
+#[tauri::command]
+pub async fn clear_playlist(playlist_id:String,state:State<'_,LibraryState>)->Result<(),String>{let conn=open_db(&state.db_path)?;conn.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1",params![playlist_id]).map_err(|e|e.to_string())?;Ok(())}
+
+#[tauri::command]
+pub async fn replace_playlist_tracks(playlist_id:String,track_ids:Vec<String>,state:State<'_,LibraryState>)->Result<(),String>{
+    let mut conn=open_db(&state.db_path)?; let tx=conn.transaction().map_err(|e|e.to_string())?;
+    tx.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1",params![playlist_id]).map_err(|e|e.to_string())?;
+    for (position,id) in track_ids.iter().enumerate(){tx.execute("INSERT OR IGNORE INTO playlist_tracks(playlist_id,track_id,position) VALUES(?1,?2,?3)",params![playlist_id,id,position as i64]).map_err(|e|e.to_string())?;}
+    tx.commit().map_err(|e|e.to_string())?; Ok(())
 }
 
 #[tauri::command]
-pub async fn clear_playlist(
-    playlist_id: String,
-    state: State<'_, LibraryState>,
-) -> Result<(), String> {
-    let conn = open_db(&state.db_path)?;
-    conn.execute(
-        "DELETE FROM playlist_tracks WHERE playlist_id=?1",
-        params![playlist_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn replace_playlist_tracks(
-    playlist_id: String,
-    track_ids: Vec<String>,
-    state: State<'_, LibraryState>,
-) -> Result<(), String> {
-    let mut conn = open_db(&state.db_path)?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        "DELETE FROM playlist_tracks WHERE playlist_id=?1",
-        params![playlist_id],
-    )
-    .map_err(|e| e.to_string())?;
-    for (position, id) in track_ids.iter().enumerate() {
-        tx.execute(
-            "INSERT OR IGNORE INTO playlist_tracks(playlist_id,track_id,position) VALUES(?1,?2,?3)",
-            params![playlist_id, id, position as i64],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn replace_playlist_from_scan(
-    playlist_id: String,
-    scan_id: String,
-    state: State<'_, LibraryState>,
-) -> Result<(), String> {
-    let mut conn = open_db(&state.db_path)?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    tx.execute(
-        "DELETE FROM playlist_tracks WHERE playlist_id=?1",
-        params![playlist_id],
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn replace_playlist_from_scan(playlist_id:String,scan_id:String,state:State<'_,LibraryState>)->Result<(),String>{
+    let mut conn=open_db(&state.db_path)?; let tx=conn.transaction().map_err(|e|e.to_string())?;
+    tx.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1",params![playlist_id]).map_err(|e|e.to_string())?;
     tx.execute("INSERT OR IGNORE INTO playlist_tracks(playlist_id,track_id,position) SELECT ?1,id,ROW_NUMBER() OVER (ORDER BY path)-1 FROM tracks WHERE last_seen_scan=?2",params![playlist_id,scan_id]).map_err(|e|e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+    tx.commit().map_err(|e|e.to_string())?; Ok(())
 }
 
 #[tauri::command]
-pub async fn clear_library_database(state: State<'_, LibraryState>) -> Result<(), String> {
-    let db_path = state.db_path.clone();
+pub async fn clear_library_database(state:State<'_,LibraryState>)->Result<(),String>{
+    let db_path=state.db_path.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let conn = open_db(&db_path)?;
+        let conn=open_db(&db_path)?;
         // Keep track rows and artwork because playlists may still reference
         // them; only remove their membership in Library browsing.
-        conn.execute(
-            "UPDATE tracks SET library_owned=0 WHERE library_owned=1",
-            [],
-        )
-        .map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM scan_jobs", [])
-            .map_err(|e| e.to_string())?;
+        conn.execute("UPDATE tracks SET library_owned=0 WHERE library_owned=1",[]).map_err(|e|e.to_string())?;
+        conn.execute("DELETE FROM scan_jobs",[]).map_err(|e|e.to_string())?;
         Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
-pub async fn import_audio_files(
-    paths: Vec<String>,
-    playlist_id: Option<String>,
-    replace_playlist: Option<bool>,
-    state: State<'_, LibraryState>,
-) -> Result<Vec<DbTrack>, String> {
-    let db_path = state.db_path.clone();
-    let artwork_dir = state.artwork_dir.clone();
+pub async fn import_audio_files(paths:Vec<String>,playlist_id:Option<String>,replace_playlist:Option<bool>,state:State<'_,LibraryState>)->Result<Vec<DbTrack>,String>{
+    let db_path=state.db_path.clone();
+    let artwork_dir=state.artwork_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut conn=open_db(&db_path)?; let mut out=Vec::new();
         for raw in paths { let path=PathBuf::from(raw); if !path.is_file()||!supported_ext(&path){continue;} if let Some((track,size,modified))=parse_track_cached(&path,&artwork_dir,true){upsert_track(&conn,&track,size,modified,None,false)?;out.push(track);} }
@@ -1090,76 +844,24 @@ pub async fn import_audio_files(
 }
 
 #[tauri::command]
-pub async fn ensure_track_artwork(
-    id: String,
-    state: State<'_, LibraryState>,
-) -> Result<Option<String>, String> {
-    let db_path = state.db_path.clone();
-    let artwork_dir = state.artwork_dir.clone();
+pub async fn ensure_track_artwork(id:String,state:State<'_,LibraryState>)->Result<Option<String>,String>{
+    let db_path=state.db_path.clone();
+    let artwork_dir=state.artwork_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let conn = open_db(&db_path)?;
-        let existing: Option<String> = conn
-            .query_row(
-                "SELECT artwork_path FROM tracks WHERE id=?1",
-                params![id],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?
-            .flatten();
-        if existing
-            .as_ref()
-            .map(|p| Path::new(p).exists())
-            .unwrap_or(false)
-        {
-            return Ok(existing);
-        }
-        let path: String = conn
-            .query_row("SELECT path FROM tracks WHERE id=?1", params![id], |r| {
-                r.get(0)
-            })
-            .map_err(|e| e.to_string())?;
-        let tagged = lofty::probe::Probe::open(&path)
-            .map_err(|e| e.to_string())?
-            .read()
-            .map_err(|e| e.to_string())?;
-        let tag = tagged.primary_tag().or(tagged.first_tag());
-        let artwork = tag
-            .and_then(|t| t.pictures().first())
-            .and_then(|p| cache_artwork(p.data(), &artwork_dir));
-        if let Some(ref value) = artwork {
-            conn.execute(
-                "UPDATE tracks SET artwork_path=?2 WHERE id=?1",
-                params![id, value],
-            )
-            .map_err(|e| e.to_string())?;
-        }
+        let conn=open_db(&db_path)?;
+        let existing:Option<String>=conn.query_row("SELECT artwork_path FROM tracks WHERE id=?1",params![id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.flatten();
+        if existing.as_ref().map(|p|Path::new(p).exists()).unwrap_or(false){return Ok(existing);}
+        let path:String=conn.query_row("SELECT path FROM tracks WHERE id=?1",params![id],|r|r.get(0)).map_err(|e|e.to_string())?;
+        let tagged=lofty::probe::Probe::open(&path).map_err(|e|e.to_string())?.read().map_err(|e|e.to_string())?;
+        let tag=tagged.primary_tag().or(tagged.first_tag());
+        let artwork=tag.and_then(|t|t.pictures().first()).and_then(|p|cache_artwork(p.data(),&artwork_dir));
+        if let Some(ref value)=artwork{conn.execute("UPDATE tracks SET artwork_path=?2 WHERE id=?1",params![id,value]).map_err(|e|e.to_string())?;}
         Ok(artwork)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
-pub async fn get_track_by_id(
-    id: String,
-    state: State<'_, LibraryState>,
-) -> Result<Option<DbTrack>, String> {
-    let conn = open_db(&state.db_path)?;
-    let sql = format!("{} WHERE id=?1", TRACK_SELECT);
-    conn.query_row(&sql, params![id], row_track)
-        .optional()
-        .map_err(|e| e.to_string())
-}
+pub async fn get_track_by_id(id:String,state:State<'_,LibraryState>)->Result<Option<DbTrack>,String>{let conn=open_db(&state.db_path)?;let sql=format!("{} WHERE id=?1",TRACK_SELECT);conn.query_row(&sql,params![id],row_track).optional().map_err(|e|e.to_string())}
 
 #[tauri::command]
-pub async fn delete_tracks(ids: Vec<String>, state: State<'_, LibraryState>) -> Result<(), String> {
-    let mut conn = open_db(&state.db_path)?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    for id in ids {
-        tx.execute("DELETE FROM tracks WHERE id=?1", params![id])
-            .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())?;
-    Ok(())
-}
+pub async fn delete_tracks(ids:Vec<String>,state:State<'_,LibraryState>)->Result<(),String>{let mut conn=open_db(&state.db_path)?;let tx=conn.transaction().map_err(|e|e.to_string())?;for id in ids{tx.execute("DELETE FROM tracks WHERE id=?1",params![id]).map_err(|e|e.to_string())?;}tx.commit().map_err(|e|e.to_string())?;Ok(())}

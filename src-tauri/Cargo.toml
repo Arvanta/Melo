@@ -1,6 +1,6 @@
 [package]
 name = "melo"
-version = "0.5.1"
+version = "0.5.1",
 description = "Melo - Modern Windows Music Player"
 authors = ["Melo Team"]
 license = "GPL-3.0-only"
@@ -12,7 +12,7 @@ rust-version = "1.77.2"
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2.11.5", features = ["tray-icon", "devtools", "protocol-asset"] }
+tauri = { version = "2.11.5", features = ["tray-icon", "devtools"] }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-fs = "2.5.1"
 tauri-plugin-global-shortcut = "2.3.2"

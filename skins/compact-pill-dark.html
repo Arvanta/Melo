@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Melo Skin - Minimal Compact</title>
+<title>Melo Skin - Minimal Compact (Dark)</title>
 <style>
   :root {
-    --card: #ffffff;
-    --card-border: rgba(0, 0, 0, 0.08);
-    --text: #111827;
-    --text-soft: #6b7280;
-    --text-muted: #9ca3af;
-    --accent: #5b92a5;
-    --track-bg: #e5e7eb;
-    --shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+    --card: #151b23;
+    --card-border: rgba(255, 255, 255, 0.1);
+    --text: #f3f4f6;
+    --text-soft: #9ca3af;
+    --text-muted: #6b7280;
+    --accent: #4db6ac;
+    --track-bg: #212833;
+    --shadow: 0 16px 36px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
   }
   * { box-sizing: border-box; }
   body {
@@ -66,8 +66,8 @@
     display: flex; align-items: center; gap: 5px;
     font-size: 11.5px; font-weight: 700; color: var(--text);
     background: transparent; border: none; padding: 2px 6px;
-    border-radius: 6px; cursor: default; letter-spacing: 0.02em;
-    pointer-events: none;
+    border-radius: 6px; cursor: default; pointer-events: none;
+    letter-spacing: 0.02em; user-select: none;
   }
   
   .mini-btn {
@@ -77,7 +77,7 @@
     transition: all 0.15s; padding: 0;
   }
   .mini-btn:hover { background: var(--track-bg); color: var(--text); }
-  .mini-btn.active { color: var(--accent); background: rgba(91, 146, 165, 0.15); font-weight: bold; }
+  .mini-btn.active { color: var(--accent); background: rgba(77, 182, 172, 0.2); font-weight: bold; }
   .mini-sep { width: 1px; height: 12px; background: var(--card-border); margin: 0 2px; }
 
   /* Top-Right: Window Controls (NO MAXIMIZE) */
@@ -117,13 +117,13 @@
     height: 78px !important;
     border-radius: 50% !important;
     overflow: hidden !important;
-    background: #e2e8f0 !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10) !important;
+    background: #0d1117 !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
     flex-shrink: 0 !important;
-    border: 2px solid #ffffff !important;
+    border: 2px solid #30363d !important;
   }
   .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cover-fallback { width: 100%; height: 100%; display: grid; place-items: center; background: linear-gradient(135deg, #a5b4fc, #67e8f9); color: white; font-size: 24px; }
+  .cover-fallback { width: 100%; height: 100%; display: grid; place-items: center; background: linear-gradient(135deg, #1e293b, #0f766e); color: #5eead4; font-size: 24px; }
 
   /* Track Title & Artist */
   .track-info {
@@ -171,7 +171,7 @@
   }
   .time-label.cur { text-align: right !important; }
   .time-label.dur { text-align: left !important; }
-  
+
   .seek-row { flex: 1 !important; display: flex !important; align-items: center !important; }
   input[type="range"].seek {
     -webkit-appearance: none !important;
@@ -179,7 +179,7 @@
     width: 100% !important;
     height: 5px !important;
     border-radius: 999px !important;
-    background: linear-gradient(to right, var(--accent, #5b92a5) 0%, var(--accent, #5b92a5) var(--progress, 35%), #e5e7eb var(--progress, 35%), #e5e7eb 100%) !important;
+    background: linear-gradient(to right, var(--accent, #4db6ac) 0%, var(--accent, #4db6ac) var(--progress, 35%), #212833 var(--progress, 35%), #212833 100%) !important;
     outline: none !important;
     cursor: pointer !important;
   }
@@ -189,8 +189,8 @@
     height: 15px !important;
     border-radius: 50% !important;
     background: #ffffff !important;
-    border: 3.5px solid #5b92a5 !important;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.18) !important;
+    border: 3.5px solid var(--accent, #4db6ac) !important;
+    box-shadow: 0 0 8px rgba(77, 182, 172, 0.4) !important;
     cursor: pointer !important;
     transition: transform 0.1s !important;
   }
@@ -207,7 +207,7 @@
   .transport button, .transport .icon-btn, .transport .play-btn {
     border: none !important;
     background: transparent !important;
-    color: #4b5563 !important;
+    color: #9ca3af !important;
     cursor: pointer !important;
     display: grid !important;
     place-items: center !important;
@@ -218,13 +218,13 @@
     transition: all 0.15s !important;
   }
   .transport button:hover, .transport .play-btn:hover {
-    color: #111827 !important;
+    color: #ffffff !important;
     background: var(--track-bg) !important;
     transform: scale(1.08) !important;
   }
   .transport button.active {
     color: var(--accent) !important;
-    background: rgba(91, 146, 165, 0.15) !important;
+    background: rgba(77, 182, 172, 0.22) !important;
   }
   .transport button svg, .transport .icon-btn svg { width: 16px !important; height: 16px !important; }
   .transport .play-btn { width: 32px !important; height: 32px !important; }
@@ -232,42 +232,6 @@
 
   /* Hidden audio support elements (kept for JS event listeners) */
   .hidden-helper { display: none !important; }
-
-  /* ---- Dark theme override (follows html[data-theme="dark"]) ---- */
-  html[data-theme="dark"] {
-    --card: #151b23;
-    --card-border: rgba(255, 255, 255, 0.10);
-    --text: #f3f4f6;
-    --text-soft: #9ca3af;
-    --text-muted: #6b7280;
-    --accent: #4db6ac;
-    --track-bg: #212833;
-    --shadow: 0 16px 36px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.30);
-  }
-  html[data-theme="dark"] .mini-btn.active { background: rgba(77,182,172,0.20); }
-  html[data-theme="dark"] .cover-wrap {
-    background: #0d1117 !important;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.40) !important;
-    border-color: #30363d !important;
-  }
-  html[data-theme="dark"] .cover-fallback {
-    background: linear-gradient(135deg, #1e293b, #0f766e) !important;
-    color: #5eead4 !important;
-  }
-  html[data-theme="dark"] input[type="range"].seek {
-    background: linear-gradient(to right, var(--accent,#4db6ac) 0%, var(--accent,#4db6ac) var(--progress,35%), #212833 var(--progress,35%), #212833 100%) !important;
-  }
-  html[data-theme="dark"] input[type="range"].seek::-webkit-slider-thumb {
-    border-color: var(--accent,#4db6ac) !important;
-    box-shadow: 0 0 8px rgba(77,182,172,0.40) !important;
-  }
-  html[data-theme="dark"] .transport button,
-  html[data-theme="dark"] .transport .icon-btn,
-  html[data-theme="dark"] .transport .play-btn { color: #9ca3af !important; }
-  html[data-theme="dark"] .transport button:hover,
-  html[data-theme="dark"] .transport .play-btn:hover { color: #ffffff !important; }
-  html[data-theme="dark"] .transport button.active { background: rgba(77,182,172,0.22) !important; }
-
 </style>
 </head>
 <body>
@@ -341,7 +305,7 @@
     <div class="seek-center">
       <span class="time-label cur" id="curTime">0:00</span>
       <div class="seek-row">
-        <input id="seekBar" type="range" class="seek" min="0" max="276" value="130"/>
+        <input id="seekBar" type="range" class="seek" min="0" max="100" value="0"/>
       </div>
       <span class="time-label dur" id="durTime">4:36</span>
     </div>

@@ -177,9 +177,9 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
   });
 
   // Initial load works even when this window was closed during track import.
-  const current = (window as any).MeloPlayer?.currentTrack || null;
-  if (current) {
-    loadTrackLyrics(current);
+  const queue = (window as any).__MELO_QUEUE__;
+  if (Array.isArray(queue) && queue.length > 0) {
+    loadTrackLyrics(queue[(window as any).MeloPlayer?.currentIndex || 0]);
   } else {
     try {
       const saved = JSON.parse(localStorage.getItem("melo-current-track") || "null");
@@ -191,5 +191,5 @@ export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void)
   busEmit("melo:request-playback-state");
   setTimeout(() => busEmit("melo:request-playback-state"), 250);
 
-  (window as any).MeloLyrics = { loadTrackLyrics, parseLRC };
+  (window as any).MeloLyrics = (window as any).LumiLyrics = { loadTrackLyrics, parseLRC };
 }

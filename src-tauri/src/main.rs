@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod library_db;
-mod queue_db;
 
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::tag::{Accessor, TagExt};
@@ -40,21 +39,15 @@ pub struct SkinFileInfo {
 }
 
 // Embedded default skin templates to ensure the skins folder is always populated on disk
-const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
+const DEFAULT_SKIN_COMPACT_LIGHT: &str = include_str!("../../skins/compact-pill-light.html");
+const DEFAULT_SKIN_COMPACT_DARK: &str = include_str!("../../skins/compact-pill-dark.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
-const DEFAULT_SKIN_MICROLINE: &str = include_str!("../../skins/microline.html");
-const DEFAULT_SKIN_IVORY: &str = include_str!("../../skins/ivory.html");
-const DEFAULT_SKIN_SILK_ORBIT: &str = include_str!("../../skins/silk-orbit.html");
-const DEFAULT_SKIN_SLATE: &str = include_str!("../../skins/slate.html");
+const DEFAULT_SKIN_GUIDE: &str = include_str!("../../skins/SKIN-GUIDE.md");
 
 // ---- Helpers ----
 
 fn codec_from_ext(path: &Path) -> String {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|s| s.to_lowercase())
-    {
+    match path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
         Some(ext) => match ext.as_str() {
             "mp3" => "MP3".to_string(),
             "flac" => "FLAC".to_string(),
@@ -142,27 +135,45 @@ fn parse_track(p: &Path) -> Option<Track> {
 
 // ---- Skin Folder Resolver & Populator ----
 
-/// Returns true if we can create and write a small file inside `dir`.
-/// Installed locations such as `C:\Program Files\Melo\skins` are typically
-/// read-only for non-admin users; in that case we must fall back to the
-/// per-user AppData folder so custom skins can actually be saved.
-fn dir_is_writable(dir: &Path) -> bool {
-    if let Err(e) = std::fs::create_dir_all(dir) {
-        if e.kind() != std::io::ErrorKind::AlreadyExists {
-            return false;
+fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    // 1. Next to current executable (e.g. C:\Program Files\Melo\skins\ or portable)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let p = parent.join("skins");
+            let _ = std::fs::create_dir_all(&p);
+            if p.exists() && p.is_dir() {
+                ensure_default_skins_on_disk(&p);
+                return p;
+            }
         }
     }
-    let probe = dir.join(".melo-write-test");
-    match std::fs::write(&probe, b"ok") {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&probe);
-            true
-        }
-        Err(_) => false,
+    // 2. Standard AppData writable directory on Windows
+    if let Ok(app_data) = app.path().app_data_dir() {
+        let p = app_data.join("skins");
+        let _ = std::fs::create_dir_all(&p);
+        ensure_default_skins_on_disk(&p);
+        return p;
     }
+    // 3. Fallback relative
+    let p = PathBuf::from("skins");
+    let _ = std::fs::create_dir_all(&p);
+    ensure_default_skins_on_disk(&p);
+    p
 }
 
-
+fn ensure_default_skins_on_disk(skins_dir: &Path) {
+    let f1 = skins_dir.join("compact-pill-light.html");
+    if !f1.exists() {
+        let _ = std::fs::write(f1, DEFAULT_SKIN_COMPACT_LIGHT);
+    }
+    let f2 = skins_dir.join("compact-pill-dark.html");
+    if !f2.exists() {
+        let _ = std::fs::write(f2, DEFAULT_SKIN_COMPACT_DARK);
+    }
+    let _ = std::fs::write(skins_dir.join("full-html-example.html"), DEFAULT_SKIN_FULL_EXAMPLE);
+    let _ = std::fs::write(skins_dir.join("SKIN-GUIDE.md"), DEFAULT_SKIN_GUIDE);
+}
 
 // ---- Tauri Commands ----
 
@@ -180,10 +191,7 @@ fn get_track_lyrics(path: String) -> Option<String> {
     }
 
     // 2. Check embedded lyrics via lofty
-    if let Some(tagged) = lofty::probe::Probe::open(p)
-        .ok()
-        .and_then(|pr| pr.read().ok())
-    {
+    if let Some(tagged) = lofty::probe::Probe::open(p).ok().and_then(|pr| pr.read().ok()) {
         let tag = tagged.primary_tag().or(tagged.first_tag());
         if let Some(t) = tag {
             if let Some(lyrics) = t.get_string(&lofty::tag::ItemKey::Lyrics) {
@@ -196,30 +204,9 @@ fn get_track_lyrics(path: String) -> Option<String> {
     None
 }
 
-/// Seed the writable skins folder with the built-in default skins so that
-/// there is only ONE skins directory the user ever deals with (AppData).
-/// Missing defaults are copied in; existing files (including the user's
-/// edited copies) are never overwritten.
-fn ensure_default_skins(skins_dir: &Path) {
-    let defaults = [
-        ("compact-pill.html", DEFAULT_SKIN_COMPACT),
-        ("full-html-example.html", DEFAULT_SKIN_FULL_EXAMPLE),
-        ("microline.html", DEFAULT_SKIN_MICROLINE),
-        ("ivory.html", DEFAULT_SKIN_IVORY),
-        ("silk-orbit.html", DEFAULT_SKIN_SILK_ORBIT),
-        ("slate.html", DEFAULT_SKIN_SLATE),
-    ];
-    for (name, content) in defaults {
-        let target = skins_dir.join(name);
-        if !target.exists() {
-            let _ = std::fs::write(target, content);
-        }
-    }
-}
-
 #[tauri::command]
 fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, String> {
-    let skins_dir = get_writable_skins_dir(&app)?;
+    let skins_dir = get_skins_dir(&app);
     let mut list = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&skins_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -227,19 +214,10 @@ fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, Stri
             if path.is_file() {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
-                        let filename = path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let stem = path
-                            .file_stem()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
+                        let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
                         let name_clean = stem.replace('-', " ").replace('_', " ");
-                        let name_formatted = name_clean
-                            .split_whitespace()
+                        let name_formatted = name_clean.split_whitespace()
                             .map(|word| {
                                 let mut c = word.chars();
                                 match c.next() {
@@ -271,114 +249,38 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
         return std::fs::read_to_string(path).map_err(|e| e.to_string());
     }
 
-    let skins_dir = get_writable_skins_dir(&app)?;
+    let skins_dir = get_skins_dir(&app);
     let target = skins_dir.join(&filename_or_path);
     if target.exists() {
         return std::fs::read_to_string(&target).map_err(|e| e.to_string());
     }
 
-    // Last-resort embedded fallback.
+    // Check embedded fallback if filename matches
     match filename_or_path.as_str() {
-        "compact-pill.html" | "compact-pill" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
+        "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT_LIGHT.to_string()),
+        "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT_DARK.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }
 }
 
-/// The writable per-user skins directory where imported custom skins are
-/// saved. Always AppData (or equivalent) on normal installs — never the
-/// read-only Program Files location.
-/// Best-effort migration: older builds wrote/read skins next to the
-/// executable (e.g. `C:\Program Files\Melo\_up_\skins`). Move any skin
-/// files from there into the writable AppData folder, then try to remove
-/// the old directory. Failures are ignored — they don't affect the app.
-fn migrate_legacy_skins(app_data_skins: &Path) {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let legacy = parent.join("skins");
-            if legacy.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&legacy) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.is_file() {
-                            if let Some(name) = path.file_name() {
-                                let dest = app_data_skins.join(name);
-                                if !dest.exists() {
-                                    let _ = std::fs::copy(&path, &dest);
-                                }
-                            }
-                        }
-                    }
-                }
-                // Try to remove the legacy folder (may fail in Program Files).
-                let _ = std::fs::remove_dir_all(&legacy);
-            }
-        }
-    }
-}
-
-fn get_writable_skins_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    let p = app
-        .path()
-        .app_data_dir()
-        .map(|d| d.join("skins"))
-        .map_err(|e| format!("Cannot resolve AppData skins folder: {}", e))?;
-    std::fs::create_dir_all(&p)
-        .map_err(|e| format!("Cannot create skins folder at {}: {}", p.display(), e))?;
-    // Migrate any skins left over from old installs next to the exe.
-    migrate_legacy_skins(&p);
-    // Seed the single skins folder with the built-in defaults (only copies
-    // files that don't already exist, so user edits are preserved).
-    ensure_default_skins(&p);
-    // If the directory exists but isn't actually writable, surface that now
-    // instead of failing silently on the file write.
-    if !dir_is_writable(&p) {
-        return Err(format!(
-            "The skins folder is not writable: {}",
-            p.display()
-        ));
-    }
-    Ok(p)
-}
-
 #[tauri::command]
-fn save_custom_skin_file(
-    filename: String,
-    content: String,
-    app: tauri::AppHandle,
-) -> Result<String, String> {
-    let skins_dir = get_writable_skins_dir(&app)?;
+fn save_custom_skin_file(filename: String, content: String, app: tauri::AppHandle) -> Result<String, String> {
+    let skins_dir = get_skins_dir(&app);
     let safe_filename = if filename.ends_with(".html") || filename.ends_with(".htm") {
-        sanitize_filename(&filename)
+        filename
     } else {
-        format!("{}.html", sanitize_filename(&filename))
+        format!("{}.html", filename)
     };
     let target = skins_dir.join(&safe_filename);
-    std::fs::write(&target, &content).map_err(|e| {
-        format!(
-            "Could not write skin to {}: {}",
-            target.display(),
-            e
-        )
-    })?;
+    std::fs::write(&target, content).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
-}
-
-/// Strip path separators and illegal characters from a skin filename so it
-/// can't escape the skins directory.
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            c => c,
-        })
-        .collect()
 }
 
 #[tauri::command]
 fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
-    let skins_dir = get_writable_skins_dir(&app)?;
+    let skins_dir = get_skins_dir(&app);
+    let _ = std::fs::create_dir_all(&skins_dir);
     let abs_path = skins_dir.canonicalize().unwrap_or(skins_dir);
     let mut path_str = abs_path.to_string_lossy().to_string();
     if path_str.starts_with(r"\\?\") {
@@ -402,53 +304,22 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Collect every audio file passed on the command line. We iterate ALL
-/// arguments (including argv[0]) and simply keep any that exists on disk
-/// and has a supported audio extension — this is robust whether the OS
-/// passes the executable path as the first arg or not, and avoids
-/// accidentally dropping the first selected file.
-fn args_to_tracks(args: impl IntoIterator<Item = String>) -> Vec<Track> {
-    let exe = std::env::current_exe().ok();
+#[tauri::command]
+fn get_cli_tracks() -> Vec<Track> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let mut tracks = Vec::new();
     for arg in args {
-        // Skip flags/options (but never a path that exists as a file).
-        if arg.starts_with("--") {
+        if arg.starts_with("--") || arg.starts_with("-") {
             continue;
         }
         let p = Path::new(&arg);
-        // Skip our own executable path if it appears as argv[0].
-        if let Some(ref exe) = exe {
-            if p == exe.as_path() {
-                continue;
-            }
-        }
-        if p.is_file() && supported_ext(p) {
+        if p.exists() && p.is_file() && supported_ext(p) {
             if let Some(t) = parse_track(p) {
                 tracks.push(t);
             }
         }
     }
     tracks
-}
-
-#[tauri::command]
-fn get_cli_tracks() -> Vec<Track> {
-    args_to_tracks(std::env::args())
-}
-
-/// Returns "folder", "file", or "missing" for a filesystem path.
-/// Used by the frontend to decide whether to import dropped items
-/// directly or scan them as folders.
-#[tauri::command]
-fn path_kind(path: String) -> &'static str {
-    let p = Path::new(&path);
-    if p.is_dir() {
-        "folder"
-    } else if p.is_file() {
-        "file"
-    } else {
-        "missing"
-    }
 }
 
 #[tauri::command]
@@ -461,13 +332,7 @@ fn write_tags(path: String, tags: TagWriteRequest) -> Result<(), String> {
 
     if tagged.primary_tag().is_none() && tagged.first_tag().is_none() {
         use lofty::tag::TagType;
-        let ty = match p
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase()
-            .as_str()
-        {
+        let ty = match p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str() {
             "mp3" => TagType::Id3v2,
             "flac" => TagType::VorbisComments,
             "ogg" => TagType::VorbisComments,
@@ -492,8 +357,7 @@ fn write_tags(path: String, tags: TagWriteRequest) -> Result<(), String> {
     if let Some(v) = tags.album {
         t.set_album(v);
     }
-    t.save_to_path(p, Default::default())
-        .map_err(|e| e.to_string())?;
+    t.save_to_path(p, Default::default()).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -532,7 +396,17 @@ fn main() {
                 let _ = window.set_focus();
             }
 
-            let tracks = args_to_tracks(args.into_iter());
+            let mut tracks = Vec::new();
+            for arg in args.into_iter().skip(1) {
+                if !arg.starts_with("-") {
+                    let p = Path::new(&arg);
+                    if p.exists() && p.is_file() && supported_ext(p) {
+                        if let Some(t) = parse_track(p) {
+                            tracks.push(t);
+                        }
+                    }
+                }
+            }
             if !tracks.is_empty() {
                 let _ = app.emit("melo:open-files", &tracks);
             }
@@ -559,21 +433,6 @@ fn main() {
             library_db::ensure_track_artwork,
             library_db::get_track_by_id,
             library_db::delete_tracks,
-            queue_db::queue_get_state,
-            queue_db::queue_get_page,
-            queue_db::queue_populate,
-            queue_db::queue_append,
-            queue_db::queue_play_next,
-            queue_db::queue_remove,
-            queue_db::queue_reorder,
-            queue_db::queue_clear,
-            queue_db::queue_next,
-            queue_db::queue_prev,
-            queue_db::queue_jump,
-            queue_db::queue_set_position,
-            queue_db::queue_set_shuffle,
-            queue_db::queue_set_repeat,
-            queue_db::queue_history,
             get_cli_tracks,
             get_track_lyrics,
             list_installed_skins,
@@ -582,8 +441,7 @@ fn main() {
             open_skins_folder,
             write_tags,
             get_audio_devices,
-            open_url,
-            path_kind
+            open_url
         ])
         .setup(|app| {
             let library_state = library_db::LibraryState::new(app.handle())
@@ -653,12 +511,7 @@ fn main() {
                         }
                     })
                     .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event
-                        {
+                        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
                             let app = tray.app_handle();
                             if let Some(window) = app.get_webview_window("main") {
                                 if window.is_visible().unwrap_or(false) {

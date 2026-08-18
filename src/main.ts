@@ -1,11 +1,10 @@
 import "./app.css";
-import { populateQueue } from "./queue";
 import { setupPlayer } from "./player";
 import { setupLibrary } from "./library";
 import { setupEqualizer } from "./equalizer";
 import { setupVisualizer } from "./visualizer";
 import { setupLyrics } from "./lyrics";
-import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, getLastAppliedSkinHtml, parseSkinWindowHints, type SkinWindowHints } from "./skin";
+import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
 import { busEmit, busOn, isTauri } from "./bus";
 import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
@@ -77,31 +76,47 @@ app.innerHTML = `
       <div class="resize-handle" data-resize="win-library">◢</div>
     </div>
 
-    <!-- PLAYING QUEUE WINDOW -->
+    <!-- PLAYLIST WINDOW -->
     <div class="float-win" id="win-playlist" style="left:370px; top:12px; width:360px; height:480px; z-index:3;">
       <div class="float-header" data-drag="win-playlist">
         <div class="float-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          Playing Queue
+          Playlist
         </div>
         <div class="float-actions">
-          <button class="float-btn" data-close="win-playlist" title="Hide">&mdash;</button>
-          <button class="float-btn close" data-close="win-playlist">&times;</button>
+          <button class="float-btn" data-close="win-playlist" title="Hide">—</button>
+          <button class="float-btn close" data-close="win-playlist">×</button>
         </div>
       </div>
       <div class="float-body" style="padding:8px; display:flex; flex-direction:column; gap:6px;">
         <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap;">
-          <input id="playlistSearchInput" class="search-input" placeholder="Search queue..." style="flex:1; height:26px; font-size:11px; padding-left:8px;" />
-          <span id="queueCount" style="font-size:11px; color:var(--text-muted); white-space:nowrap;">0 tracks</span>
+          <select id="playlistSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; flex:1 1 140px;" title="Current playlist"></select>
+          <button class="btn small ghost" id="btn-new-playlist" style="height:26px; font-size:11px;">+ New</button>
+          <div class="search-wrap playlist-search-wrap" style="flex:1; min-width:80px; padding:0;">
+            <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="height:26px; font-size:11px; padding-left:8px; padding-right:24px;" />
+            <button type="button" class="search-clear" data-clear-input="playlistSearchInput" hidden title="Clear search">×</button>
+          </div>
+          <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; width:110px;" title="Sort tracks">
+            <option value="default">Sort: Default</option>
+            <option value="title-asc">Title (A-Z)</option>
+            <option value="artist-asc">Artist (A-Z)</option>
+            <option value="album-asc">Album (A-Z)</option>
+            <option value="dur-asc">Duration (Shortest)</option>
+            <option value="dur-desc">Duration (Longest)</option>
+          </select>
         </div>
         <div id="winPlaylistTracks" class="drop-zone" style="flex:1; overflow:auto; display:flex; flex-direction:column; min-height:140px;"></div>
         <div id="winPlaylistEmpty" style="display:none; border:1px dashed var(--card-border); border-radius:10px; padding:16px 10px; background:var(--track-bg); text-align:center; font-size:11px; color:var(--text-muted); line-height:1.8;">
-          Queue is empty<br/>Open files, scan a folder, or click a track in the Library
+          Playlist is empty<br/>Drag tracks from Library or drop audio files here
         </div>
         <div class="playlist-footer-actions" style="display:flex; gap:6px; flex-shrink:0;">
-          <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the playing queue">
+          <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the current playlist">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
-            Clear Queue
+            Clear
+          </button>
+          <button class="btn small block" id="btn-export-playlist">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export M3U
           </button>
         </div>
       </div>
@@ -220,7 +235,7 @@ app.innerHTML = `
           </div>
           <div class="settings-row">
             <div><div class="label">${t("settings.playback.fadepause.label")}</div><div class="desc">${t("settings.playback.fadepause.desc")}</div></div>
-            <div class="switch on" id="swFadePause" data-key="fadePause" data-default="on"></div>
+            <div class="switch on" id="swFadePause" data-key="fadePause"></div>
           </div>
         </div>
 
@@ -259,7 +274,7 @@ app.innerHTML = `
           <div class="settings-row" style="flex-direction:column; align-items:stretch;">
             <div class="label" style="margin-bottom:4px;">Skins Directory (Disk)</div>
             <div style="font-size:11px; color:var(--text-soft); line-height:1.6; margin-bottom:8px;">
-              Files in the <code>skins/</code> installation folder are loaded dynamically. You can modify CSS/HTML files with any editor.
+              Files in the <code>skins/</code> folder are loaded live. Start from <code>full-html-example.html</code> and read <code>SKIN-GUIDE.md</code> in that folder. Any size, layout, icons or text labels are allowed.
             </div>
             <div style="display:flex; gap:8px;">
               <button class="btn small" id="btnOpenSkinsFolder" style="flex:1; justify-content:center;">Open Skins Folder 📁</button>
@@ -291,7 +306,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.5.0 Beta</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.5.1 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -396,7 +411,7 @@ app.innerHTML = `
           <button class="sbtn active" id="btnToggleLibrary" title="Library">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
           </button>
-          <button class="sbtn active" id="btnTogglePlaylist" title="Playing Queue">
+          <button class="sbtn active" id="btnTogglePlaylist" title="Playlist">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
           </button>
           <button class="sbtn active" id="btnToggleEq" title="Equalizer">
@@ -470,114 +485,48 @@ if (isTauri && !urlPanel) {
 if (isTauri && !urlPanel) {
   import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
     const mainWin = getCurrentWindow();
-
-    // Geometry the active skin declares. Compact pills are fixed; full HTML
-    // skins may declare their own <meta name="melo-window">. The default
-    // skin is freely resizable (>= 650px wide, >= 240px tall).
-    const getSkinHints = (): SkinWindowHints & { fixed: boolean } => {
+    
+    const getTargetSize = () => {
       const activeSkin = localStorage.getItem("melo-active-skin-id");
-      const isCompact =
-        activeSkin === "compact-pill" ||
-        (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
+      const isCompact = activeSkin === "compact-pill" || (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
+      let spec: any = null;
+      try { spec = JSON.parse(localStorage.getItem("melo-skin-window") || "null"); } catch {}
+      if (spec?.width && spec?.height && !isCompact) {
+        return {
+          w: spec.width,
+          h: spec.height,
+          minW: spec.minWidth || 280,
+          minH: spec.minHeight || 120,
+          maxW: spec.maxWidth,
+          maxH: spec.maxHeight,
+          lockH: spec.resizable === false,
+          resizable: spec.resizable !== false,
+          kind: "custom" as const,
+        };
+      }
       if (isCompact) {
-        return { width: 780, height: 138, minWidth: 780, maxWidth: 780, minHeight: 138, maxHeight: 138, resizable: false, fixed: true };
+        return { w: 780, h: 138, minW: 780, minH: 138, lockH: true, resizable: false, kind: "compact" as const };
       }
-      if (activeSkin && activeSkin !== "default") {
-        // The skin HTML may not be applied yet on cold start (it is loaded
-        // by setupSkinEngine a moment later). Fall back to the persisted
-        // full-HTML skin copy in localStorage so the window opens at the
-        // correct size the first time, instead of flashing to the default.
-        const html =
-          getLastAppliedSkinHtml() ||
-          localStorage.getItem("melo-custom-skin") ||
-          null;
-        if (html) {
-          const h = parseSkinWindowHints(html);
-          if (Object.keys(h).length > 0) {
-            return { ...h, fixed: false };
-          }
-        }
-      }
-      // Default skin: fixed 960x240 window (height not user-resizable).
-      // Default skin: fixed height (240), width freely resizable between 640 and 960.
-      return { width: 960, height: 240, minWidth: 640, maxWidth: 960, minHeight: 240, maxHeight: 240, resizable: true, fixed: false };
+      return { w: 960, h: 240, minW: 650, minH: 135, maxH: 260, lockH: true, resizable: true, kind: "default" as const };
     };
 
-    const applyWindowConstraints = async (forceSize = false) => {
+    const applyWindowSpec = async () => {
       const { LogicalSize } = await import("@tauri-apps/api/dpi");
-      const h = getSkinHints();
-      await mainWin.setResizable(!!h.resizable);
-      const sf = await mainWin.scaleFactor();
-      const cur = (await mainWin.innerSize()).toLogical(sf);
-      const minW = h.minWidth ?? (h.resizable ? 560 : h.width ?? cur.width);
-      const minH = h.minHeight ?? (h.resizable ? 150 : h.height ?? cur.height);
-      const maxW = h.maxWidth;
-      const maxH = h.maxHeight;
-      // Hand the min/max limits to the OS so it enforces them DURING the
-      // drag-resize itself (prevents the visible "bounce" at edges).
-      await mainWin.setMinSize(new LogicalSize(minW, minH));
-      await mainWin.setMaxSize(new LogicalSize(maxW ?? 99999, maxH ?? 99999));
-      // Decide whether to actually resize. For resizable skins we clamp
-      // into the new min/max; a fixed height (min==max) is always enforced
-      // even when the width is free, and a forced/initial call restores
-      // the skin's declared size.
-      let w = cur.width;
-      let hgt = cur.height;
-      let needsResize = false;
-      const fixedHeight = h.minHeight != null && h.maxHeight != null && h.minHeight === h.maxHeight;
-      const fixedWidth = h.minWidth != null && h.maxWidth != null && h.minWidth === h.maxWidth;
-      if (h.fixed) {
-        w = h.width ?? w;
-        hgt = h.height ?? hgt;
-        needsResize = true;
+      const sz = getTargetSize();
+      await mainWin.setMinSize(new LogicalSize(sz.minW, sz.minH));
+      if (sz.maxW || sz.maxH) {
+        await mainWin.setMaxSize(new LogicalSize(sz.maxW || 4000, sz.maxH || 4000));
       } else {
-        if (forceSize && h.width && h.height) {
-          w = h.width;
-          hgt = h.height;
-          needsResize = true;
-        } else {
-          // Preserve the user's width but clamp it; a fixed height wins.
-          w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
-          hgt = fixedHeight ? minH : Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
-          if (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5) {
-            needsResize = true;
-          }
-        }
+        try { await mainWin.setMaxSize(null); } catch {}
       }
-      void fixedWidth;
-      if (needsResize && (Math.abs(w - cur.width) > 0.5 || Math.abs(hgt - cur.height) > 0.5)) {
-        await mainWin.setSize(new LogicalSize(w, hgt));
-      }
+      await mainWin.setSize(new LogicalSize(sz.w, sz.h));
+      await mainWin.setResizable(sz.resizable);
     };
 
     try {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
-      const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
-      // Restore the last size the user left the window at, clamped to the
-      // active skin's min/max. On a first run, fall back to the skin's
-      // declared default so the player starts compact.
-      const h = getSkinHints();
-      const sf = await mainWin.scaleFactor();
-      const minW = h.minWidth ?? 560;
-      const minH = h.minHeight ?? 150;
-      const maxW = h.maxWidth;
-      const maxH = h.maxHeight ?? 240;
-      let w: number, hgt: number;
-      if (g && typeof g.w === "number" && typeof g.h === "number") {
-        w = g.w;
-        hgt = g.h;
-      } else {
-        w = h.width ?? 960;
-        hgt = h.height ?? 240;
-      }
-      w = Math.max(minW, maxW ? Math.min(maxW, w) : w);
-      hgt = Math.max(minH, maxH ? Math.min(maxH, hgt) : hgt);
-      await mainWin.setMinSize(new LogicalSize(minW, minH));
-      if (maxW || maxH) {
-        await mainWin.setMaxSize(new LogicalSize(maxW ?? 99999, maxH ?? 99999));
-      }
-      await mainWin.setSize(new LogicalSize(w, hgt));
-      await mainWin.setResizable(!!h.resizable);
+      const { LogicalPosition } = await import("@tauri-apps/api/dpi");
+      await applyWindowSpec();
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -587,39 +536,42 @@ if (isTauri && !urlPanel) {
       try {
         const pos = await mainWin.outerPosition();
         const size = await mainWin.innerSize();
-        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: size.height }));
+        const sz = getTargetSize();
+        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: sz.lockH ? sz.h : size.height }));
       } catch {}
     };
     mainWin.onMoved(saveGeo);
     mainWin.onResized(async () => {
       try {
-        const h = getSkinHints();
-        if (!h.resizable) {
-          await applyWindowConstraints(true);
+        const target = getTargetSize();
+        if (target.kind === "default" && target.lockH) {
+          const { LogicalSize } = await import("@tauri-apps/api/dpi");
+          const logical = (await mainWin.innerSize()).toLogical(await mainWin.scaleFactor());
+          if (logical.width < target.minW || logical.height !== target.h) {
+            await mainWin.setSize(new LogicalSize(Math.max(target.minW, logical.width), target.h));
+          }
         }
       } catch {}
       saveGeo();
     });
 
+    const onSkinWindow = async () => {
+      try { await applyWindowSpec(); saveGeo(); } catch {}
+    };
+    busOn("melo:skin-window", onSkinWindow);
     busOn("melo:skin-changed", async (skinId: any) => {
       try {
         if (!urlPanel && skinId) {
           await applySkinChoice(skinId, theme, undefined, false);
         }
-        // Wait a frame so the new skin DOM is in place, then apply the
-        // window constraints. We do NOT force a size (unless the skin is
-        // fixed) so the user's current/last size is preserved across
-        // responsive custom skins.
-        await new Promise(r => setTimeout(r, 60));
-        await applyWindowConstraints(false);
+        await applyWindowSpec();
         saveGeo();
       } catch {}
     });
 
     mainWin.onCloseRequested(async (event) => {
       event.preventDefault();
-      // Close-to-tray is OFF by default; only enable if the user explicitly
-      // turned it on (stored as "1").
+      try { (window as any).MeloPlayer?.persistResume?.(true); } catch {}
       const trayEnabled = localStorage.getItem("melo-pref-tray") === "1";
       if (trayEnabled) {
         try { await mainWin.hide(); return; } catch {}
@@ -636,33 +588,16 @@ if (isTauri && !urlPanel) {
   });
 
   // Handle Windows Explorer "Open With" / CLI file arguments & single-instance file opening
-  async function handleOpenPaths(paths: string[]) {
-    if (!paths.length) return;
-    // Wait until the library/queue is initialized (MeloLibrary is exposed
-    // once setupLibrary finishes). On a cold start via "Open With" this
-    // can take a moment; polling avoids dropping multi-file opens.
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const lib = (window as any).MeloLibrary;
-      if (lib?.importPaths) {
-        const imported = (await lib.importPaths(paths, "none")) || [];
-        if (imported.length) {
-          await populateQueue(
-            { type: "tracks", ids: imported.map((t: Track) => t.id) },
-            { autoplay: true },
-          );
-        }
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-
   import("@tauri-apps/api/core").then(async ({ invoke }) => {
     try {
       const cliTracks: any[] = await invoke("get_cli_tracks");
       if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-        const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-        setTimeout(() => handleOpenPaths(paths), 350);
+        setTimeout(async () => {
+          const lib = (window as any).MeloLibrary;
+          const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
+          const imported = await lib?.importPaths(paths, "replace") || [];
+          if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+        }, 350);
       }
     } catch {}
   });
@@ -670,13 +605,16 @@ if (isTauri && !urlPanel) {
   busOn("melo:open-files", (cliTracks: any) => {
     if (Array.isArray(cliTracks) && cliTracks.length > 0) {
       const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-      setTimeout(() => handleOpenPaths(paths), 100);
+      setTimeout(async () => {
+        const lib = (window as any).MeloLibrary;
+        const imported = await lib?.importPaths(paths, "replace") || [];
+        if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+      }, 100);
     }
   });
 }
 
 document.addEventListener("contextmenu", (e) => { e.preventDefault(); });
-
 
 const toastEl = document.getElementById("toast") as HTMLDivElement;
 const showToast: ToastFn = (msg) => {
@@ -698,7 +636,7 @@ audio.crossOrigin = "anonymous";
 if (localStorage.getItem("melo-dynamic-theme") === null) {
   localStorage.setItem("melo-dynamic-theme", "1");
 }
-let theme: "light" | "dark" = (localStorage.getItem("melo-theme") as any) || "dark";
+let theme: "light" | "dark" = (localStorage.getItem("melo-theme") || localStorage.getItem("lumi-theme") as any) || "dark";
 function applyThemeLocal(t: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", t);
   localStorage.setItem("melo-theme", t);
@@ -759,7 +697,7 @@ async function openPanelWindow(panel: string) {
   if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
   const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
   const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
-  const titles: Record<string, string> = { library: "Library", playlist: "Playing Queue", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
+  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
   const sz = sizes[panel] || [420, 520];
   let geo: any = null;
   try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
@@ -839,7 +777,7 @@ function setVisible(id: string, visible: boolean) {
 
 if (!urlPanel) {
   winIds.forEach(id => {
-    const saved = localStorage.getItem("melov2-" + id);
+    const saved = localStorage.getItem("melov2-" + id) ?? localStorage.getItem("lumiv2-" + id);
     if (saved !== null) {
       setVisible(id, saved === "1");
     } else {
@@ -947,15 +885,16 @@ window.addEventListener("mouseup", () => {
 // Add files / folder dialogs
 async function addFilesViaDialog() {
   const lib = (window as any).MeloLibrary;
+  const player = (window as any).MeloPlayer;
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
-      const list: any[] = await lib?.importPaths(paths, "none") || [];
+      const list: any[] = await lib?.importPaths(paths, "replace") || [];
       if (list.length) {
-        await populateQueue({ type: "tracks", ids: list.map((t: Track) => t.id) }, { autoplay: true });
+        busEmit("melo:play-tracks", { tracks: list, index: 0 });
         showToast(`${list.length} file(s) added`);
       }
     } catch { showToast("Error opening files"); }
@@ -978,13 +917,18 @@ async function addFilesViaDialog() {
       await withCover(f, t);
       list.push(t);
     }
-    showToast("Direct browser file playback is not used in desktop builds.");
+    lib?.addTracks(list, true);
+    lib?.addToCurrentPlaylist(list);
+    list.forEach(t => player?.queue.push(t));
+    busEmit("melo:play-tracks", { tracks: list, index: 0 });
+    showToast(`${list.length} file(s) added`);
   };
   input.click();
 }
 
 async function addFolderViaDialog() {
   const lib = (window as any).MeloLibrary;
+  const player = (window as any).MeloPlayer;
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -992,7 +936,6 @@ async function addFolderViaDialog() {
       if (!sel) return;
       const folder = sel as string;
       await lib?.scanFolder(folder, true);
-      await populateQueue({ type: "folder", path: folder }, { autoplay: true });
     } catch { showToast("Error scanning folder"); }
     return;
   }
@@ -1013,7 +956,11 @@ async function addFolderViaDialog() {
       await withCover(f, t);
       list.push(t);
     }
-    showToast("Direct browser folder playback is not used in desktop builds.");
+    lib?.addTracks(list, true);
+    lib?.addToCurrentPlaylist(list);
+    list.forEach(t => player?.queue.push(t));
+    busEmit("melo:play-tracks", { tracks: list, index: 0 });
+    showToast(`${list.length} file(s) added from folder`);
   };
   input.click();
 }
@@ -1083,9 +1030,10 @@ function setupSettings(toast: ToastFn) {
       const isNowOn = !swDynamic.classList.contains("on");
       swDynamic.classList.toggle("on", isNowOn);
       localStorage.setItem("melo-dynamic-theme", isNowOn ? "1" : "0");
-      const currentTrack = (window as any).MeloPlayer?.currentTrack || null;
-      if (currentTrack) {
-        applyDynamicAmbientTheme(isNowOn ? currentTrack.cover : null);
+      const queue = (window as any).__MELO_QUEUE__;
+      const curIdx = (window as any).MeloPlayer?.currentIndex ?? 0;
+      if (queue && queue[curIdx]) {
+        applyDynamicAmbientTheme(isNowOn ? queue[curIdx].cover : null);
       }
     };
   }
@@ -1124,12 +1072,12 @@ function setupSettings(toast: ToastFn) {
       <option value="compact-pill">Minimal Compact (Pill Bar)</option>
     `;
     installed.forEach(item => {
-      // compact-pill.html is already offered above as "Minimal Compact".
-      if (item.filename === "compact-pill.html") return;
-      const opt = document.createElement("option");
-      opt.value = item.filename;
-      opt.textContent = `${item.name} (${item.filename})`;
-      skinSelect.appendChild(opt);
+      if (item.filename !== "compact-pill-light.html" && item.filename !== "compact-pill-dark.html") {
+        const opt = document.createElement("option");
+        opt.value = item.filename;
+        opt.textContent = `${item.name} (${item.filename})`;
+        skinSelect.appendChild(opt);
+      }
     });
     skinSelect.value = currentVal;
   }
@@ -1148,13 +1096,6 @@ function setupSettings(toast: ToastFn) {
     const active = localStorage.getItem("melo-active-skin-id") || "default";
     applySkinChoice(active, theme, toast);
     toast("Skins reloaded from disk");
-  });
-
-  // Refresh the dropdown when a new skin is imported/dragged in.
-  busOn("melo:skins-changed", async () => {
-    const active = localStorage.getItem("melo-active-skin-id") || "default";
-    await populateSkinsDropdown();
-    if (skinSelect) skinSelect.value = active;
   });
 
   btnOpenSkinsFolder?.addEventListener("click", () => {
@@ -1209,7 +1150,7 @@ document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement)?.closest("#btnAbout")) return;
   e.stopPropagation();
   aboutPop.innerHTML = `
-    <div class="about-head">Melo <b>0.5.0 Beta</b></div>
+    <div class="about-head">Melo <b>0.5.1 Beta</b></div>
     <div style="font-size:11.5px; color:var(--text-soft); margin:6px 0 10px;">
       Modern Windows Music Player<br/>
       Tauri 2 + TypeScript + Rust
@@ -1230,50 +1171,6 @@ document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#aboutPop") && !(e.target as HTMLElement).closest("#btnAbout")) aboutPop.style.display = "none";
 });
 
-// Search inputs get an in-field clear (×) button. It is shown only while
-// the field contains text. Works for both the Library and Queue panels,
-// including when their DOM is rebuilt (full-HTML skins).
-function wireSearchClearButtons(root: ParentNode = document) {
-  root.querySelectorAll<HTMLInputElement>("input.search-input").forEach((input) => {
-    if (input.dataset.clearWired === "1") return;
-    // Ensure a non-empty placeholder so :placeholder-shown can detect text.
-    if (!input.hasAttribute("placeholder")) input.setAttribute("placeholder", " ");
-    let field = input.closest<HTMLElement>(".search-field");
-    if (!field) {
-      // The library search already sits in .search-wrap; wrap just the input.
-      field = document.createElement("span");
-      field.className = "search-field";
-      input.parentNode?.insertBefore(field, input);
-      field.appendChild(input);
-    }
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "search-clear";
-    btn.setAttribute("aria-label", "Clear search");
-    btn.textContent = "×";
-    btn.tabIndex = -1;
-    btn.onclick = () => {
-      input.value = "";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      input.focus();
-    };
-    field.appendChild(btn);
-    input.dataset.clearWired = "1";
-  });
-}
-wireSearchClearButtons();
-// Re-wire after the DOM is replaced. Instead of observing every DOM
-// mutation (which fires constantly during list rendering and can keep
-// the main thread busy on large libraries), re-run only when a skin
-// is swapped or a panel window is (re)opened.
-busOn("melo:skin-changed", () => wireSearchClearButtons());
-busOn("melo:skins-changed", () => wireSearchClearButtons());
-window.addEventListener("DOMContentLoaded", () => wireSearchClearButtons());
-// Also re-scan shortly after initial mount for late-rendered inputs.
-setTimeout(wireSearchClearButtons, 250);
-setTimeout(wireSearchClearButtons, 1000);
-
 // App Initialization
 if (isTauri && urlPanel) {
   if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
@@ -1289,9 +1186,6 @@ if (isTauri && urlPanel) {
   setupSkinEngine(showToast);
   setupSettings(showToast);
   initLocale();
-  // Resume-on-reopen is handled inside setupPlayer by reading queue_get_state
-  // from the SQLite-backed playing queue. The localStorage resume key is kept
-  // only as a diagnostic snapshot and is no longer the source of truth.
 }
 
 
