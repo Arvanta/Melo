@@ -1263,8 +1263,16 @@ function wireSearchClearButtons(root: ParentNode = document) {
   });
 }
 wireSearchClearButtons();
-// Re-wire after the DOM is replaced (skin swap, panel render).
-new MutationObserver(() => wireSearchClearButtons()).observe(document.body, { childList: true, subtree: true });
+// Re-wire after the DOM is replaced. Instead of observing every DOM
+// mutation (which fires constantly during list rendering and can keep
+// the main thread busy on large libraries), re-run only when a skin
+// is swapped or a panel window is (re)opened.
+busOn("melo:skin-changed", () => wireSearchClearButtons());
+busOn("melo:skins-changed", () => wireSearchClearButtons());
+window.addEventListener("DOMContentLoaded", () => wireSearchClearButtons());
+// Also re-scan shortly after initial mount for late-rendered inputs.
+setTimeout(wireSearchClearButtons, 250);
+setTimeout(wireSearchClearButtons, 1000);
 
 // App Initialization
 if (isTauri && urlPanel) {

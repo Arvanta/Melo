@@ -590,6 +590,7 @@ pub async fn start_library_scan(
         let added = AtomicUsize::new(0);
         let mut batch = Vec::with_capacity(25);
         let mut last_flush = std::time::Instant::now();
+        let mut last_progress_emit = std::time::Instant::now();
         loop {
             let mut disconnected = false;
             let timed_out = match result_rx.recv_timeout(std::time::Duration::from_millis(150)) {
@@ -645,17 +646,27 @@ pub async fn start_library_scan(
                     "UPDATE scan_jobs SET processed=?2,added=?3 WHERE id=?1",
                     params![id, done as i64, added.load(Ordering::Relaxed) as i64],
                 );
-                let _ = app.emit(
-                    "melo:scan-progress",
-                    serde_json::json!({"scanId":id,"done":done,"total":total,"added":added.load(Ordering::Relaxed),"errors":failed}),
-                );
-                let _ = app.emit(
-                    "melo:library-changed",
-                    serde_json::json!({"scanId":id,"added":changed}),
-                );
+                // Throttle progress updates to ~4/sec. The frontend only
+                // needs a coarse progress bar; emitting on every batch for
+                // thousands of files wastes IPC/CPU and can keep the UI
+                // thread busy long after the scan finishes.
+                let now = std::time::Instant::now();
+                if now.duration_since(last_progress_emit).as_millis() >= 250 {
+                    last_progress_emit = now;
+                    let _ = app.emit(
+                        "melo:scan-progress",
+                        serde_json::json!({"scanId":id,"done":done,"total":total,"added":added.load(Ordering::Relaxed),"errors":failed}),
+                    );
+                }
             }
             if disconnected {
                 break;
+            }
+            // No results right now and the queue is empty. Yield briefly
+            // so the collector threads don't busy-spin the main thread
+            // while the scan is draining.
+            if batch.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
         }
         let _ = producer.join();

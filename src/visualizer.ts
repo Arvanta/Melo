@@ -29,6 +29,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   if (!VIZ_MODES.some((m) => m.id === mode)) mode = "bars";
 
   let raf = 0;
+  let idleRaf = 0;
   let levels: number[] = [];
   let slowMax = 0.45;
   let menuEl: HTMLElement | null = null;
@@ -405,8 +406,22 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     raf = requestAnimationFrame(loop);
     draw();
   }
+  // Idle loop: used when nothing is playing to keep a gentle animation
+  // without burning a full 60fps rAF on every open window.
+  function idleLoop() {
+    draw();
+    idleRaf = window.setTimeout(() => {
+      idleRaf = window.setTimeout(idleLoop, 250);
+    }, 250) as unknown as number;
+  }
+  function stopLoops() {
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    if (idleRaf) { clearTimeout(idleRaf); idleRaf = 0; }
+  }
   function startLoop() {
-    if (!raf) loop();
+    stopLoops();
+    if (!audio.paused) loop();
+    else idleLoop();
   }
 
   function setMode(m: VizMode, silent = false) {
@@ -481,18 +496,16 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
 
   audio.addEventListener("play", start);
+  audio.addEventListener("pause", startLoop);
   start();
   bindContainer();
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      cancelAnimationFrame(raf);
-      raf = 0;
-    } else startLoop();
+    if (document.hidden) stopLoops();
+    else startLoop();
   });
 
   function rebind() {
-    cancelAnimationFrame(raf);
-    raf = 0;
+    stopLoops();
     container = document.getElementById("vizBars") as HTMLElement | null;
     if (!container) return;
     canvas = ensureCanvas(container);
