@@ -518,7 +518,11 @@ html, body, .app-shell, .player-card, .float-win, .panel-root, .track-row, .lib-
 }
 input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
 
-html:has(.panel-root), body:has(.panel-root) { background: transparent !important; background-color: transparent !important; }
+html:has(.panel-root), body:has(.panel-root) { background: var(--card) !important; background-color: var(--card) !important; }
+html.panel-window, body.panel-window {
+  background: var(--card) !important;
+  background-color: var(--card) !important;
+}
 
 /* Compact skin: clip every webview root to the same fixed pill. This keeps
    transparent pixels outside the rounded card truly empty on Windows. */

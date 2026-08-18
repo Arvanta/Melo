@@ -15,7 +15,6 @@ on:
       - 'LICENSE'
   workflow_dispatch:
 
-# required so tauri-action can create the draft release
 permissions:
   contents: write
 
@@ -40,6 +39,78 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Cache Tauri Windows bundler tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/tauri
+          key: tauri-win-tools-wix314-nsis3
+
+      - name: Prefetch WiX and NSIS (retry)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $tauriDir = Join-Path $env:LOCALAPPDATA 'tauri'
+          $wixDir = Join-Path $tauriDir 'WixTools314'
+          $nsisDir = Join-Path $tauriDir 'NSIS'
+          New-Item -ItemType Directory -Force -Path $tauriDir | Out-Null
+
+          function Get-FileRetry([string]$Url, [string]$OutFile) {
+            $headers = @{
+              'User-Agent' = 'Melo-CI'
+              'Authorization' = "Bearer $env:GITHUB_TOKEN"
+              'Accept' = 'application/octet-stream'
+            }
+            for ($i = 1; $i -le 6; $i++) {
+              try {
+                Write-Host "Downloading $Url (attempt $i)"
+                Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $headers -UseBasicParsing
+                if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 50000)) {
+                  Write-Host "OK $OutFile ($((Get-Item $OutFile).Length) bytes)"
+                  return
+                }
+              } catch {
+                Write-Host $_
+              }
+              Start-Sleep -Seconds (4 * $i)
+            }
+            throw "Failed to download $Url"
+          }
+
+          if (-not (Test-Path (Join-Path $wixDir 'candle.exe'))) {
+            $zip = Join-Path $env:RUNNER_TEMP 'wix314-binaries.zip'
+            Get-FileRetry 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' $zip
+            New-Item -ItemType Directory -Force -Path $wixDir | Out-Null
+            Expand-Archive -Path $zip -DestinationPath $wixDir -Force
+          } else {
+            Write-Host "WiX already cached"
+          }
+
+          if (-not (Test-Path (Join-Path $nsisDir 'makensis.exe'))) {
+            $zip = Join-Path $env:RUNNER_TEMP 'nsis-3.zip'
+            Get-FileRetry 'https://github.com/tauri-apps/binary-releases/releases/download/nsis-3/nsis-3.zip' $zip
+            $extract = Join-Path $env:RUNNER_TEMP 'nsis-extract'
+            if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+            Expand-Archive -Path $zip -DestinationPath $extract -Force
+            $inner = Get-ChildItem $extract -Directory | Select-Object -First 1
+            if (Test-Path $nsisDir) { Remove-Item $nsisDir -Recurse -Force }
+            if ($inner) { Move-Item $inner.FullName $nsisDir }
+            else { Move-Item $extract $nsisDir }
+            $plug = Join-Path $nsisDir 'Plugins\x86-unicode'
+            New-Item -ItemType Directory -Force -Path $plug | Out-Null
+            $dll = Join-Path $env:RUNNER_TEMP 'nsis_tauri_utils.dll'
+            try {
+              Get-FileRetry 'https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.1/nsis_tauri_utils.dll' $dll
+              Copy-Item $dll (Join-Path $plug 'nsis_tauri_utils.dll') -Force
+            } catch {
+              Write-Host "Optional NSIS plugin download failed; Tauri may fetch it later"
+            }
+          } else {
+            Write-Host "NSIS already cached"
+          }
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -69,7 +140,7 @@ jobs:
             dist/**
 
   build-linux-macos:
-    if: false # فعال کنید اگر برای لینوکس/مک هم می‌خواهید
+    if: false
     strategy:
       matrix:
         platform: [macos-latest, ubuntu-latest]

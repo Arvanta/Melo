@@ -3,12 +3,17 @@
   "identifier": "melo-capability",
   "description": "Main capabilities for Melo Music Player",
   "windows": [
+    "main",
+    "panel-*",
     "*"
   ],
   "permissions": [
     "core:default",
     "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
     "core:window:default",
+    "core:window:allow-create",
     "core:window:allow-set-focus",
     "core:window:allow-show",
     "core:window:allow-hide",

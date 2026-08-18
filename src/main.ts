@@ -690,29 +690,70 @@ async function persistGeometry(win: any, key: string) {
 }
 
 async function openPanelWindow(panel: string) {
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const label = "panel-" + panel;
-  const btn = document.getElementById(panelBtnMap[panel]);
-  let existing: any = null;
-  try { existing = await WebviewWindow.getByLabel(label); } catch { existing = null; }
-  if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
-  const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
-  const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
-  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
-  const sz = sizes[panel] || [420, 520];
-  let geo: any = null;
-  try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
-  new WebviewWindow(label, {
-    url: `/?panel=${panel}`,
-    title: titles[panel] || panel,
-    width: geo?.w || sz[0], height: geo?.h || sz[1], minWidth: (mins[panel] || [360, 360])[0], minHeight: (mins[panel] || [360, 360])[1],
-    ...(geo?.x != null ? { x: geo.x, y: geo.y } : { center: true }),
-    decorations: false,
-    transparent: true,
-    shadow: false,
-    skipTaskbar: true
-  });
-  btn?.classList.add("active");
+  try {
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const label = "panel-" + panel;
+    const btn = document.getElementById(panelBtnMap[panel]);
+    const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
+    let existing: any = null;
+    try { existing = await WebviewWindow.getByLabel(label); } catch { existing = null; }
+    if (existing) {
+      try {
+        const visible = await existing.isVisible();
+        if (visible) {
+          await existing.close();
+          btn?.classList.remove("active");
+          return;
+        }
+        await existing.show();
+        try { await existing.unminimize(); } catch {}
+        try { await existing.setFocus(); } catch {}
+        btn?.classList.add("active");
+        return;
+      } catch {
+        try { await existing.close(); } catch {}
+      }
+    }
+    const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
+    const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
+    const sz = sizes[panel] || [420, 520];
+    let geo: any = null;
+    try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
+    const useSavedPos = Number.isFinite(geo?.x) && Number.isFinite(geo?.y) && geo.x > -2000 && geo.y > -2000 && geo.x < 8000 && geo.y < 8000;
+    const width = Math.max((mins[panel] || [360, 360])[0], Number(geo?.w) || sz[0]);
+    const height = Math.max((mins[panel] || [360, 360])[1], Number(geo?.h) || sz[1]);
+    const created = new WebviewWindow(label, {
+      url: `index.html?panel=${encodeURIComponent(panel)}`,
+      title: titles[panel] || panel,
+      width,
+      height,
+      minWidth: (mins[panel] || [360, 360])[0],
+      minHeight: (mins[panel] || [360, 360])[1],
+      ...(useSavedPos ? { x: geo.x, y: geo.y } : { center: true }),
+      decorations: false,
+      transparent: false,
+      shadow: true,
+      skipTaskbar: false,
+      focus: true,
+      visible: true,
+    });
+    try {
+      created.once("tauri://created", async () => {
+        btn?.classList.add("active");
+        try { await created.show(); } catch {}
+        try { await created.setFocus(); } catch {}
+      });
+      created.once("tauri://error", (ev: any) => {
+        btn?.classList.remove("active");
+        showToast(`Could not open ${titles[panel] || panel}`);
+        console.error("panel window error", ev);
+      });
+    } catch {}
+    btn?.classList.add("active");
+  } catch (err) {
+    showToast("Could not open window");
+    console.error(err);
+  }
 }
 
 busOn("melo:panel-closed", (role: any) => {
