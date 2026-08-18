@@ -614,13 +614,17 @@ body.panel-window {
 .panel-window .track-row .btn {
   flex: 0 0 auto;
 }
-.panel-window .playlist-toolbar #playlistSearchInput {
-  flex: 1 1 150px !important;
-  width: 0 !important;
+.panel-window .playlist-toolbar .playlist-search-wrap {
+  flex: 1 1 160px;
+  min-width: 120px;
+}
+.panel-window .playlist-toolbar #playlistSelect {
+  flex: 1 1 120px;
+  min-width: 80px;
 }
 .panel-window .playlist-toolbar #playlistSortSelect {
-  flex: 0 1 110px;
-  width: 110px !important;
+  flex: 0 0 auto;
+  width: 92px !important;
 }
 .panel-window .playlist-footer-actions > .btn.block {
   flex: 1 1 auto;
@@ -656,8 +660,7 @@ body.panel-window {
     gap: 5px !important;
   }
   .panel-window .playlist-toolbar #playlistSortSelect {
-    flex-basis: 100px;
-    width: 100px !important;
+    width: 88px !important;
     font-size: 10.5px !important;
   }
   .panel-window .playlist-footer-actions .btn {
@@ -678,8 +681,9 @@ body.panel-window {
   .panel-window .playlist-toolbar {
     flex-wrap: wrap;
   }
-  .panel-window .playlist-toolbar #playlistSearchInput,
-  .panel-window .playlist-toolbar #playlistSortSelect {
+  /* On very narrow windows the search box takes its own full-width row and
+     the remaining controls (playlist, +, sort) wrap onto the next one. */
+  .panel-window .playlist-toolbar .playlist-search-wrap {
     flex: 1 1 100% !important;
     width: 100% !important;
   }

@@ -468,19 +468,19 @@ ${B.path}`).join(`
       </div>
       <div class="float-body" style="padding:8px; display:flex; flex-direction:column; gap:6px;">
         <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap;">
-          <select id="playlistSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; flex:1 1 140px;" title="Current playlist"></select>
-          <button class="btn small ghost" id="btn-new-playlist" style="height:26px; font-size:11px;">+ New</button>
-          <div class="search-wrap playlist-search-wrap" style="flex:1; position:relative; padding:0; min-width:0;">
-            <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="width:100%; height:26px; font-size:11px; padding-left:8px; padding-right:26px;" />
+          <div class="playlist-search-wrap" style="flex:1 1 160px; position:relative; min-width:120px; height:26px;">
+            <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="width:100%; height:100%; font-size:11px; padding:0 28px 0 10px;" />
             <button class="search-clear" id="playlistSearchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
           </div>
-          <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; width:110px;" title="Sort tracks">
+          <select id="playlistSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; flex:1 1 120px; min-width:80px;" title="Current playlist"></select>
+          <button class="btn small ghost" id="btn-new-playlist" title="New playlist" style="height:26px; width:26px; padding:0; font-size:16px; line-height:1; justify-content:center; flex:0 0 auto;">+</button>
+          <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 4px; width:92px; flex:0 0 auto;" title="Sort tracks">
             <option value="default">Sort: Default</option>
             <option value="title-asc">Title (A-Z)</option>
             <option value="artist-asc">Artist (A-Z)</option>
             <option value="album-asc">Album (A-Z)</option>
-            <option value="dur-asc">Duration (Shortest)</option>
-            <option value="dur-desc">Duration (Longest)</option>
+            <option value="dur-asc">Shortest</option>
+            <option value="dur-desc">Longest</option>
           </select>
         </div>
         <div id="winPlaylistTracks" class="drop-zone" style="flex:1; overflow:auto; display:flex; flex-direction:column; min-height:140px;"></div>
@@ -829,4 +829,4 @@ ${B.path}`).join(`
       Tauri 2 + TypeScript + Rust
     </div>
     <a class="about-link" id="aboutLink" href="https://github.com/Arvanta/Melo" rel="noopener">github.com/Arvanta/Melo ↗</a>`,Dt.style.display=Dt.style.display==="none"?"block":"none",(i=document.getElementById("aboutLink"))==null||i.addEventListener("click",e=>{e.preventDefault();const n="https://github.com/Arvanta/Melo";it?Y(()=>import("./core-DhEqZVGG.js"),[]).then(l=>l.invoke("open_url",{url:n})).catch(()=>window.open(n,"_blank")):window.open(n,"_blank")}))});document.addEventListener("click",t=>{!t.target.closest("#aboutPop")&&!t.target.closest("#btnAbout")&&(Dt.style.display="none")});it&&lt?lt==="library"||lt==="playlist"?Se(Et,ut):lt==="equalizer"?Ee(Et,ut,{remote:!0}):lt==="lyrics"?Me(Et):lt==="settings"&&(Ie(),Te(ut)):(pa(Et,ut),Se(Et,ut),Ee(Et,ut),ma(Et),Me(Et),ga(ut),Te(ut),Ie(),setTimeout(async()=>{if(localStorage.getItem("melo-pref-resume")!=="0")try{const t=JSON.parse(localStorage.getItem("melo-resume-state")||"null"),a=window.LumiLibrary,i=window.LumiPlayer;if(!(t!=null&&t.trackId)||!a||!i)return;const e=await a.getTrack(t.trackId);if(!e)return;i.queue=[e],i.loadTrack(0,!0,t.position||0)}catch{}},500));
-//# sourceMappingURL=index-CtNsjaBx.js.map
+//# sourceMappingURL=index-D6jYAPJ7.js.map
