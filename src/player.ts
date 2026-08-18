@@ -2,6 +2,7 @@ import type { Track, RepeatMode } from "./types";
 import { busEmit, busOn, isTauri } from "./bus";
 import { applyDynamicAmbientTheme } from "./cover";
 import { getAudioGraph } from "./audio-graph";
+import { findHook } from "./skin";
 
 export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void) {
   let btnPlay: HTMLButtonElement, iconPlay: HTMLElement, iconPause: HTMLElement;
@@ -309,37 +310,37 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   }
 
   function syncStopButtonVisibility(enabled = localStorage.getItem("melo-pref-showStopBtn") === "1") {
-    const stop = document.getElementById("btnStop") as HTMLButtonElement | null;
+    const stop = findHook<HTMLButtonElement>("btnStop", "stop");
     if (!stop) return;
-    // Inline !important wins over all skin rules, including compact skins.
+    // Inline !important wins over all skin rules, including custom skins.
     stop.style.setProperty("display", enabled ? "inline-flex" : "none", "important");
   }
 
   function bindDOM() {
-    btnPlay = document.getElementById("btnPlay") as HTMLButtonElement;
-    iconPlay = document.getElementById("iconPlay") as HTMLElement;
-    iconPause = document.getElementById("iconPause") as HTMLElement;
-    btnPrev = document.getElementById("btnPrev") as HTMLButtonElement;
-    btnNext = document.getElementById("btnNext") as HTMLButtonElement;
-    btnShuffle = document.getElementById("btnShuffle") as HTMLButtonElement;
-    btnRepeat = document.getElementById("btnRepeat") as HTMLButtonElement;
-    btnStop = document.getElementById("btnStop") as HTMLButtonElement | null;
+    btnPlay = findHook<HTMLButtonElement>("btnPlay", "play")!;
+    iconPlay = findHook<HTMLElement>("iconPlay", "play-icon")!;
+    iconPause = findHook<HTMLElement>("iconPause", "pause-icon")!;
+    btnPrev = findHook<HTMLButtonElement>("btnPrev", "prev")!;
+    btnNext = findHook<HTMLButtonElement>("btnNext", "next")!;
+    btnShuffle = findHook<HTMLButtonElement>("btnShuffle", "shuffle")!;
+    btnRepeat = findHook<HTMLButtonElement>("btnRepeat", "repeat")!;
+    btnStop = findHook<HTMLButtonElement>("btnStop", "stop");
     syncStopButtonVisibility();
-    seekBar = document.getElementById("seekBar") as HTMLInputElement;
-    volBar = document.getElementById("volBar") as HTMLInputElement;
-    curTime = document.getElementById("curTime") as HTMLElement;
-    durTime = document.getElementById("durTime") as HTMLElement;
-    volPct = document.getElementById("volPct") as HTMLElement;
-    volIcon = document.getElementById("volIcon") as HTMLElement;
+    seekBar = findHook<HTMLInputElement>("seekBar", "seek")!;
+    volBar = findHook<HTMLInputElement>("volBar", "volume")!;
+    curTime = findHook<HTMLElement>("curTime", "current-time")!;
+    durTime = findHook<HTMLElement>("durTime", "duration")!;
+    volPct = findHook<HTMLElement>("volPct", "volume-pct")!;
+    volIcon = findHook<HTMLElement>("volIcon", "volume-icon")!;
     if (volIcon) volIcon.onclick = () => toggleMute();
     syncMuteUI();
-    trackTitle = document.getElementById("trackTitle") as HTMLElement;
-    trackArtist = document.getElementById("trackArtist") as HTMLElement;
-    trackAlbum = document.getElementById("trackAlbum") as HTMLElement;
-    trackCodec = document.getElementById("trackCodec") as HTMLElement;
-    trackSpecs = document.getElementById("trackSpecs") as HTMLElement;
-    coverImg = document.getElementById("coverImg") as HTMLImageElement;
-    coverFallback = document.getElementById("coverFallback") as HTMLElement;
+    trackTitle = findHook<HTMLElement>("trackTitle", "title")!;
+    trackArtist = findHook<HTMLElement>("trackArtist", "artist")!;
+    trackAlbum = findHook<HTMLElement>("trackAlbum", "album")!;
+    trackCodec = findHook<HTMLElement>("trackCodec", "codec")!;
+    trackSpecs = findHook<HTMLElement>("trackSpecs", "specs")!;
+    coverImg = findHook<HTMLImageElement>("coverImg", "cover")!;
+    coverFallback = findHook<HTMLElement>("coverFallback", "cover-fallback")!;
 
     if (btnPlay) btnPlay.onclick = togglePlay;
     if (btnStop) btnStop.onclick = stop;

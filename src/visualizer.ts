@@ -12,8 +12,15 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "blocks", label: "Block Equalizer" },
 ];
 
+function getContainer(): HTMLElement | null {
+  return (
+    (document.getElementById("vizBars") as HTMLElement | null) ||
+    document.querySelector<HTMLElement>('[data-melo="visualizer"]')
+  );
+}
+
 export function setupVisualizer(audio: HTMLAudioElement) {
-  let container = document.getElementById("vizBars") as HTMLElement | null;
+  let container = getContainer();
   if (!container) return;
   let canvas = ensureCanvas(container);
   let g2d = canvas.getContext("2d")!;
@@ -364,12 +371,16 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       drawWave();
       return;
     }
-    const n = mode === "bars" ? 16
+    // A skin can override the number of bars/columns via data-bars="N" on the
+    // visualizer element; otherwise each mode uses its own sensible default.
+    const defaultN = mode === "bars" ? 16
       : mode === "thin" ? 56
       : mode === "line" ? 64
       : mode === "spectrumWave" ? 72
       : mode === "blocks" ? 22
       : 24;
+    const custom = parseInt(container?.dataset.bars || "", 10);
+    const n = Number.isFinite(custom) && custom > 0 ? custom : defaultN;
     const data = getLevels(n);
     if (mode === "bars") drawBars(data, w, h, 0.34);
     else if (mode === "thin") drawBars(data, w, h, 0.32);
@@ -471,7 +482,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function rebind() {
     cancelAnimationFrame(raf);
     raf = 0;
-    container = document.getElementById("vizBars") as HTMLElement | null;
+    container = getContainer();
     if (!container) return;
     canvas = ensureCanvas(container);
     g2d = canvas.getContext("2d")!;

@@ -10,6 +10,57 @@ export interface SkinItem {
   path?: string;
 }
 
+export interface SkinGeometry {
+  width: number;
+  height: number;
+  minWidth?: number;
+  minHeight?: number;
+  resizable: boolean;
+}
+
+/**
+ * Resolve a player hook by legacy id first, then by the position-independent
+ * `data-melo` role attribute. Skins may use either (or both) conventions.
+ */
+export function findHook<T extends HTMLElement = HTMLElement>(id: string, role: string): T | null {
+  const byId = document.getElementById(id);
+  if (byId) return byId as T;
+  return document.querySelector<T>(`[data-melo="${role}"]`);
+}
+
+/**
+ * A full HTML skin may declare the native window size it wants via
+ * data-window-width / data-window-height (plus optional min sizes and
+ * resizability) on <html>, <body> or the #lumi-player root.
+ */
+export function parseSkinGeometry(htmlText: string): SkinGeometry | null {
+  const read = (attr: string): number | null => {
+    const m = htmlText.match(new RegExp(attr + '\\s*=\\s*["\']?(\\d+)'));
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const width = read("data-window-width");
+  const height = read("data-window-height");
+  if (!width || !height) return null;
+  const minWidth = read("data-min-width");
+  const minHeight = read("data-min-height");
+  const resizable = !/data-resizable\s*=\s*["\']?false/i.test(htmlText);
+  return {
+    width,
+    height,
+    minWidth: minWidth ?? undefined,
+    minHeight: minHeight ?? undefined,
+    resizable,
+  };
+}
+
+export function readSkinGeometry(): SkinGeometry | null {
+  try {
+    const geo = JSON.parse(localStorage.getItem("melo-skin-geometry") || "null");
+    if (geo && Number.isFinite(geo.width) && Number.isFinite(geo.height)) return geo as SkinGeometry;
+  } catch {}
+  return null;
+}
+
 const COMPACT_PILL = `<!doctype html>
 <html lang="en">
 <head>
@@ -393,13 +444,15 @@ const EMBEDDED_SKINS: Record<string, string> = {
 const WEB_SKINS_LIST: SkinItem[] = [
   { id: "compact-pill", name: "Minimal Compact (Light/Dark)", filename: "compact-pill.html" },
   { id: "full-html-example", name: "Full HTML Example", filename: "full-html-example.html" },
-  { id: "example-custom", name: "Custom CSS Example", filename: "example-custom.html" },
 ];
 
 export function isFullHtmlSkin(htmlText: string): boolean {
-  const markers = ["trackTitle", "btnPlay", "seekBar", "coverImg"];
+  const idMarkers = ["trackTitle", "btnPlay", "seekBar", "coverImg"];
   let count = 0;
-  for (const m of markers) if (htmlText.includes(m)) count++;
+  for (const m of idMarkers) if (htmlText.includes(m)) count++;
+  // `data-melo` based skins (new convention) also count as full skins.
+  const meloAttrCount = (htmlText.match(/data-melo\s*=/g) || []).length;
+  count += Math.min(meloAttrCount, 3);
   return count >= 3;
 }
 
@@ -451,6 +504,18 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
     toast("Skin CSS applied");
   }
 
+  // Persist the window geometry declared by a full skin (any size/shape),
+  // so the native window can be resized to match it.
+  if (isFull) {
+    const geometry = parseSkinGeometry(htmlText);
+    if (geometry) {
+      localStorage.setItem("melo-skin-geometry", JSON.stringify(geometry));
+      busEmit("melo:skin-geometry", geometry);
+    } else {
+      localStorage.removeItem("melo-skin-geometry");
+    }
+  }
+
   localStorage.setItem("lumi-custom-skin", htmlText);
   localStorage.setItem("lumi-custom-skin-isFull", isFull ? "1" : "0");
 }
@@ -458,6 +523,8 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void) {
 export function resetSkin(toast?: (m: string) => void, broadcast = true) {
   document.documentElement.classList.remove("compact-skin-active");
   document.body.classList.remove("compact-skin-active");
+  document.documentElement.classList.remove("custom-skin-active");
+  document.body.classList.remove("custom-skin-active");
   if (customStyleEl) { customStyleEl.remove(); customStyleEl = null; }
   if (customFrame) { customFrame.remove(); customFrame = null; }
   const playerCard = document.getElementById("playerCard") as HTMLElement;
@@ -474,6 +541,7 @@ export function resetSkin(toast?: (m: string) => void, broadcast = true) {
   }
   localStorage.removeItem("lumi-custom-skin");
   localStorage.removeItem("lumi-custom-skin-isFull");
+  localStorage.removeItem("melo-skin-geometry");
   localStorage.setItem("melo-active-skin-id", "default");
   if (broadcast) busEmit("melo:skin-changed", "default");
   if (toast) toast("Switched to Default Melo skin");
@@ -535,8 +603,11 @@ export async function applySkinChoice(skinChoice: string, currentTheme: "light" 
 
   let targetFile = skinChoice;
   const isCompact = skinChoice === "compact-pill" || skinChoice.startsWith("compact-pill");
+  const isCustom = !isCompact;
   document.documentElement.classList.toggle("compact-skin-active", isCompact);
   document.body.classList.toggle("compact-skin-active", isCompact);
+  document.documentElement.classList.toggle("custom-skin-active", isCustom);
+  document.body.classList.toggle("custom-skin-active", isCustom);
   if (isCompact) {
     // Single combined skin handles both themes via CSS [data-theme] variables
     targetFile = "compact-pill.html";
@@ -576,14 +647,6 @@ export async function openSkinsFolderOnDisk(toast?: (m: string) => void) {
 
 export function setupSkinEngine(toast: (m: string) => void) {
   const skinUpload = document.getElementById("skinUpload") as HTMLInputElement;
-  const linkDownload = document.getElementById("linkDownloadExample") as HTMLAnchorElement;
-
-  if (linkDownload) {
-    linkDownload.addEventListener("click", (e) => {
-      e.preventDefault();
-      loadSkinFromDisk("compact-pill.html");
-    });
-  }
 
   const savedSkinId = localStorage.getItem("melo-active-skin-id") || "default";
   const theme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";

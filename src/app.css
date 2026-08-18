@@ -401,6 +401,11 @@ body.tauri-main,
 body.tauri-main .app-shell { min-width: 640px; }
 body.tauri-main .player-card { overflow: hidden; }
 
+/* A custom skin defines its own size and shape: lift the default skin's
+   640px floor so arbitrarily narrow/short windows work. */
+body.tauri-main.custom-skin-active,
+body.tauri-main.custom-skin-active .app-shell { min-width: 0 !important; }
+
 /* brand + quick-add icons in the titlebar (menu removed) */
 .player-titlebar .app-brand {
   display: flex; align-items: center; gap: 8px;

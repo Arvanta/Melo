@@ -40,8 +40,8 @@ pub struct SkinFileInfo {
 
 // Embedded default skin templates to ensure the skins folder is always populated on disk
 const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
-const DEFAULT_SKIN_EXAMPLE: &str = include_str!("../../skins/example-custom.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
+const DEFAULT_SKIN_GUIDE: &str = include_str!("../../skins/README.md");
 
 // ---- Helpers ----
 
@@ -169,13 +169,15 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
     // Remove legacy split skins left by older installs so they don't linger
     let _ = std::fs::remove_file(skins_dir.join("compact-pill-light.html"));
     let _ = std::fs::remove_file(skins_dir.join("compact-pill-dark.html"));
-    let f3 = skins_dir.join("example-custom.html");
+    // Remove the retired example skin left by older installs.
+    let _ = std::fs::remove_file(skins_dir.join("example-custom.html"));
+    let f3 = skins_dir.join("full-html-example.html");
     if !f3.exists() {
-        let _ = std::fs::write(f3, DEFAULT_SKIN_EXAMPLE);
+        let _ = std::fs::write(f3, DEFAULT_SKIN_FULL_EXAMPLE);
     }
-    let f4 = skins_dir.join("full-html-example.html");
+    let f4 = skins_dir.join("README.md");
     if !f4.exists() {
-        let _ = std::fs::write(f4, DEFAULT_SKIN_FULL_EXAMPLE);
+        let _ = std::fs::write(f4, DEFAULT_SKIN_GUIDE);
     }
 }
 
@@ -265,7 +267,6 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
         // Legacy ids keep older saved preferences working
         "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
         "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
-        "example-custom.html" | "example-custom" => Ok(DEFAULT_SKIN_EXAMPLE.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }

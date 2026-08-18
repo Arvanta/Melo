@@ -21,7 +21,7 @@ Version: **0.5.1 Beta** • License: **GPL-3.0**
 | **Single-Instance** | Prevents multiple instances; clicking shortcuts or opening audio files from Explorer focuses the existing instance and plays immediately |
 | **Multi-window** | Library / Playlist / Equalizer / Lyrics / Settings open as real OS windows, synced via the event bus |
 | **Equalizer** | 10 bands (31 Hz – 16 kHz), 12 presets + Reset button, persistent state across restarts |
-| **Skins from Disk** | Loads skins directly from the `skins/` installation folder; instant live reload via Refresh button (🔄) and explorer opener |
+| **Skins from Disk** | Loads skins directly from the `skins/` installation folder; instant live reload via Refresh button (🔄) and explorer opener. Build your own player layout — any size, any structure — see the **[Skin Authoring Guide](skins/README.md)** |
 
 ## 🖥️ Build for Windows (GitHub Actions)
 

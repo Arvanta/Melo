@@ -4,7 +4,7 @@ import { setupLibrary } from "./library";
 import { setupEqualizer } from "./equalizer";
 import { setupVisualizer } from "./visualizer";
 import { setupLyrics } from "./lyrics";
-import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk } from "./skin";
+import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
 import { busEmit, busOn, isTauri } from "./bus";
 import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
@@ -486,21 +486,54 @@ if (isTauri && !urlPanel) {
 if (isTauri && !urlPanel) {
   import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
     const mainWin = getCurrentWindow();
-    
+
+    // Resolve the native window size a skin wants:
+    //  - compact pill: fixed 780×138, not resizable
+    //  - custom skin with declared geometry: its own width/height (+ min sizes)
+    //  - custom skin without geometry: keep current size, free to resize
+    //  - default skin: 960×240, resizable
     const getTargetSize = () => {
-      const activeSkin = localStorage.getItem("melo-active-skin-id");
+      const activeSkin = localStorage.getItem("melo-active-skin-id") || "default";
       const isCompact = activeSkin === "compact-pill" || (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
-      return { w: isCompact ? 780 : 960, h: isCompact ? 138 : 240 };
+      if (isCompact) return { w: 780, h: 138, resizable: false, fixed: true, custom: false, force: true };
+      if (activeSkin !== "default") {
+        const geo = readSkinGeometry();
+        if (geo) return { w: geo.width, h: geo.height, resizable: geo.resizable !== false, fixed: false, custom: true, force: true, minW: geo.minWidth, minH: geo.minHeight };
+        return { w: 0, h: 0, resizable: true, fixed: false, custom: true, force: false };
+      }
+      return { w: 960, h: 240, resizable: true, fixed: false, custom: false, force: true };
+    };
+
+    const applySizeConstraints = async (sz: { fixed: boolean; custom: boolean; resizable: boolean; minW?: number; minH?: number; w: number; h: number }) => {
+      try {
+        const { LogicalSize } = await import("@tauri-apps/api/dpi");
+        if (sz.fixed) {
+          await mainWin.setMinSize(new LogicalSize(sz.w, sz.h));
+          await mainWin.setMaxSize(new LogicalSize(sz.w, sz.h));
+        } else if (sz.custom) {
+          // Custom skins: generous freedom in every direction.
+          await mainWin.setMinSize(new LogicalSize(sz.minW || 240, sz.minH || 120));
+          await mainWin.setMaxSize(new LogicalSize(10000, 10000));
+        } else {
+          // Default skin keeps its historical floor and max height.
+          await mainWin.setMinSize(new LogicalSize(650, 135));
+          await mainWin.setMaxSize(new LogicalSize(10000, 260));
+        }
+        await mainWin.setResizable(sz.resizable);
+      } catch {}
     };
 
     try {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
       const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
       const sz = getTargetSize();
-      const isCompactStartup = sz.w === 780;
-      const startupW = isCompactStartup ? sz.w : (g?.w ? Math.max(650, g.w) : sz.w);
-      await mainWin.setSize(new LogicalSize(startupW, sz.h));
-      await mainWin.setResizable(!isCompactStartup);
+      const activeSkin = localStorage.getItem("melo-active-skin-id") || "default";
+      if (sz.force) {
+        const useSavedWidth = !sz.fixed && activeSkin === "default" && g?.w;
+        const startupW = useSavedWidth ? Math.max(650, g.w) : sz.w;
+        await mainWin.setSize(new LogicalSize(startupW, sz.h));
+      }
+      await applySizeConstraints(sz);
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -510,23 +543,26 @@ if (isTauri && !urlPanel) {
       try {
         const pos = await mainWin.outerPosition();
         const size = await mainWin.innerSize();
-        const sz = getTargetSize();
-        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: sz.h }));
+        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: size.height }));
       } catch {}
     };
     mainWin.onMoved(saveGeo);
     mainWin.onResized(async () => {
       try {
-        const sz = await mainWin.innerSize();
         const target = getTargetSize();
-        const isCompact = target.w === 780;
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (!isCompact) {
+        if (target.fixed) {
+          // Compact Pill is a fixed-size design; keep its exact dimensions.
+          await mainWin.setSize(new LogicalSize(target.w, target.h));
+        } else if (!target.custom) {
+          // Default skin: keep its height and don't shrink below its floor.
+          const sz = await mainWin.innerSize();
           const logical = sz.toLogical(await mainWin.scaleFactor());
           if (logical.width < 650 || logical.height !== target.h) {
             await mainWin.setSize(new LogicalSize(Math.max(650, logical.width), target.h));
           }
         }
+        // Custom skins are left completely free to resize.
       } catch {}
       saveGeo();
     });
@@ -536,15 +572,24 @@ if (isTauri && !urlPanel) {
         if (!urlPanel && skinId) {
           await applySkinChoice(skinId, theme, undefined, false);
         }
-        const isCompact = skinId === "compact-pill" || (typeof skinId === "string" && skinId.startsWith("compact-pill"));
-        const targetW = isCompact ? 780 : 960;
-        const targetH = isCompact ? 138 : 240;
-        const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        await mainWin.setSize(new LogicalSize(targetW, targetH));
-        // Compact Pill is a fixed-size design; lock resizing so the window
-        // can't be dragged wider/taller than the skin's actual artwork,
-        // which previously showed as a visible transparent strip around it.
-        await mainWin.setResizable(!isCompact);
+        const sz = getTargetSize();
+        if (sz.force) {
+          const { LogicalSize } = await import("@tauri-apps/api/dpi");
+          await mainWin.setSize(new LogicalSize(sz.w, sz.h));
+        }
+        await applySizeConstraints(sz);
+        saveGeo();
+      } catch {}
+    });
+
+    busOn("melo:skin-geometry", async () => {
+      try {
+        const sz = getTargetSize();
+        if (sz.force) {
+          const { LogicalSize } = await import("@tauri-apps/api/dpi");
+          await mainWin.setSize(new LogicalSize(sz.w, sz.h));
+        }
+        await applySizeConstraints(sz);
         saveGeo();
       } catch {}
     });
@@ -945,11 +990,12 @@ async function addFolderViaDialog() {
 }
 
 document.addEventListener("click", (e) => {
-  const target = (e.target as HTMLElement)?.closest("#btnAddFiles, #btnAddFolder, #btnThemeToggle");
+  const target = (e.target as HTMLElement)?.closest('#btnAddFiles, #btnAddFolder, #btnThemeToggle, [data-melo="add-files"], [data-melo="add-folder"], [data-melo="theme-toggle"]');
   if (!target) return;
-  if (target.id === "btnAddFiles") addFilesViaDialog();
-  else if (target.id === "btnAddFolder") addFolderViaDialog();
-  else if (target.id === "btnThemeToggle") applyTheme(theme === "light" ? "dark" : "light");
+  const role = target.getAttribute("data-melo") || target.id;
+  if (role === "btnAddFiles" || role === "add-files") addFilesViaDialog();
+  else if (role === "btnAddFolder" || role === "add-folder") addFolderViaDialog();
+  else if (role === "btnThemeToggle" || role === "theme-toggle") applyTheme(theme === "light" ? "dark" : "light");
 });
 
 window.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -1094,9 +1140,9 @@ function setupSettings(toast: ToastFn) {
 }
 
 function bindWinControls() {
-  document.querySelectorAll(".win-btn").forEach(btn => {
+  document.querySelectorAll('.win-btn, [data-melo="minimize"], [data-melo="close"]').forEach(btn => {
     (btn as HTMLElement).onclick = async () => {
-      const label = btn.getAttribute("aria-label");
+      const label = btn.getAttribute("aria-label") || btn.getAttribute("data-melo");
       if ((window as any).__TAURI__) {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const w = getCurrentWindow();
@@ -1110,10 +1156,19 @@ function bindWinControls() {
 }
 bindWinControls();
 
+// Panel toggles — bound by id in the default skin and by data-melo in custom skins.
+const panelHookMap: Array<[string, string, string]> = [
+  ["btnToggleLibrary", "toggle-library", "win-library"],
+  ["btnTogglePlaylist", "toggle-playlist", "win-playlist"],
+  ["btnToggleEq", "toggle-eq", "win-equalizer"],
+  ["btnToggleLyrics", "toggle-lyrics", "win-lyrics"],
+  ["btnOpenSettings", "toggle-settings", "win-settings"],
+];
+
 (window as any).__LUMI_REBIND_MAIN__ = () => {
   bindWinControls();
-  Object.entries(toggleMap).forEach(([btnId, winId]) => {
-    const b = document.getElementById(btnId);
+  panelHookMap.forEach(([id, role, winId]) => {
+    const b = findHook<HTMLElement>(id, role);
     if (b) {
       (b as HTMLElement).onclick = () => toggleWin(winId);
     }
@@ -1126,7 +1181,7 @@ aboutPop.id = "aboutPop";
 aboutPop.style.display = "none";
 document.body.appendChild(aboutPop);
 document.addEventListener("click", (e) => {
-  if (!(e.target as HTMLElement)?.closest("#btnAbout")) return;
+  if (!(e.target as HTMLElement)?.closest('#btnAbout, [data-melo="about"]')) return;
   e.stopPropagation();
   aboutPop.innerHTML = `
     <div class="about-head">Melo <b>0.5.1 Beta</b></div>
@@ -1147,7 +1202,7 @@ document.addEventListener("click", (e) => {
   });
 });
 document.addEventListener("click", (e) => {
-  if (!(e.target as HTMLElement).closest("#aboutPop") && !(e.target as HTMLElement).closest("#btnAbout")) aboutPop.style.display = "none";
+  if (!(e.target as HTMLElement).closest("#aboutPop") && !(e.target as HTMLElement).closest('#btnAbout, [data-melo="about"]')) aboutPop.style.display = "none";
 });
 
 // App Initialization
@@ -1155,7 +1210,7 @@ if (isTauri && urlPanel) {
   if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
   else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
   else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
-  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); }
+  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); setupSkinEngine(showToast); }
 } else {
   setupPlayer(audio, showToast);
   setupLibrary(audio, showToast);

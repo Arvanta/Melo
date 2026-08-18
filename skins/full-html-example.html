@@ -1,140 +1,327 @@
 <!doctype html>
-<html lang="fa">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Melo Full HTML Skin Example</title>
+<title>Melo Skin — Full HTML Example (Aurora Console)</title>
 <style>
-  /* ===== FULL HTML SKIN - آزادی کامل ===== */
-  /* هر چیزی رو می‌تونی عوض کنی: جای پراگرس‌بار، شکل کاور، موقعیت دکمه‌ها */
+  /*
+    ============================================================
+    MELO FULL HTML SKIN — "Aurora Console"
+    ============================================================
+    This is a complete, self-contained player skin. Copy this file,
+    change ANYTHING you like (layout, size, colors, control style,
+    visualizer bar count...), save it as a new .html file and import
+    it from Settings → Appearance → "Import Skin".
+
+    See skins/README.md for the full skin-authoring guide.
+  */
+
   :root {
-    --card: #0f172a;
-    --accent: #38bdf8;
-    --visualizer: #38bdf8;
+    --skin-card: #0b1220;
+    --skin-card2: #131c2e;
+    --skin-border: rgba(120, 160, 255, 0.18);
+    --skin-text: #eaf1ff;
+    --skin-soft: #93a6c8;
+    --skin-accent: #5fb6ff;   /* fallback when Dynamic Album Artwork Theme is off */
+    --skin-accent2: #8f7bff;
+    --skin-track: rgba(255, 255, 255, 0.06);
+    --skin-radius: 18px;
   }
+
+  /* The card fills the whole native window (the window size is declared
+     on the <body> tag below). */
   .player-card {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
-    border: 1px solid #334155 !important;
-    min-height: 180px !important;
+    background: linear-gradient(135deg, var(--skin-card) 0%, var(--skin-card2) 100%) !important;
+    border: 1px solid var(--skin-border) !important;
+    border-radius: var(--skin-radius) !important;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55) !important;
+    padding: 0 !important;
+    height: 100vh !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
   }
-  /* مثال: پراگرس‌بار بره بالا */
-  .seek-row {
-    position: absolute !important;
-    top: 44px !important;
-    left: 18px !important;
-    right: 18px !important;
+
+  .aurora-root {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    color: var(--skin-text);
   }
-  /* مثال: کاور گرد و کوچک سمت راست */
-  .cover-wrap {
-    width: 90px !important;
-    height: 90px !important;
-    border-radius: 50% !important;
-    border: 2px solid var(--accent) !important;
-    box-shadow: 0 8px 24px rgba(56,189,248,0.3) !important;
+
+  /* ---------- Title bar (drag region) ---------- */
+  .aurora-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    -webkit-app-region: drag;
+    user-select: none;
   }
-  /* مثال: تایتل بزرگتر */
-  .track-title { font-size: 20px !important; color: #f1f5f9 !important; }
-  .track-artist { color: #94a3b8 !important; }
-  /* ویژوالایزر بلندتر */
-  .visualizer-bars { height: 48px !important; gap: 3px !important; }
-  .v-bar { background: linear-gradient(to top, #38bdf8, #818cf8) !important; }
-  /* دکمه پلی مربعی */
-  .transport .play-btn { border-radius: 14px !important; width: 60px !important; height: 60px !important; }
+  .aurora-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--skin-text);
+    -webkit-app-region: no-drag;
+    pointer-events: none;
+  }
+  .aurora-brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--skin-accent), var(--skin-accent2));
+    box-shadow: 0 0 12px var(--skin-accent);
+  }
+  .aurora-spacer { flex: 1; }
+  .aurora-win {
+    display: flex; gap: 6px; -webkit-app-region: no-drag;
+  }
+  .aurora-win button {
+    width: 26px; height: 22px; border-radius: 6px;
+    border: 1px solid var(--skin-border);
+    background: transparent; color: var(--skin-soft);
+    font-size: 12px; line-height: 1; cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .aurora-win button:hover { background: var(--skin-track); color: var(--skin-text); }
+  .aurora-win button.close:hover { background: #e5484d; color: #fff; border-color: transparent; }
+
+  /* ---------- Main row ---------- */
+  .aurora-main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 108px 1fr auto;
+    gap: 16px;
+    align-items: center;
+    padding: 6px 18px 14px 18px;
+    min-height: 0;
+  }
+
+  /* Cover — you can move it anywhere, make it round/square, etc. */
+  .aurora-cover {
+    width: 104px; height: 104px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 2px solid var(--skin-border);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    display: grid; place-items: center;
+    background: var(--skin-track);
+  }
+  .aurora-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .aurora-cover .fallback {
+    width: 100%; height: 100%;
+    display: grid; place-items: center;
+    font-size: 30px;
+    background: linear-gradient(135deg, var(--skin-accent), var(--skin-accent2));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Track info */
+  .aurora-info { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .aurora-title {
+    font-size: 19px; font-weight: 700; color: var(--skin-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .aurora-artist {
+    font-size: 13px; color: var(--skin-soft);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .aurora-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .aurora-badges span {
+    font-size: 10px; padding: 2px 8px; border-radius: 999px;
+    background: var(--skin-track); color: var(--skin-soft);
+    border: 1px solid var(--skin-border);
+  }
+
+  /* Seek row — position it anywhere; the player engine updates the
+     --progress variable so the fill follows the current position. */
+  .aurora-seek { display: flex; align-items: center; gap: 10px; }
+  .aurora-seek .time {
+    font-size: 11px; color: var(--skin-soft);
+    font-variant-numeric: tabular-nums; min-width: 34px; text-align: center;
+  }
+  input[type="range"].aurora-seekbar {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 6px; border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(to right,
+      var(--accent, var(--skin-accent)) 0%,
+      var(--accent, var(--skin-accent)) var(--progress, 0%),
+      var(--skin-track) var(--progress, 0%), var(--skin-track) 100%);
+  }
+  input[type="range"].aurora-seekbar::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 3px solid var(--accent, var(--skin-accent));
+    box-shadow: 0 0 10px var(--accent-glow, rgba(95, 182, 255, 0.4));
+    cursor: pointer;
+  }
+
+  /* Transport — here shown as a mix of text and icon buttons.
+     You are free to use pure text, pure icons, or anything else. */
+  .aurora-transport { display: flex; align-items: center; gap: 8px; }
+  .aurora-transport button {
+    min-width: 34px; height: 32px; padding: 0 10px;
+    border-radius: 10px; border: 1px solid var(--skin-border);
+    background: var(--skin-track); color: var(--skin-text);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  }
+  .aurora-transport button:hover { background: rgba(255, 255, 255, 0.12); }
+  .aurora-transport button.play {
+    min-width: 52px; height: 40px; font-size: 16px;
+    background: linear-gradient(135deg, var(--skin-accent), var(--skin-accent2));
+    border: none; box-shadow: 0 6px 18px rgba(95, 182, 255, 0.35);
+  }
+  .aurora-transport button.active { color: var(--accent, var(--skin-accent)); border-color: var(--accent, var(--skin-accent)); }
+
+  /* ---------- Right column: visualizer + volume + panel buttons ---------- */
+  .aurora-side { display: flex; flex-direction: column; gap: 10px; align-items: stretch; min-width: 150px; }
+
+  /* Visualizer — size it however you like; bar count via the data-bars
+     attribute on the same element. */
+  .aurora-viz {
+    height: 46px; border-radius: 10px;
+    background: var(--skin-track);
+    border: 1px solid var(--skin-border);
+    overflow: hidden;
+  }
+
+  .aurora-volume { display: flex; align-items: center; gap: 8px; }
+  .aurora-volume .vol-icon { font-size: 13px; cursor: pointer; }
+  input[type="range"].aurora-vol {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 4px; border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(to right,
+      var(--accent, var(--skin-accent)) 0%,
+      var(--accent, var(--skin-accent)) var(--vol, 60%),
+      var(--skin-track) var(--vol, 60%), var(--skin-track) 100%);
+  }
+  input[type="range"].aurora-vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+    background: #fff; border: 2.5px solid var(--accent, var(--skin-accent)); cursor: pointer;
+  }
+
+  /* Panel toggles as plain TEXT links (instead of icons) */
+  .aurora-panels { display: flex; flex-wrap: wrap; gap: 6px; }
+  .aurora-panels button {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em;
+    padding: 4px 9px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--skin-border);
+    background: transparent; color: var(--skin-soft);
+  }
+  .aurora-panels button:hover { color: var(--skin-text); background: var(--skin-track); }
+
+  /* Quick actions in the title bar area */
+  .aurora-quick { display: flex; gap: 6px; -webkit-app-region: no-drag; }
+  .aurora-quick button {
+    font-size: 11px; font-weight: 600; color: var(--skin-soft);
+    background: transparent; border: none; cursor: pointer; padding: 4px 6px;
+  }
+  .aurora-quick button:hover { color: var(--skin-text); }
 </style>
 </head>
-<body>
+
 <!--
-  FULL HTML SKIN: این HTML جایگزین کل .player-card میشه
-  فقط این ID ها رو نگه دار تا همه چی کار کنه:
-  coverImg, coverFallback, trackTitle, trackArtist, trackAlbum, trackCodec, trackSpecs,
-  btnShuffle, btnPrev, btnPlay, iconPlay, iconPause, btnNext, btnRepeat,
-  curTime, durTime, seekBar, volBar, volPct, volIcon, vizBars,
-  appMenuBtn, appMenu, btnToggleLibrary, btnTogglePlaylist, btnToggleEq, btnOpenSettings
+  WINDOW GEOMETRY (optional)
+  Declare how big the native window should be when this skin is active.
+  Put these attributes on <html>, <body> or the #lumi-player root:
+    data-window-width   (px)   target window width
+    data-window-height  (px)   target window height
+    data-min-width      (px)   minimum width the user may resize to
+    data-min-height     (px)   minimum height the user may resize to
+    data-resizable="true|false"  allow the user to resize this skin's window
+  -->
+<body data-window-width="900" data-window-height="250" data-min-width="560" data-min-height="200" data-resizable="true">
 
-  می‌تونی جاشون رو هر جا بذاری، هر شکلی بدی، حتی با grid/flex کاملاً بچینی!
-  اگر این ID ها نباشن، دکمه‌ها کار نمی‌کنن.
+<!--
+  STRUCTURE
+  Every control below is wired through data-melo attributes, so you can move
+  any of them anywhere, restyle them, replace icons with text (or the other
+  way around), even delete the ones you don't need. The classic id-based
+  hooks (btnPlay, seekBar, ...) still work too — see skins/README.md.
 -->
-
-<!-- نکته: اگر این div رو با id="lumi-player" بذاری، فقط داخلش جایگزین میشه -->
 <div id="lumi-player">
-  <div class="player-titlebar" data-tauri-drag-region>
-    <button class="app-name-btn" id="appMenuBtn">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
-      Melo <span class="chev">▾</span>
-    </button>
-    <div id="appMenu" class="app-menu">
-      <div class="menu-label">فایل</div>
-      <button class="menu-item" id="menuAddFile">افزودن فایل...</button>
-      <button class="menu-item" id="menuAddFolder">افزودن پوشه...</button>
-      <div class="menu-sep"></div>
-      <div class="menu-label">پنجره‌ها</div>
-      <button class="menu-item" id="menuToggleLibrary">کتابخانه</button>
-      <button class="menu-item" id="menuTogglePlaylist">پلی‌لیست</button>
-      <button class="menu-item" id="menuToggleEq">اکولایزر</button>
-    </div>
-    <div class="win-controls">
-      <button class="win-btn" aria-label="minimize">—</button>
-      <button class="win-btn close" aria-label="close">×</button>
-    </div>
-  </div>
+  <div class="aurora-root">
 
-  <div class="player-main">
-    <!-- کاور رو می‌تونی هر جا بذاری -->
-    <div class="cover-wrap" id="coverWrap">
-      <img id="coverImg" style="display:none" alt="cover"/>
-      <div id="coverFallback" class="cover-fallback">♪</div>
+    <div class="aurora-titlebar" data-tauri-drag-region>
+      <div class="aurora-brand"><span class="dot"></span> Melo</div>
+      <div class="aurora-quick">
+        <button data-melo="add-files">Add files</button>
+        <button data-melo="add-folder">Add folder</button>
+        <button data-melo="theme-toggle">Theme</button>
+        <button data-melo="about">About</button>
+      </div>
+      <div class="aurora-spacer"></div>
+      <div class="aurora-win">
+        <button data-melo="minimize" aria-label="minimize">—</button>
+        <button data-melo="close" aria-label="close" class="close">×</button>
+      </div>
     </div>
 
-    <div class="track-info">
-      <div class="track-meta">
-        <div class="track-title" id="trackTitle">The Horizon</div>
-        <div class="track-artist" id="trackArtist">Tycho</div>
-        <div class="track-album" id="trackAlbum">Simulcast</div>
-        <div class="track-format">
-          <span class="badge-flac" id="trackCodec">FLAC</span>
-          <span id="trackSpecs">44.1 kHz · 16 bit</span>
+    <div class="aurora-main">
+
+      <!-- Cover: the <img> and the fallback are siblings; the player engine
+           shows exactly one of them at a time. -->
+      <div class="aurora-cover">
+        <img data-melo="cover" alt="cover" style="display:none" />
+        <div class="fallback" data-melo="cover-fallback">♪</div>
+      </div>
+
+      <!-- Track info + seek + transport -->
+      <div class="aurora-info">
+        <div class="aurora-badges">
+          <span data-melo="codec">FLAC</span>
+          <span data-melo="specs">44.1 kHz · 16 bit</span>
+          <span data-melo="album">Album</span>
+        </div>
+        <div class="aurora-title" data-melo="title">No track loaded</div>
+        <div class="aurora-artist" data-melo="artist">Add music to start playing</div>
+
+        <div class="aurora-seek">
+          <span class="time" data-melo="current-time">0:00</span>
+          <input class="aurora-seekbar" type="range" data-melo="seek" min="0" max="240" value="0" />
+          <span class="time" data-melo="duration">0:00</span>
+        </div>
+
+        <div class="aurora-transport">
+          <button data-melo="shuffle">Shuffle</button>
+          <button data-melo="prev">Prev</button>
+          <button class="play" data-melo="play">
+            <span data-melo="pause-icon">❚❚</span>
+            <span data-melo="play-icon" style="display:none">▶</span>
+          </button>
+          <button data-melo="next">Next</button>
+          <button data-melo="repeat">Repeat</button>
+          <button data-melo="stop">Stop</button>
         </div>
       </div>
 
-      <div class="transport">
-        <button id="btnShuffle" title="Shuffle">⤨</button>
-        <button id="btnPrev" title="Prev">⏮</button>
-        <button id="btnPlay" title="Play/Pause">
-          <span id="iconPause">⏸</span>
-          <span id="iconPlay" style="display:none">▶</span>
-        </button>
-        <button id="btnNext" title="Next">⏭</button>
-        <button id="btnRepeat" title="Repeat">↻</button>
-      </div>
+      <!-- Right column -->
+      <div class="aurora-side">
+        <!-- Visualizer: 24 bars, custom size. Change data-bars to taste. -->
+        <div class="aurora-viz" data-melo="visualizer" data-bars="24"></div>
 
-      <!-- پراگرس‌بار رو هر جا بخوای بذار -->
-      <div class="seek-row">
-        <span id="curTime">1:24</span>
-        <input id="seekBar" type="range" class="seek" min="0" max="276" value="84"/>
-        <span id="durTime">4:36</span>
-      </div>
-    </div>
-
-    <div class="right-panel">
-      <div class="right-main">
-        <div class="volume-row">
-          <span id="volIcon">🔊</span>
-          <input id="volBar" type="range" class="vol" min="0" max="100" value="60"/>
-          <span id="volPct">60%</span>
+        <div class="aurora-volume">
+          <span class="vol-icon" data-melo="volume-icon">🔊</span>
+          <input class="aurora-vol" type="range" data-melo="volume" min="0" max="100" value="60" />
+          <span style="font-size:11px;color:var(--skin-soft)" data-melo="volume-pct">60%</span>
         </div>
-        <!-- ویژوالایزر - تعداد میله‌ها رو خودت کم/زیاد کن -->
-        <div class="visualizer-bars" id="vizBars">
-          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
-          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
-          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
-          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+
+        <!-- Window toggles as text buttons -->
+        <div class="aurora-panels">
+          <button data-melo="toggle-library">Library</button>
+          <button data-melo="toggle-playlist">Playlist</button>
+          <button data-melo="toggle-eq">EQ</button>
+          <button data-melo="toggle-lyrics">Lyrics</button>
+          <button data-melo="toggle-settings">Settings</button>
         </div>
       </div>
-      <div class="side-actions">
-        <button id="btnToggleLibrary" title="کتابخانه">📚</button>
-        <button id="btnTogglePlaylist" title="پلی‌لیست">≡</button>
-        <button id="btnToggleEq" title="اکولایزر">🎛</button>
-        <button id="btnOpenSettings" title="تنظیمات">⚙</button>
-      </div>
+
     </div>
   </div>
 </div>
