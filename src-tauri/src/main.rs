@@ -39,8 +39,7 @@ pub struct SkinFileInfo {
 }
 
 // Embedded default skin templates to ensure the skins folder is always populated on disk
-const DEFAULT_SKIN_COMPACT_LIGHT: &str = include_str!("../../skins/compact-pill-light.html");
-const DEFAULT_SKIN_COMPACT_DARK: &str = include_str!("../../skins/compact-pill-dark.html");
+const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
 const DEFAULT_SKIN_GUIDE: &str = include_str!("../../skins/SKIN-GUIDE.md");
 
@@ -163,14 +162,9 @@ fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 fn ensure_default_skins_on_disk(skins_dir: &Path) {
-    let f1 = skins_dir.join("compact-pill-light.html");
-    if !f1.exists() {
-        let _ = std::fs::write(f1, DEFAULT_SKIN_COMPACT_LIGHT);
-    }
-    let f2 = skins_dir.join("compact-pill-dark.html");
-    if !f2.exists() {
-        let _ = std::fs::write(f2, DEFAULT_SKIN_COMPACT_DARK);
-    }
+    let _ = std::fs::write(skins_dir.join("compact-pill.html"), DEFAULT_SKIN_COMPACT);
+    let _ = std::fs::remove_file(skins_dir.join("compact-pill-light.html"));
+    let _ = std::fs::remove_file(skins_dir.join("compact-pill-dark.html"));
     let _ = std::fs::write(skins_dir.join("full-html-example.html"), DEFAULT_SKIN_FULL_EXAMPLE);
     let _ = std::fs::write(skins_dir.join("SKIN-GUIDE.md"), DEFAULT_SKIN_GUIDE);
 }
@@ -257,8 +251,8 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
 
     // Check embedded fallback if filename matches
     match filename_or_path.as_str() {
-        "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT_LIGHT.to_string()),
-        "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT_DARK.to_string()),
+        "compact-pill.html" | "compact-pill" | "compact-pill-light.html" | "compact-pill-light"
+        | "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }

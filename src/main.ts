@@ -1072,7 +1072,7 @@ function setupSettings(toast: ToastFn) {
       <option value="compact-pill">Minimal Compact (Pill Bar)</option>
     `;
     installed.forEach(item => {
-      if (item.filename !== "compact-pill-light.html" && item.filename !== "compact-pill-dark.html") {
+      if (!/^compact-pill/i.test(item.filename)) {
         const opt = document.createElement("option");
         opt.value = item.filename;
         opt.textContent = `${item.name} (${item.filename})`;

@@ -183,7 +183,7 @@ input[type="range"].seek {
 4. Select your file in the skin dropdown.
 5. Or drag the `.html` onto the player window.
 
-Built-in compact skins (`compact-pill-*.html`) are special-cased and stay in sync with the app. Your files are never overwritten if they already exist.
+The built-in compact skin is a single file: `compact-pill.html`. Light and dark tokens live in the same file and follow Melo’s `[data-theme]` attribute, so switching theme does not reload the skin. Your own files are not overwritten if they already exist (the starter template and this guide are refreshed on launch).
 
 ---
 
