@@ -489,31 +489,51 @@ if (isTauri && !urlPanel) {
 
     // Resolve the native window size a skin wants:
     //  - compact pill: fixed 780×138, not resizable
-    //  - custom skin with declared geometry: its own width/height (+ min sizes)
+    //  - custom skin with a declared target size: resize to it, then apply bounds
+    //  - custom skin with only min/max bounds: keep current size, apply bounds
     //  - custom skin without geometry: keep current size, free to resize
-    //  - default skin: 960×240, resizable
+    //  - default skin: 960×240, resizable (650 floor, 260 max height)
     const getTargetSize = () => {
       const activeSkin = localStorage.getItem("melo-active-skin-id") || "default";
       const isCompact = activeSkin === "compact-pill" || (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
-      if (isCompact) return { w: 780, h: 138, resizable: false, fixed: true, custom: false, force: true };
+      if (isCompact) return { w: 780, h: 138, resizable: false, fixed: true, custom: false, force: true, minW: 780, minH: 138, maxW: 780, maxH: 138 };
       if (activeSkin !== "default") {
         const geo = readSkinGeometry();
-        if (geo) return { w: geo.width, h: geo.height, resizable: geo.resizable !== false, fixed: false, custom: true, force: true, minW: geo.minWidth, minH: geo.minHeight };
-        return { w: 0, h: 0, resizable: true, fixed: false, custom: true, force: false };
+        if (geo) {
+          const hasSize = Number.isFinite(geo.width) && Number.isFinite(geo.height) && (geo.width || 0) > 0 && (geo.height || 0) > 0;
+          return {
+            w: geo.width || 0,
+            h: geo.height || 0,
+            resizable: geo.resizable !== false,
+            fixed: false,
+            custom: true,
+            force: hasSize,
+            minW: geo.minWidth,
+            minH: geo.minHeight,
+            maxW: geo.maxWidth,
+            maxH: geo.maxHeight,
+          };
+        }
+        return { w: 0, h: 0, resizable: true, fixed: false, custom: true, force: false, minW: undefined, minH: undefined, maxW: undefined, maxH: undefined };
       }
-      return { w: 960, h: 240, resizable: true, fixed: false, custom: false, force: true };
+      return { w: 960, h: 240, resizable: true, fixed: false, custom: false, force: true, minW: 650, minH: 135, maxW: 10000, maxH: 260 };
     };
 
-    const applySizeConstraints = async (sz: { fixed: boolean; custom: boolean; resizable: boolean; minW?: number; minH?: number; w: number; h: number }) => {
+    const applySizeConstraints = async (sz: { fixed: boolean; custom: boolean; resizable: boolean; minW?: number; minH?: number; maxW?: number; maxH?: number; w: number; h: number }) => {
       try {
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
         if (sz.fixed) {
+          // Compact Pill: fixed-size design — min == max == target.
           await mainWin.setMinSize(new LogicalSize(sz.w, sz.h));
           await mainWin.setMaxSize(new LogicalSize(sz.w, sz.h));
         } else if (sz.custom) {
-          // Custom skins: generous freedom in every direction.
-          await mainWin.setMinSize(new LogicalSize(sz.minW || 240, sz.minH || 120));
-          await mainWin.setMaxSize(new LogicalSize(10000, 10000));
+          // Custom skins: a skin may declare min and/or max bounds (or none).
+          const minW = sz.minW || 240;
+          const minH = sz.minH || 120;
+          const maxW = Math.max(minW, sz.maxW || 10000);
+          const maxH = Math.max(minH, sz.maxH || 10000);
+          await mainWin.setMinSize(new LogicalSize(minW, minH));
+          await mainWin.setMaxSize(new LogicalSize(maxW, maxH));
         } else {
           // Default skin keeps its historical floor and max height.
           await mainWin.setMinSize(new LogicalSize(650, 135));

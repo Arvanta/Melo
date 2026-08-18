@@ -11,11 +11,13 @@ export interface SkinItem {
 }
 
 export interface SkinGeometry {
-  width: number;
-  height: number;
+  width?: number;
+  height?: number;
   minWidth?: number;
   minHeight?: number;
-  resizable: boolean;
+  maxWidth?: number;
+  maxHeight?: number;
+  resizable?: boolean;
 }
 
 /**
@@ -40,15 +42,25 @@ export function parseSkinGeometry(htmlText: string): SkinGeometry | null {
   };
   const width = read("data-window-width");
   const height = read("data-window-height");
-  if (!width || !height) return null;
   const minWidth = read("data-min-width");
   const minHeight = read("data-min-height");
+  const maxWidth = read("data-max-width");
+  const maxHeight = read("data-max-height");
   const resizable = !/data-resizable\s*=\s*["\']?false/i.test(htmlText);
+  // Return geometry whenever the skin declares anything about its window —
+  // a target size, min/max bounds, or both.
+  if (
+    width == null && height == null &&
+    minWidth == null && minHeight == null &&
+    maxWidth == null && maxHeight == null
+  ) return null;
   return {
-    width,
-    height,
+    width: width ?? undefined,
+    height: height ?? undefined,
     minWidth: minWidth ?? undefined,
     minHeight: minHeight ?? undefined,
+    maxWidth: maxWidth ?? undefined,
+    maxHeight: maxHeight ?? undefined,
     resizable,
   };
 }
@@ -56,7 +68,8 @@ export function parseSkinGeometry(htmlText: string): SkinGeometry | null {
 export function readSkinGeometry(): SkinGeometry | null {
   try {
     const geo = JSON.parse(localStorage.getItem("melo-skin-geometry") || "null");
-    if (geo && Number.isFinite(geo.width) && Number.isFinite(geo.height)) return geo as SkinGeometry;
+    if (!geo || typeof geo !== "object") return null;
+    return geo as SkinGeometry;
   } catch {}
   return null;
 }

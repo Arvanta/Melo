@@ -79,14 +79,24 @@ root):
 | `data-window-height` | Target window height in px, e.g. `260` |
 | `data-min-width` | Minimum width the user may resize to |
 | `data-min-height` | Minimum height the user may resize to |
+| `data-max-width` | Maximum width — the window never grows past this |
+| `data-max-height` | Maximum height — the window never grows past this |
 | `data-resizable="true\|false"` | Whether the user can resize this skin's window |
 
 ```html
 <body data-window-width="900" data-window-height="260"
       data-min-width="560" data-min-height="200"
+      data-max-width="1400" data-max-height="520"
       data-resizable="true">
 ```
 
+- **Any combination works** — you can declare a target size only, min/max
+  bounds only, or all of them together.
+- **Fixed size** (the window cannot be resized at all): set the target and
+  min/max to the same value, e.g.
+  `data-window-width="700" data-window-height="220" data-min-width="700"
+  data-min-height="220" data-max-width="700" data-max-height="220"
+  data-resizable="false"`.
 - If you omit these attributes, the window keeps its current/default size.
 - The player card always fills the window (`height: 100vh; width: 100%`), so
   your layout should be built to fill its container.

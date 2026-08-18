@@ -234,9 +234,13 @@
     data-window-height  (px)   target window height
     data-min-width      (px)   minimum width the user may resize to
     data-min-height     (px)   minimum height the user may resize to
+    data-max-width      (px)   maximum width  (the window never grows past this)
+    data-max-height     (px)   maximum height (the window never grows past this)
     data-resizable="true|false"  allow the user to resize this skin's window
+
+  You can give only a target size, only min/max bounds, or any combination.
   -->
-<body data-window-width="900" data-window-height="250" data-min-width="560" data-min-height="200" data-resizable="true">
+<body data-window-width="900" data-window-height="250" data-min-width="560" data-min-height="200" data-max-width="1400" data-max-height="520" data-resizable="true">
 
 <!--
   STRUCTURE
