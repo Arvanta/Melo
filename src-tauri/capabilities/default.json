@@ -27,6 +27,7 @@
     "core:window:allow-outer-size",
     "core:window:allow-is-maximized",
     "core:window:allow-set-resizable",
+    "core:window:allow-is-visible",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "core:path:default",

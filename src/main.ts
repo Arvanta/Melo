@@ -787,8 +787,13 @@ if (!urlPanel) {
   });
 }
 
-Object.entries(toggleMap).forEach(([btnId, winId]) => {
-  document.getElementById(btnId)?.addEventListener("click", () => toggleWin(winId));
+document.addEventListener("click", (e) => {
+  const hit = (e.target as HTMLElement | null)?.closest?.("[id]");
+  if (!hit) return;
+  const winId = toggleMap[(hit as HTMLElement).id];
+  if (!winId) return;
+  e.preventDefault();
+  toggleWin(winId);
 });
 
 document.querySelectorAll("[data-close]").forEach(btn => {
@@ -1133,12 +1138,6 @@ bindWinControls();
 
 (window as any).__MELO_REBIND_MAIN__ = () => {
   bindWinControls();
-  Object.entries(toggleMap).forEach(([btnId, winId]) => {
-    const b = document.getElementById(btnId);
-    if (b) {
-      (b as HTMLElement).onclick = () => toggleWin(winId);
-    }
-  });
 };
 
 // About popup
@@ -1173,6 +1172,23 @@ document.addEventListener("click", (e) => {
 
 // App Initialization
 if (isTauri && urlPanel) {
+  if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
+  else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
+  else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
+  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); }
+} else {
+  setupPlayer(audio, showToast);
+  setupLibrary(audio, showToast);
+  setupEqualizer(audio, showToast);
+  setupVisualizer(audio);
+  setupLyrics(audio, showToast);
+  setupSkinEngine(showToast);
+  setupSettings(showToast);
+  initLocale();
+}
+
+
+urlPanel) {
   if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
   else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
   else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
