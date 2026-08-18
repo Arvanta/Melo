@@ -21,7 +21,7 @@ Version: **0.5.1 Beta** • License: **GPL-3.0**
 | **Single-Instance** | Prevents multiple instances; clicking shortcuts or opening audio files from Explorer focuses the existing instance and plays immediately |
 | **Multi-window** | Library / Playlist / Equalizer / Lyrics / Settings open as real OS windows, synced via the event bus |
 | **Equalizer** | 10 bands (31 Hz – 16 kHz), 12 presets + Reset button, persistent state across restarts |
-| **Skins from Disk** | Full HTML skins of any size/layout (vertical towers, widgets, custom chrome). See `skins/SKIN-GUIDE.md` and `skins/full-html-example.html` |
+| **Skins from Disk** | Loads skins directly from the `skins/` installation folder; instant live reload via Refresh button (🔄) and explorer opener |
 
 ## 🖥️ Build for Windows (GitHub Actions)
 
@@ -36,7 +36,7 @@ Version: **0.5.1 Beta** • License: **GPL-3.0**
    ```
 2. The `Build Melo` workflow runs automatically on push (or via **Actions → Run workflow**).
 3. Get the installers:
-   - **Releases** → draft release `v0.5.1 Beta` (contains `Melo_0.5.1_x64-setup.exe` and the `.msi`) — publish to keep it permanent.
+   - **Releases** → draft release `Melo v0.5.1 Beta` (contains `Melo_0.5.1_x64-setup.exe` and the `.msi`) — publish to keep it permanent.
    - **Actions → run → Artifacts → melo-windows** (zip with the same installers).
 4. Install `Melo_0.5.1_x64-setup.exe` (installs to standard `C:\Program Files\Melo`).
 

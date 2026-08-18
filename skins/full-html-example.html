@@ -1,220 +1,143 @@
 <!doctype html>
-<html lang="en">
+<html lang="fa">
 <head>
 <meta charset="UTF-8">
-<title>Melo Starter Skin — Vertical Tower</title>
-<!--
-  Copy this file, rename it, and drop it in the skins/ folder.
-  Melo binds controls by ID — keep the IDs, restyle or rearrange freely.
-
-  Window size (pixels). Omit a tag to keep Melo's default window.
--->
-<meta name="melo-width" content="360">
-<meta name="melo-height" content="640">
-<meta name="melo-min-width" content="300">
-<meta name="melo-min-height" content="480">
-<meta name="melo-resizable" content="true">
-<meta name="melo-viz-bars" content="28">
+<title>Melo Full HTML Skin Example</title>
 <style>
+  /* ===== FULL HTML SKIN - آزادی کامل ===== */
+  /* هر چیزی رو می‌تونی عوض کنی: جای پراگرس‌بار، شکل کاور، موقعیت دکمه‌ها */
   :root {
-    --card: #12141c;
-    --card-border: rgba(255,255,255,0.08);
-    --text: #f4f6fb;
-    --text-soft: #9aa3b5;
-    --text-muted: #6d7688;
-    --accent: #7c6af7;
-    --track-bg: #1c2030;
-    --visualizer: #7c6af7;
+    --card: #0f172a;
+    --accent: #38bdf8;
+    --visualizer: #38bdf8;
   }
-
   .player-card {
-    background: linear-gradient(180deg, #171a24 0%, #10131b 100%) !important;
-    border: 1px solid var(--card-border) !important;
-    border-radius: 22px !important;
-    padding: 12px 14px 16px !important;
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 12px !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    box-sizing: border-box !important;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+    border: 1px solid #334155 !important;
+    min-height: 180px !important;
   }
-
-  .skin-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    -webkit-app-region: drag;
+  /* مثال: پراگرس‌بار بره بالا */
+  .seek-row {
+    position: absolute !important;
+    top: 44px !important;
+    left: 18px !important;
+    right: 18px !important;
   }
-  .brand {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 13px; font-weight: 800; letter-spacing: .04em;
-    color: var(--text); pointer-events: none;
-  }
-  .win-controls { display: flex; gap: 4px; -webkit-app-region: no-drag; }
-  .win-btn {
-    width: 28px; height: 22px; border: none; border-radius: 6px;
-    background: transparent; color: var(--text-soft); cursor: pointer;
-  }
-  .win-btn:hover { background: var(--track-bg); color: var(--text); }
-  .win-btn.close:hover { background: #ef4444; color: #fff; }
-
+  /* مثال: کاور گرد و کوچک سمت راست */
   .cover-wrap {
-    width: 100%;
-    aspect-ratio: 1;
-    max-height: 240px;
-    margin: 0 auto;
-    border-radius: 18px;
-    overflow: hidden;
-    background: var(--track-bg);
-    box-shadow: 0 16px 40px rgba(0,0,0,.35);
+    width: 90px !important;
+    height: 90px !important;
+    border-radius: 50% !important;
+    border: 2px solid var(--accent) !important;
+    box-shadow: 0 8px 24px rgba(56,189,248,0.3) !important;
   }
-  .cover-wrap img, .cover-fallback { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cover-fallback {
-    display: grid; place-items: center;
-    background: linear-gradient(135deg, #3b2d8a, #7c6af7);
-    font-size: 48px; color: #fff;
-  }
-
-  .track-title { font-size: 18px; font-weight: 800; text-align: center; }
-  .track-artist { font-size: 13px; color: var(--text-soft); text-align: center; margin-top: 4px; }
-  .track-album, .track-format { display: none; }
-
-  .seek-row { display: flex; align-items: center; gap: 8px; }
-  .time { font-size: 11px; color: var(--text-muted); min-width: 32px; font-variant-numeric: tabular-nums; }
-  input[type="range"].seek {
-    flex: 1; -webkit-appearance: none; height: 5px; border-radius: 99px;
-    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress, 0%), var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
-    outline: none; cursor: pointer;
-  }
-  input[type="range"].seek::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
-    background: #fff; border: 3px solid var(--accent);
-  }
-
-  .transport { display: flex; justify-content: center; align-items: center; gap: 10px; }
-  .transport button {
-    border: none; background: var(--track-bg); color: var(--text);
-    width: 40px; height: 40px; border-radius: 12px; cursor: pointer;
-  }
-  .transport .play-btn {
-    width: 56px; height: 56px; border-radius: 18px;
-    background: var(--accent); color: #fff;
-  }
-  .transport button.active { outline: 2px solid var(--accent); }
-
-  .visualizer-bars {
-    height: 72px;
-    border-radius: 12px;
-    background: rgba(255,255,255,.03);
-  }
-  .visualizer-bars canvas { width: 100%; height: 100%; display: block; }
-
-  .volume-row { display: flex; align-items: center; gap: 8px; }
-  input[type="range"].vol {
-    flex: 1; -webkit-appearance: none; height: 4px; border-radius: 99px;
-    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol, 60%), var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
-  }
-  input[type="range"].vol::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff;
-  }
-  .vol-pct { font-size: 11px; color: var(--text-muted); min-width: 32px; text-align: right; }
-
-  /* Text + icon mix — put these buttons anywhere */
-  .nav-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    -webkit-app-region: no-drag;
-  }
-  .nav-row button {
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-    border: 1px solid var(--card-border); background: transparent;
-    color: var(--text-soft); border-radius: 10px; height: 34px;
-    font-size: 12px; font-weight: 600; cursor: pointer;
-  }
-  .nav-row button:hover, .nav-row button.active {
-    color: var(--text); border-color: var(--accent); background: rgba(124,106,247,.12);
-  }
-
-  .tools {
-    display: flex; justify-content: space-between; gap: 6px;
-    -webkit-app-region: no-drag;
-  }
-  .tools button {
-    flex: 1; border: none; background: var(--track-bg); color: var(--text-soft);
-    height: 30px; border-radius: 8px; font-size: 11px; cursor: pointer;
-  }
-  .tools button:hover { color: var(--text); }
+  /* مثال: تایتل بزرگتر */
+  .track-title { font-size: 20px !important; color: #f1f5f9 !important; }
+  .track-artist { color: #94a3b8 !important; }
+  /* ویژوالایزر بلندتر */
+  .visualizer-bars { height: 48px !important; gap: 3px !important; }
+  .v-bar { background: linear-gradient(to top, #38bdf8, #818cf8) !important; }
+  /* دکمه پلی مربعی */
+  .transport .play-btn { border-radius: 14px !important; width: 60px !important; height: 60px !important; }
 </style>
 </head>
 <body>
-<div id="melo-player" data-melo-width="360" data-melo-height="640" data-melo-viz-bars="28">
-  <div class="skin-top" data-tauri-drag-region>
-    <div class="brand">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
-      MELO
+<!--
+  FULL HTML SKIN: این HTML جایگزین کل .player-card میشه
+  فقط این ID ها رو نگه دار تا همه چی کار کنه:
+  coverImg, coverFallback, trackTitle, trackArtist, trackAlbum, trackCodec, trackSpecs,
+  btnShuffle, btnPrev, btnPlay, iconPlay, iconPause, btnNext, btnRepeat,
+  curTime, durTime, seekBar, volBar, volPct, volIcon, vizBars,
+  appMenuBtn, appMenu, btnToggleLibrary, btnTogglePlaylist, btnToggleEq, btnOpenSettings
+
+  می‌تونی جاشون رو هر جا بذاری، هر شکلی بدی، حتی با grid/flex کاملاً بچینی!
+  اگر این ID ها نباشن، دکمه‌ها کار نمی‌کنن.
+-->
+
+<!-- نکته: اگر این div رو با id="lumi-player" بذاری، فقط داخلش جایگزین میشه -->
+<div id="lumi-player">
+  <div class="player-titlebar" data-tauri-drag-region>
+    <button class="app-name-btn" id="appMenuBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
+      Melo <span class="chev">▾</span>
+    </button>
+    <div id="appMenu" class="app-menu">
+      <div class="menu-label">فایل</div>
+      <button class="menu-item" id="menuAddFile">افزودن فایل...</button>
+      <button class="menu-item" id="menuAddFolder">افزودن پوشه...</button>
+      <div class="menu-sep"></div>
+      <div class="menu-label">پنجره‌ها</div>
+      <button class="menu-item" id="menuToggleLibrary">کتابخانه</button>
+      <button class="menu-item" id="menuTogglePlaylist">پلی‌لیست</button>
+      <button class="menu-item" id="menuToggleEq">اکولایزر</button>
     </div>
     <div class="win-controls">
-      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
-      <button class="win-btn close" aria-label="close" title="Close">×</button>
+      <button class="win-btn" aria-label="minimize">—</button>
+      <button class="win-btn close" aria-label="close">×</button>
     </div>
   </div>
 
-  <div class="cover-wrap" id="coverWrap">
-    <img id="coverImg" alt="cover" style="display:none">
-    <div id="coverFallback" class="cover-fallback">♪</div>
-  </div>
+  <div class="player-main">
+    <!-- کاور رو می‌تونی هر جا بذاری -->
+    <div class="cover-wrap" id="coverWrap">
+      <img id="coverImg" style="display:none" alt="cover"/>
+      <div id="coverFallback" class="cover-fallback">♪</div>
+    </div>
 
-  <div>
-    <div class="track-title" id="trackTitle">No track loaded</div>
-    <div class="track-artist" id="trackArtist">Add music to start</div>
-    <div id="trackAlbum" class="track-album"></div>
-    <div class="track-format"><span id="trackCodec"></span> <span id="trackSpecs"></span></div>
-  </div>
+    <div class="track-info">
+      <div class="track-meta">
+        <div class="track-title" id="trackTitle">The Horizon</div>
+        <div class="track-artist" id="trackArtist">Tycho</div>
+        <div class="track-album" id="trackAlbum">Simulcast</div>
+        <div class="track-format">
+          <span class="badge-flac" id="trackCodec">FLAC</span>
+          <span id="trackSpecs">44.1 kHz · 16 bit</span>
+        </div>
+      </div>
 
-  <div class="seek-row">
-    <span class="time" id="curTime">0:00</span>
-    <input id="seekBar" class="seek" type="range" min="0" max="100" value="0">
-    <span class="time" id="durTime">0:00</span>
-  </div>
+      <div class="transport">
+        <button id="btnShuffle" title="Shuffle">⤨</button>
+        <button id="btnPrev" title="Prev">⏮</button>
+        <button id="btnPlay" title="Play/Pause">
+          <span id="iconPause">⏸</span>
+          <span id="iconPlay" style="display:none">▶</span>
+        </button>
+        <button id="btnNext" title="Next">⏭</button>
+        <button id="btnRepeat" title="Repeat">↻</button>
+      </div>
 
-  <div class="transport">
-    <button id="btnShuffle" title="Shuffle">Shuffle</button>
-    <button id="btnPrev" title="Previous">⏮</button>
-    <button class="play-btn" id="btnPlay" title="Play / Pause">
-      <span id="iconPause">❚❚</span>
-      <span id="iconPlay" style="display:none">▶</span>
-    </button>
-    <button id="btnStop" title="Stop">■</button>
-    <button id="btnNext" title="Next">⏭</button>
-    <button id="btnRepeat" title="Repeat">Repeat</button>
-  </div>
+      <!-- پراگرس‌بار رو هر جا بخوای بذار -->
+      <div class="seek-row">
+        <span id="curTime">1:24</span>
+        <input id="seekBar" type="range" class="seek" min="0" max="276" value="84"/>
+        <span id="durTime">4:36</span>
+      </div>
+    </div>
 
-  <!-- data-bars overrides the default bar count for this skin -->
-  <div class="visualizer-bars" id="vizBars" data-bars="28"></div>
-
-  <div class="volume-row">
-    <span id="volIcon">🔊</span>
-    <input id="volBar" class="vol" type="range" min="0" max="100" value="60">
-    <span class="vol-pct" id="volPct">60%</span>
-  </div>
-
-  <div class="nav-row">
-    <button id="btnToggleLibrary">📚 Library</button>
-    <button id="btnTogglePlaylist">Playlist</button>
-    <button id="btnToggleEq">Equalizer</button>
-    <button id="btnToggleLyrics">Lyrics</button>
-  </div>
-
-  <div class="tools">
-    <button id="btnAddFiles">+ Files</button>
-    <button id="btnAddFolder">+ Folder</button>
-    <button id="btnThemeToggle">Theme</button>
-    <button id="btnOpenSettings">Settings</button>
-    <button id="btnAbout">About</button>
+    <div class="right-panel">
+      <div class="right-main">
+        <div class="volume-row">
+          <span id="volIcon">🔊</span>
+          <input id="volBar" type="range" class="vol" min="0" max="100" value="60"/>
+          <span id="volPct">60%</span>
+        </div>
+        <!-- ویژوالایزر - تعداد میله‌ها رو خودت کم/زیاد کن -->
+        <div class="visualizer-bars" id="vizBars">
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+          <div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div><div class="v-bar"></div>
+        </div>
+      </div>
+      <div class="side-actions">
+        <button id="btnToggleLibrary" title="کتابخانه">📚</button>
+        <button id="btnTogglePlaylist" title="پلی‌لیست">≡</button>
+        <button id="btnToggleEq" title="اکولایزر">🎛</button>
+        <button id="btnOpenSettings" title="تنظیمات">⚙</button>
+      </div>
+    </div>
   </div>
 </div>
+
 </body>
 </html>

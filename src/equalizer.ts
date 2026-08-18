@@ -290,5 +290,5 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
   if (eqCanvas) new ResizeObserver(() => drawCurve()).observe(eqCanvas);
   drawCurve();
 
-  (window as any).MeloEqualizer = (window as any).LumiEqualizer = { presets, frequencies, displayGains, reset: () => btnEqReset?.click() };
+  (window as any).LumiEqualizer = { presets, frequencies, displayGains, reset: () => btnEqReset?.click() };
 }

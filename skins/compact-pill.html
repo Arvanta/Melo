@@ -2,27 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Melo Skin - Minimal Compact</title>
+<title>Melo Skin - Minimal Compact (Light/Dark)</title>
 <style>
+  /* Theme tokens — dark is the default, light overrides via [data-theme] */
   :root {
-    --card: #ffffff;
-    --card-border: rgba(0, 0, 0, 0.08);
-    --text: #111827;
-    --text-soft: #6b7280;
-    --text-muted: #9ca3af;
-    --accent: #5b92a5;
-    --track-bg: #e5e7eb;
-    --shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
-    --cover-bg: #e2e8f0;
-    --cover-border: #ffffff;
-    --cover-fallback: linear-gradient(135deg, #a5b4fc, #67e8f9);
-    --cover-fallback-fg: #ffffff;
-    --transport-fg: #4b5563;
-    --transport-hover: #111827;
-    --active-bg: rgba(91, 146, 165, 0.15);
-    --thumb-glow: 0 1px 4px rgba(0,0,0,0.18);
-  }
-  [data-theme="dark"] {
     --card: #151b23;
     --card-border: rgba(255, 255, 255, 0.1);
     --text: #f3f4f6;
@@ -31,14 +14,32 @@
     --accent: #4db6ac;
     --track-bg: #212833;
     --shadow: 0 16px 36px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+    --accent-soft: rgba(77, 182, 172, 0.2);
     --cover-bg: #0d1117;
     --cover-border: #30363d;
-    --cover-fallback: linear-gradient(135deg, #1e293b, #0f766e);
-    --cover-fallback-fg: #5eead4;
+    --cover-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    --fallback-grad: linear-gradient(135deg, #1e293b, #0f766e);
+    --fallback-fg: #5eead4;
+    --thumb-shadow: 0 0 8px rgba(77, 182, 172, 0.4);
     --transport-fg: #9ca3af;
-    --transport-hover: #ffffff;
-    --active-bg: rgba(77, 182, 172, 0.22);
-    --thumb-glow: 0 0 8px rgba(77, 182, 172, 0.4);
+  }
+  :root[data-theme="light"] {
+    --card: #ffffff;
+    --card-border: rgba(0, 0, 0, 0.08);
+    --text: #111827;
+    --text-soft: #6b7280;
+    --text-muted: #9ca3af;
+    --accent: #5b92a5;
+    --track-bg: #e5e7eb;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+    --accent-soft: rgba(91, 146, 165, 0.15);
+    --cover-bg: #e2e8f0;
+    --cover-border: #ffffff;
+    --cover-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+    --fallback-grad: linear-gradient(135deg, #a5b4fc, #67e8f9);
+    --fallback-fg: #ffffff;
+    --thumb-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+    --transport-fg: #4b5563;
   }
   * { box-sizing: border-box; }
   body {
@@ -68,6 +69,8 @@
     position: relative !important;
     box-sizing: border-box !important;
   }
+
+  /* Top Bar */
   .player-titlebar {
     position: relative !important;
     height: 24px !important;
@@ -78,6 +81,8 @@
     -webkit-app-region: drag !important;
     user-select: none !important;
   }
+
+  /* Top-Left: Brand + Action Buttons in ordered compact row */
   .titlebar-left {
     display: flex !important;
     align-items: center !important;
@@ -88,9 +93,10 @@
     display: flex; align-items: center; gap: 5px;
     font-size: 11.5px; font-weight: 700; color: var(--text);
     background: transparent; border: none; padding: 2px 6px;
-    border-radius: 6px; cursor: default; pointer-events: none;
-    letter-spacing: 0.02em; user-select: none;
+    border-radius: 6px; cursor: default; letter-spacing: 0.02em;
+    pointer-events: none; user-select: none;
   }
+
   .mini-btn {
     width: 22px; height: 22px; border-radius: 5px; border: none;
     background: transparent; color: var(--text-soft); display: grid;
@@ -98,8 +104,10 @@
     transition: all 0.15s; padding: 0;
   }
   .mini-btn:hover { background: var(--track-bg); color: var(--text); }
-  .mini-btn.active { color: var(--accent); background: var(--active-bg); font-weight: bold; }
+  .mini-btn.active { color: var(--accent); background: var(--accent-soft); font-weight: bold; }
   .mini-sep { width: 1px; height: 12px; background: var(--card-border); margin: 0 2px; }
+
+  /* Top-Right: Window Controls (NO MAXIMIZE) */
   .win-controls {
     display: flex !important;
     gap: 2px !important;
@@ -113,6 +121,8 @@
   }
   .win-btn:hover { background: var(--track-bg) !important; color: var(--text) !important; }
   .win-btn.close:hover { background: #ef4444 !important; color: white !important; }
+
+  /* Main Streamlined Player Row */
   .player-main {
     display: flex !important;
     align-items: center !important;
@@ -121,6 +131,8 @@
     margin-top: 0 !important;
     min-height: 0 !important;
   }
+
+  /* Circular Album Art */
   .cover-col {
     display: flex !important;
     align-items: center !important;
@@ -133,15 +145,14 @@
     border-radius: 50% !important;
     overflow: hidden !important;
     background: var(--cover-bg) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16) !important;
+    box-shadow: var(--cover-shadow) !important;
     flex-shrink: 0 !important;
     border: 2px solid var(--cover-border) !important;
   }
   .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cover-fallback {
-    width: 100%; height: 100%; display: grid; place-items: center;
-    background: var(--cover-fallback); color: var(--cover-fallback-fg); font-size: 24px;
-  }
+  .cover-fallback { width: 100%; height: 100%; display: grid; place-items: center; background: var(--fallback-grad); color: var(--fallback-fg); font-size: 24px; }
+
+  /* Track Title & Artist */
   .track-info {
     display: flex !important;
     flex-direction: column !important;
@@ -169,6 +180,8 @@
     margin-top: 3px !important;
   }
   .track-album, .track-format { display: none !important; }
+
+  /* Center Sleek Seeker */
   .seek-center {
     flex: 1 !important;
     display: flex !important;
@@ -185,6 +198,7 @@
   }
   .time-label.cur { text-align: right !important; }
   .time-label.dur { text-align: left !important; }
+
   .seek-row { flex: 1 !important; display: flex !important; align-items: center !important; }
   input[type="range"].seek {
     -webkit-appearance: none !important;
@@ -192,7 +206,7 @@
     width: 100% !important;
     height: 5px !important;
     border-radius: 999px !important;
-    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress, 35%), var(--track-bg) var(--progress, 35%), var(--track-bg) 100%) !important;
+    background: linear-gradient(to right, var(--accent, #4db6ac) 0%, var(--accent, #4db6ac) var(--progress, 35%), var(--track-bg) var(--progress, 35%), var(--track-bg) 100%) !important;
     outline: none !important;
     cursor: pointer !important;
   }
@@ -202,12 +216,16 @@
     height: 15px !important;
     border-radius: 50% !important;
     background: #ffffff !important;
-    border: 3.5px solid var(--accent) !important;
-    box-shadow: var(--thumb-glow) !important;
+    /* Border (and glow) follow the Dynamic Album Artwork accent color when
+       it is active; otherwise they fall back to the theme's static values. */
+    border: 3.5px solid var(--accent, #4db6ac) !important;
+    box-shadow: 0 0 8px var(--accent-glow, var(--thumb-shadow)) !important;
     cursor: pointer !important;
     transition: transform 0.1s !important;
   }
   input[type="range"].seek::-webkit-slider-thumb:hover { transform: scale(1.2) !important; }
+
+  /* Right Transport Controls */
   .transport {
     display: flex !important;
     align-items: center !important;
@@ -229,28 +247,31 @@
     transition: all 0.15s !important;
   }
   .transport button:hover, .transport .play-btn:hover {
-    color: var(--transport-hover) !important;
+    color: var(--text) !important;
     background: var(--track-bg) !important;
     transform: scale(1.08) !important;
   }
   .transport button.active {
     color: var(--accent) !important;
-    background: var(--active-bg) !important;
+    background: var(--accent-soft) !important;
   }
   .transport button svg, .transport .icon-btn svg { width: 16px !important; height: 16px !important; }
   .transport .play-btn { width: 32px !important; height: 32px !important; }
   .transport .play-btn svg { width: 20px !important; height: 20px !important; }
+
+  /* Hidden audio support elements (kept for JS event listeners) */
   .hidden-helper { display: none !important; }
 </style>
 </head>
 <body>
-<div id="melo-player">
+<div id="lumi-player">
   <div class="player-titlebar" data-tauri-drag-region>
+    <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
-      <span class="app-name-btn" id="appMenuBtn">
+      <button class="app-name-btn" id="appMenuBtn">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
         Melo
-      </span>
+      </button>
       <div class="mini-sep"></div>
       <button class="mini-btn" id="btnAddFiles" title="Add files (Ctrl+O)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
@@ -285,11 +306,15 @@
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
       </button>
     </div>
+
+    <!-- Top-Right: Window Controls (NO MAXIMIZE) -->
     <div class="win-controls">
       <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
       <button class="win-btn close" aria-label="close" title="Close">×</button>
     </div>
   </div>
+
+  <!-- Main Streamlined Content Row -->
   <div class="player-main">
     <div class="cover-col">
       <div class="cover-wrap" id="coverWrap">
@@ -297,6 +322,7 @@
         <div id="coverFallback" class="cover-fallback">♪</div>
       </div>
     </div>
+
     <div class="track-info">
       <div class="track-title" id="trackTitle">Morning Sun</div>
       <div class="track-artist" id="trackArtist">Serenity Now</div>
@@ -304,13 +330,15 @@
       <div id="trackCodec" class="hidden-helper"></div>
       <div id="trackSpecs" class="hidden-helper"></div>
     </div>
+
     <div class="seek-center">
       <span class="time-label cur" id="curTime">0:00</span>
       <div class="seek-row">
-        <input id="seekBar" type="range" class="seek" min="0" max="100" value="0"/>
+        <input id="seekBar" type="range" class="seek" min="0" max="276" value="130"/>
       </div>
-      <span class="time-label dur" id="durTime">0:00</span>
+      <span class="time-label dur" id="durTime">4:36</span>
     </div>
+
     <div class="transport">
       <button class="icon-btn" id="btnPrev" title="Previous">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
@@ -327,6 +355,8 @@
       </button>
     </div>
   </div>
+
+  <!-- Hidden volume & visualizer placeholders for player bindings -->
   <div class="hidden-helper">
     <input id="volBar" type="range" min="0" max="100" value="60"/>
     <span id="volIcon">🔊</span>

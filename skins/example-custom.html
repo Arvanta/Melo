@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fa" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<title>Lumi Custom Skin - Neon Sunset</title>
+<style>
+  /* 
+    Melo Skin System
+    ————————————————————
+    این فایل کاملاً آزاد است: هر CSS که بنویسید روی برنامه اعمال می‌شود.
+    متغیرهای اصلی تم:
+    --card, --text, --text-soft, --accent, --track-bg, --radius, --shadow
+  */
+
+  :root {
+    --card: #1a0f2e;
+    --bg: #0d0a1a;
+    --bg-gradient: radial-gradient(900px 600px at 70% 0%, #2d1b4e 0%, #1a0f2e 45%, #0d0a1a 100%);
+    --text: #f0e6ff;
+    --text-soft: #b8a0d0;
+    --text-muted: #8a709e;
+    --accent: #ff4ecd;
+    --accent-2: #ff8a5b;
+    --track-bg: #2a1f3f;
+    --visualizer: #ff4ecd;
+    --radius: 20px;
+    --badge-bg: #2a1f3f;
+    --badge-text: #c9a8e8;
+  }
+
+  /* افکت نئون برای کارت پلیر */
+  .player-card {
+    background: linear-gradient(135deg, #1e1438 0%, #2d1b4e 100%) !important;
+    border: 1px solid rgba(255, 78, 205, 0.25) !important;
+    box-shadow: 0 16px 48px rgba(80, 20, 120, 0.4), 0 0 0 1px rgba(255,78,205,0.08) !important;
+  }
+
+  .player-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--radius);
+    background: linear-gradient(90deg, #ff4ecd, #ff8a5b, #8b5cf6);
+    opacity: 0.15;
+    filter: blur(12px);
+    z-index: -1;
+  }
+
+  .track-title {
+    background: linear-gradient(90deg, #fff, #ff8a5b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .cover-wrap {
+    border: 2px solid rgba(255,78,205,0.3);
+    box-shadow: 0 8px 24px rgba(255,78,205,0.25) !important;
+  }
+
+  /* ویژوالایزر نئونی */
+  .v-bar {
+    background: linear-gradient(to top, #ff4ecd, #8b5cf6, #06ffa5) !important;
+    box-shadow: 0 0 6px rgba(255,78,205,0.6);
+  }
+
+  /* اسلایدرها */
+  input[type="range"].seek,
+  input[type="range"].vol {
+    height: 6px !important;
+  }
+
+  /* دکمه پلی ضربان‌دار */
+  .transport .play-btn {
+    background: linear-gradient(135deg, #ff4ecd, #ff8a5b) !important;
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 6px 20px rgba(255,78,205,0.45) !important;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 6px 20px rgba(255,78,205,0.45); }
+    50% { box-shadow: 0 8px 28px rgba(255,78,205,0.65), 0 0 16px rgba(255,78,205,0.3); }
+  }
+
+  .panel {
+    background: rgba(26, 15, 46, 0.85) !important;
+    backdrop-filter: blur(12px);
+    border-color: rgba(255,78,205,0.12) !important;
+  }
+</style>
+</head>
+<body>
+  <!-- اگر بخواهید HTML هم اضافه کنید، اینجا بنویسید — مثلاً لوگو سفارشی -->
+  <!-- این قسمت در پیش‌نمایش اسکین نمایش داده می‌شود -->
+</body>
+</html>

@@ -32,20 +32,11 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     return nxt;
   }
 
-  (window as any).__MELO_QUEUE__ = queue;
-  (window as any).__MELO_SET_QUEUE__ = (q: Track[]) => {
+  (window as any).__LUMI_QUEUE__ = queue;
+  (window as any).__LUMI_SET_QUEUE__ = (q: Track[]) => {
     queue = q;
-    (window as any).__MELO_QUEUE__ = q;
+    (window as any).__LUMI_QUEUE__ = q;
   };
-
-  function markPlayingRow(trackId?: string) {
-    const id = trackId || queue[currentIndex]?.id;
-    document.querySelectorAll(".track-row").forEach(el => {
-      const row = el as HTMLElement;
-      const rowId = row.dataset.plTrack || row.dataset.trackId;
-      row.classList.toggle("active", !!id && rowId === id);
-    });
-  }
 
   function formatTime(s: number) {
     if (!isFinite(s)) return "0:00";
@@ -137,7 +128,9 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     applyReplayGain();
     applyDynamicAmbientTheme(t.cover || null);
 
-    markPlayingRow(t.id);
+    document.querySelectorAll(".track-row").forEach((el, i) => {
+      el.classList.toggle("active", queue[i]?.id === t.id);
+    });
 
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -164,7 +157,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       const { cover: _cover, ...trackSnapshot } = t as any;
       localStorage.setItem("melo-current-track", JSON.stringify(trackSnapshot));
     } catch {}
-    window.dispatchEvent(new CustomEvent("melo:trackChange", { detail: t }));
+    window.dispatchEvent(new CustomEvent("lumi:trackChange", { detail: t }));
     busEmit("melo:track-changed", t);
     busEmit("melo:playback-state", { track: t, currentTime: audio.currentTime || 0, paused: audio.paused });
   }
@@ -201,6 +194,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
   let fadeRAF: number | null = null;
   let wasFadedPause = false;
+  const FADE_MS = 500; // 0.5s fade-out on pause / fade-in on resume
   function fadeVolumeTo(target: number, ms: number, onDone?: () => void) {
     if (fadeRAF) cancelAnimationFrame(fadeRAF);
     const start = audio.volume;
@@ -224,7 +218,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       if (iconPlay) iconPlay.style.display = "none";
       if (iconPause) iconPause.style.display = "block";
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
-      if (fadeOn && wasFadedPause) { wasFadedPause = false; fadeVolumeTo(target, 500); }
+      if (fadeOn && wasFadedPause) { wasFadedPause = false; fadeVolumeTo(target, FADE_MS); }
       else audio.volume = target;
     }).catch(() => {
       if (!pendingPlay) {
@@ -238,7 +232,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     const fadeOn = localStorage.getItem("melo-pref-fadePause") !== "0";
     if (fadeOn && !audio.paused) {
       wasFadedPause = true;
-      fadeVolumeTo(0, 500, () => audio.pause());
+      fadeVolumeTo(0, FADE_MS, () => audio.pause());
     } else {
       wasFadedPause = false;
       audio.pause();
@@ -246,7 +240,10 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     if (iconPlay) iconPlay.style.display = "block";
     if (iconPause) iconPause.style.display = "none";
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
-    persistResume(true);
+    const t = queue[currentIndex];
+    if (t) {
+      try { localStorage.setItem("melo-resume-state", JSON.stringify({ trackId: t.id, position: audio.currentTime })); } catch {}
+    }
   }
 
   function togglePlay() {
@@ -390,28 +387,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     updateSeekBackground();
     updateVolBackground();
 
-    if (btnShuffle) btnShuffle.classList.toggle("active", isShuffle);
-    if (btnRepeat) {
-      btnRepeat.classList.toggle("active", repeatMode !== "off");
-      const labels: Record<RepeatMode, string> = { off: "Repeat off", all: "Repeat all", one: "Repeat one" };
-      btnRepeat.title = labels[repeatMode];
-    }
-
-    const playing = !audio.paused && !audio.ended;
-    if (iconPlay) iconPlay.style.display = playing ? "none" : "block";
-    if (iconPause) iconPause.style.display = playing ? "block" : "none";
-
-    const liveDur = Number.isFinite(audio.duration) && audio.duration > 0
-      ? audio.duration
-      : (queue[currentIndex]?.duration || 0);
-    if (seekBar) {
-      seekBar.max = String(Math.max(1, Math.floor(liveDur || 240)));
-      seekBar.value = String(Math.floor(audio.currentTime || 0));
-      updateSeekBackground();
-    }
-    if (durTime) durTime.textContent = formatTime(liveDur);
-    if (curTime) curTime.textContent = formatTime(audio.currentTime || 0);
-
     if (queue[currentIndex]) {
       const t = queue[currentIndex];
       if (trackTitle) trackTitle.textContent = t.title || "Unknown Title";
@@ -423,8 +398,34 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
         coverImg.src = t.cover;
         coverImg.style.display = "block";
         if (coverFallback) coverFallback.style.display = "none";
+      } else {
+        if (coverImg) coverImg.style.display = "none";
+        if (coverFallback) coverFallback.style.display = "grid";
       }
-      markPlayingRow(t.id);
+
+      // Re-sync the full transport UI from live playback state. A skin swap
+      // replaces every control node, so without this the seek bar / time
+      // labels keep the skin template's placeholder values (wrong total
+      // duration and wrong progress position) while a track is playing.
+      if (seekBar) {
+        const dur = Math.floor(audio.duration || t.duration || 240);
+        seekBar.max = String(dur);
+        seekBar.value = String(Math.floor(audio.currentTime || 0));
+        updateSeekBackground();
+      }
+      if (durTime) durTime.textContent = formatTime(audio.duration || t.duration);
+      if (curTime) curTime.textContent = formatTime(audio.currentTime || 0);
+      if (volBar && volPct) {
+        volPct.textContent = volBar.value + "%";
+        updateVolBackground();
+      }
+      if (iconPlay && iconPause) {
+        const playing = !audio.paused;
+        iconPlay.style.display = playing ? "none" : "block";
+        iconPause.style.display = playing ? "block" : "none";
+      }
+      if (btnShuffle) btnShuffle.classList.toggle("active", isShuffle);
+      if (btnRepeat) btnRepeat.classList.toggle("active", repeatMode !== "off");
     }
   }
 
@@ -451,94 +452,17 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     saveResumeStateThrottled();
   });
 
-  function persistResume(force = false) {
-    const t = queue[currentIndex];
-    if (!t) return;
-    try {
-      const lib = (window as any).MeloLibrary;
-      localStorage.setItem("melo-resume-state", JSON.stringify({
-        trackId: t.id,
-        path: t.path,
-        title: t.title,
-        artist: t.artist,
-        album: t.album,
-        duration: t.duration,
-        codec: t.codec,
-        specs: t.specs,
-        position: audio.currentTime || 0,
-        playlistId: lib?.currentPlaylistId?.() || localStorage.getItem("melo-currentPlaylist") || null,
-        index: currentIndex,
-        playing: !audio.paused,
-      }));
-    } catch {}
-    if (force) return;
-  }
-
   let resumeSaveTimer: any = null;
   function saveResumeStateThrottled() {
     if (resumeSaveTimer) return;
     resumeSaveTimer = setTimeout(() => {
       resumeSaveTimer = null;
-      if (!queue[currentIndex] || audio.paused) return;
-      persistResume();
-    }, 1500);
-  }
-
-  async function tryResume() {
-    if (localStorage.getItem("melo-pref-resume") === "0") return;
-    if (queue.length) return;
-    if (isTauri) {
+      const t = queue[currentIndex];
+      if (!t || audio.paused) return;
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const cli: any[] = await invoke("get_cli_tracks");
-        if (Array.isArray(cli) && cli.length) return;
+        localStorage.setItem("melo-resume-state", JSON.stringify({ trackId: t.id, position: audio.currentTime }));
       } catch {}
-    }
-    let state: any = null;
-    try { state = JSON.parse(localStorage.getItem("melo-resume-state") || "null"); } catch {}
-    if (!state?.trackId && !state?.path) return;
-
-    const lib = (window as any).MeloLibrary;
-    let tracks: Track[] = [];
-    let index = 0;
-    for (let i = 0; i < 12 && !lib?.getTrack; i++) {
-      await new Promise(r => setTimeout(r, 150));
-    }
-    try {
-      if (lib?.getPlaylistTracks) {
-        tracks = await lib.getPlaylistTracks(state.playlistId || undefined);
-      }
-    } catch {}
-    if (tracks.length) {
-      index = tracks.findIndex(t => t.id === state.trackId || t.path === state.path);
-      if (index < 0) index = Math.max(0, Number(state.index) || 0);
-      if (index >= tracks.length) index = 0;
-    } else {
-      let track = null;
-      try { track = state.trackId && lib?.getTrack ? await lib.getTrack(state.trackId) : null; } catch {}
-      if (!track && state.path) {
-        track = {
-          id: state.trackId || state.path,
-          title: state.title || "Unknown Title",
-          artist: state.artist || "Unknown Artist",
-          album: state.album || "",
-          genre: "",
-          year: 0,
-          duration: state.duration || 0,
-          path: state.path,
-          codec: state.codec || "AUDIO",
-          specs: state.specs || "",
-          source: "scan",
-        } as Track;
-      }
-      if (!track) return;
-      tracks = [track];
-      index = 0;
-    }
-
-    queue = tracks;
-    (window as any).__MELO_SET_QUEUE__(queue);
-    await loadTrack(index, true, Number(state.position) || 0);
+    }, 4000);
   }
 
   audio.addEventListener("loadedmetadata", () => {
@@ -597,13 +521,11 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     }
   });
 
-  (window as any).MeloPlayer = (window as any).LumiPlayer = {
+  (window as any).LumiPlayer = {
     get queue() { return queue; },
-    set queue(v) { queue = v; (window as any).__MELO_QUEUE__ = v; },
+    set queue(v) { queue = v; (window as any).__LUMI_QUEUE__ = v; },
     get currentIndex() { return currentIndex; },
     loadTrack,
-    tryResume,
-    persistResume,
     play,
     pause,
     stop,
@@ -612,17 +534,13 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     get audio() { return audio; },
     rebind: bindDOM,
   };
-  (window as any).__MELO_REBIND__ = bindDOM;
+  (window as any).__LUMI_REBIND__ = bindDOM;
 
   busOn("melo:play-tracks", (p: any) => {
     if (!p || !Array.isArray(p.tracks) || !p.tracks.length) return;
     queue = p.tracks;
-    (window as any).__MELO_SET_QUEUE__(queue);
+    (window as any).__LUMI_SET_QUEUE__(queue);
     const idx = Math.max(0, Math.min(p.index || 0, queue.length - 1));
     loadTrack(idx, true);
   });
-
-  window.addEventListener("pagehide", () => persistResume(true));
-  window.addEventListener("beforeunload", () => persistResume(true));
-  setTimeout(() => { tryResume().catch(() => {}); }, 400);
 }

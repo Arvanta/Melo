@@ -257,20 +257,20 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
 .btn.ghost { background: transparent; border-color: transparent; }
 .btn.small { padding: 5px 8px; font-size: 11.5px; }
 .btn.block { width: 100%; justify-content: center; }
-.search-input { width: 100%; padding: 7px 10px 7px 30px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--track-bg); color: var(--text); font-size: 12.5px; outline: none; }
+.search-input { width: 100%; padding: 7px 26px 7px 30px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--track-bg); color: var(--text); font-size: 12.5px; outline: none; }
 .search-wrap { position: relative; padding: 10px 12px; }
 .search-wrap svg { position: absolute; left: 22px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
-.search-wrap .search-input { padding-right: 28px; }
+/* Clear ("×") button inside the search boxes — shown only while there is text */
 .search-clear {
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-  width: 20px; height: 20px; border: none; border-radius: 50%;
-  background: transparent; color: var(--text-muted); cursor: pointer;
-  display: grid; place-items: center; font-size: 14px; line-height: 1; padding: 0;
+  position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; border: none; border-radius: 50%;
+  background: var(--track-bg); color: var(--text-soft);
+  font-size: 13px; line-height: 1; padding: 0;
+  display: none; align-items: center; justify-content: center; cursor: pointer;
 }
-.search-wrap.playlist-search-wrap .search-clear { right: 4px; }
-.library-search-row .search-clear { right: 6px; }
-.search-clear:hover { background: var(--card); color: var(--text); }
-.search-clear[hidden] { display: none !important; }
+.search-clear:hover { background: var(--card-border); color: var(--text); }
+.search-clear.show { display: flex; }
+.playlist-search-wrap { padding: 0 !important; }
 .playlist-item, .track-row { padding: 9px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: background 0.12s; border-bottom: 1px solid rgba(0,0,0,0.03); }
 [data-theme="dark"] .playlist-item, [data-theme="dark"] .track-row { border-color: rgba(255,255,255,0.04); }
 .playlist-item:hover, .track-row:hover { background: var(--track-bg); }
@@ -518,11 +518,7 @@ html, body, .app-shell, .player-card, .float-win, .panel-root, .track-row, .lib-
 }
 input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
 
-html:has(.panel-root), body:has(.panel-root) { background: var(--card) !important; background-color: var(--card) !important; }
-html.panel-window, body.panel-window {
-  background: var(--card) !important;
-  background-color: var(--card) !important;
-}
+html:has(.panel-root), body:has(.panel-root) { background: transparent !important; background-color: transparent !important; }
 
 /* Compact skin: clip every webview root to the same fixed pill. This keeps
    transparent pixels outside the rounded card truly empty on Windows. */
@@ -539,18 +535,6 @@ body.compact-skin-active .app-shell,
 body.compact-skin-active .player-card {
   border-radius: 24px !important;
   clip-path: inset(0 round 24px) !important;
-}
-body.custom-skin-active,
-body.custom-skin-active #app,
-body.custom-skin-active .app-shell {
-  background: transparent !important;
-  min-width: 0 !important;
-}
-body.custom-skin-active .player-card {
-  height: 100vh !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  width: 100% !important;
 }
 .app-brand-mark { flex-shrink: 0; color: var(--accent); }
 
@@ -734,22 +718,14 @@ body.panel-window {
 /* Identically sized vector-like glyphs for every custom window control. */
 .win-btn[aria-label="minimize"],
 .win-btn[aria-label="close"] { position: relative !important; font-size: 0 !important; }
-.float-btn[title="Hide"],
-.float-btn[aria-label="minimize"] { position: relative !important; font-size: 0 !important; }
-.float-btn[title="Hide"]::before,
-.float-btn[aria-label="minimize"]::before {
-  content: ""; position: absolute; left: 50%; top: 50%;
-  width: 10px; height: 1.5px; border-radius: 2px; background: currentColor;
-  transform: translate(-50%,-50%);
-}
 .win-btn[aria-label="minimize"]::before {
   content: ""; position: absolute; left: 50%; top: 50%;
-  width: 10px; height: 1.5px; border-radius: 2px; background: currentColor;
+  width: 10px; height: 2px; border-radius: 2px; background: currentColor;
   transform: translate(-50%,-50%);
 }
 .win-btn[aria-label="close"]::before,
 .win-btn[aria-label="close"]::after {
-  content: ""; position: absolute; width: 11px; height: 1.5px; border-radius: 2px;
+  content: ""; position: absolute; width: 11px; height: 2px; border-radius: 2px;
   background: currentColor; left: 50%; top: 50%; transform-origin: center;
 }
 .win-btn[aria-label="close"]::before { transform: translate(-50%,-50%) rotate(45deg); }

@@ -36,6 +36,7 @@ app.innerHTML = `
           <div class="search-wrap">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             <input id="searchInput" class="search-input" placeholder="Search artist, album, track…" />
+            <button class="search-clear" id="searchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
           </div>
           <button class="btn small library-action scan-action" id="btn-scan" title="Scan a music folder">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 10v6M9 13h6"/></svg>
@@ -92,9 +93,9 @@ app.innerHTML = `
         <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap;">
           <select id="playlistSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; flex:1 1 140px;" title="Current playlist"></select>
           <button class="btn small ghost" id="btn-new-playlist" style="height:26px; font-size:11px;">+ New</button>
-          <div class="search-wrap playlist-search-wrap" style="flex:1; min-width:80px; padding:0;">
-            <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="height:26px; font-size:11px; padding-left:8px; padding-right:24px;" />
-            <button type="button" class="search-clear" data-clear-input="playlistSearchInput" hidden title="Clear search">×</button>
+          <div class="search-wrap playlist-search-wrap" style="flex:1; position:relative; padding:0; min-width:0;">
+            <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="width:100%; height:26px; font-size:11px; padding-left:8px; padding-right:26px;" />
+            <button class="search-clear" id="playlistSearchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
           </div>
           <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; width:110px;" title="Sort tracks">
             <option value="default">Sort: Default</option>
@@ -274,7 +275,7 @@ app.innerHTML = `
           <div class="settings-row" style="flex-direction:column; align-items:stretch;">
             <div class="label" style="margin-bottom:4px;">Skins Directory (Disk)</div>
             <div style="font-size:11px; color:var(--text-soft); line-height:1.6; margin-bottom:8px;">
-              Files in the <code>skins/</code> folder are loaded live. Start from <code>full-html-example.html</code> and read <code>SKIN-GUIDE.md</code> in that folder. Any size, layout, icons or text labels are allowed.
+              Files in the <code>skins/</code> installation folder are loaded dynamically. You can modify CSS/HTML files with any editor.
             </div>
             <div style="display:flex; gap:8px;">
               <button class="btn small" id="btnOpenSkinsFolder" style="flex:1; justify-content:center;">Open Skins Folder 📁</button>
@@ -433,29 +434,20 @@ app.innerHTML = `
 `;
 
 const urlPanel = new URLSearchParams(location.search).get("panel");
-// Tauri secondary windows keep their label even if the query string is dropped.
-let resolvedPanel = urlPanel;
-if (isTauri && !resolvedPanel) {
-  try {
-    const internals = (window as any).__TAURI_INTERNALS__;
-    const lbl = internals?.metadata?.currentWindow?.label || "";
-    if (typeof lbl === "string" && lbl.startsWith("panel-")) resolvedPanel = lbl.slice(6);
-  } catch {}
-}
-if (resolvedPanel) {
-  document.documentElement.classList.add("panel-window", `panel-${resolvedPanel}`);
-  document.body.classList.add("panel-window", `panel-${resolvedPanel}`);
+if (urlPanel) {
+  document.documentElement.classList.add("panel-window", `panel-${urlPanel}`);
+  document.body.classList.add("panel-window", `panel-${urlPanel}`);
 }
 
 // Tauri: secondary OS windows render a single panel full-size (real native windows)
-if (isTauri && resolvedPanel) {
+if (isTauri && urlPanel) {
   import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
     const pw = getCurrentWindow();
-    persistGeometry(pw, "melo-geo-panel-" + resolvedPanel);
-    pw.onCloseRequested(() => { busEmit("melo:panel-closed", resolvedPanel); });
-    window.addEventListener("beforeunload", () => { busEmit("melo:panel-closed", resolvedPanel); });
+    persistGeometry(pw, "melo-geo-panel-" + urlPanel);
+    pw.onCloseRequested(() => { busEmit("melo:panel-closed", urlPanel); });
+    window.addEventListener("beforeunload", () => { busEmit("melo:panel-closed", urlPanel); });
   });
-  const winEl = document.getElementById("win-" + resolvedPanel);
+  const winEl = document.getElementById("win-" + urlPanel);
   const titleHtml = winEl?.querySelector(".float-title")?.innerHTML || "";
   const bodyHtml = winEl?.querySelector(".float-body")?.innerHTML || "";
   app.innerHTML = `
@@ -472,7 +464,7 @@ if (isTauri && resolvedPanel) {
 </div>`;
 }
 
-if (isTauri && !resolvedPanel) {
+if (isTauri && !urlPanel) {
   document.documentElement.classList.add("tauri-main");
   document.body.classList.add("tauri-main");
   document.querySelectorAll(".side-actions .sbtn").forEach(b => b.classList.remove("active"));
@@ -491,51 +483,24 @@ if (isTauri && !resolvedPanel) {
 }
 
 // Desktop: closing the player closes the whole app (panels included)
-if (isTauri && !resolvedPanel) {
+if (isTauri && !urlPanel) {
   import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
     const mainWin = getCurrentWindow();
     
     const getTargetSize = () => {
       const activeSkin = localStorage.getItem("melo-active-skin-id");
       const isCompact = activeSkin === "compact-pill" || (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
-      let spec: any = null;
-      try { spec = JSON.parse(localStorage.getItem("melo-skin-window") || "null"); } catch {}
-      if (spec?.width && spec?.height && !isCompact) {
-        return {
-          w: spec.width,
-          h: spec.height,
-          minW: spec.minWidth || 280,
-          minH: spec.minHeight || 120,
-          maxW: spec.maxWidth,
-          maxH: spec.maxHeight,
-          lockH: spec.resizable === false,
-          resizable: spec.resizable !== false,
-          kind: "custom" as const,
-        };
-      }
-      if (isCompact) {
-        return { w: 780, h: 138, minW: 780, minH: 138, lockH: true, resizable: false, kind: "compact" as const };
-      }
-      return { w: 960, h: 240, minW: 650, minH: 135, maxH: 260, lockH: true, resizable: true, kind: "default" as const };
-    };
-
-    const applyWindowSpec = async () => {
-      const { LogicalSize } = await import("@tauri-apps/api/dpi");
-      const sz = getTargetSize();
-      await mainWin.setMinSize(new LogicalSize(sz.minW, sz.minH));
-      if (sz.maxW || sz.maxH) {
-        await mainWin.setMaxSize(new LogicalSize(sz.maxW || 4000, sz.maxH || 4000));
-      } else {
-        try { await mainWin.setMaxSize(null); } catch {}
-      }
-      await mainWin.setSize(new LogicalSize(sz.w, sz.h));
-      await mainWin.setResizable(sz.resizable);
+      return { w: isCompact ? 780 : 960, h: isCompact ? 138 : 240 };
     };
 
     try {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
-      const { LogicalPosition } = await import("@tauri-apps/api/dpi");
-      await applyWindowSpec();
+      const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
+      const sz = getTargetSize();
+      const isCompactStartup = sz.w === 780;
+      const startupW = isCompactStartup ? sz.w : (g?.w ? Math.max(650, g.w) : sz.w);
+      await mainWin.setSize(new LogicalSize(startupW, sz.h));
+      await mainWin.setResizable(!isCompactStartup);
       if (g?.x != null && g?.y != null) {
         await mainWin.setPosition(new LogicalPosition(g.x, g.y));
       }
@@ -546,41 +511,46 @@ if (isTauri && !resolvedPanel) {
         const pos = await mainWin.outerPosition();
         const size = await mainWin.innerSize();
         const sz = getTargetSize();
-        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: sz.lockH ? sz.h : size.height }));
+        localStorage.setItem("melo-geo-main", JSON.stringify({ x: pos.x, y: pos.y, w: size.width, h: sz.h }));
       } catch {}
     };
     mainWin.onMoved(saveGeo);
     mainWin.onResized(async () => {
       try {
+        const sz = await mainWin.innerSize();
         const target = getTargetSize();
-        if (target.kind === "default" && target.lockH) {
-          const { LogicalSize } = await import("@tauri-apps/api/dpi");
-          const logical = (await mainWin.innerSize()).toLogical(await mainWin.scaleFactor());
-          if (logical.width < target.minW || logical.height !== target.h) {
-            await mainWin.setSize(new LogicalSize(Math.max(target.minW, logical.width), target.h));
+        const isCompact = target.w === 780;
+        const { LogicalSize } = await import("@tauri-apps/api/dpi");
+        if (!isCompact) {
+          const logical = sz.toLogical(await mainWin.scaleFactor());
+          if (logical.width < 650 || logical.height !== target.h) {
+            await mainWin.setSize(new LogicalSize(Math.max(650, logical.width), target.h));
           }
         }
       } catch {}
       saveGeo();
     });
 
-    const onSkinWindow = async () => {
-      try { await applyWindowSpec(); saveGeo(); } catch {}
-    };
-    busOn("melo:skin-window", onSkinWindow);
     busOn("melo:skin-changed", async (skinId: any) => {
       try {
-        if (!resolvedPanel && skinId) {
+        if (!urlPanel && skinId) {
           await applySkinChoice(skinId, theme, undefined, false);
         }
-        await applyWindowSpec();
+        const isCompact = skinId === "compact-pill" || (typeof skinId === "string" && skinId.startsWith("compact-pill"));
+        const targetW = isCompact ? 780 : 960;
+        const targetH = isCompact ? 138 : 240;
+        const { LogicalSize } = await import("@tauri-apps/api/dpi");
+        await mainWin.setSize(new LogicalSize(targetW, targetH));
+        // Compact Pill is a fixed-size design; lock resizing so the window
+        // can't be dragged wider/taller than the skin's actual artwork,
+        // which previously showed as a visible transparent strip around it.
+        await mainWin.setResizable(!isCompact);
         saveGeo();
       } catch {}
     });
 
     mainWin.onCloseRequested(async (event) => {
       event.preventDefault();
-      try { (window as any).MeloPlayer?.persistResume?.(true); } catch {}
       const trayEnabled = localStorage.getItem("melo-pref-tray") === "1";
       if (trayEnabled) {
         try { await mainWin.hide(); return; } catch {}
@@ -602,7 +572,7 @@ if (isTauri && !resolvedPanel) {
       const cliTracks: any[] = await invoke("get_cli_tracks");
       if (Array.isArray(cliTracks) && cliTracks.length > 0) {
         setTimeout(async () => {
-          const lib = (window as any).MeloLibrary;
+          const lib = (window as any).LumiLibrary;
           const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
           const imported = await lib?.importPaths(paths, "replace") || [];
           if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
@@ -615,7 +585,7 @@ if (isTauri && !resolvedPanel) {
     if (Array.isArray(cliTracks) && cliTracks.length > 0) {
       const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
       setTimeout(async () => {
-        const lib = (window as any).MeloLibrary;
+        const lib = (window as any).LumiLibrary;
         const imported = await lib?.importPaths(paths, "replace") || [];
         if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
       }, 100);
@@ -636,7 +606,7 @@ const showToast: ToastFn = (msg) => {
 const audio = new Audio();
 audio.preload = "metadata";
 audio.crossOrigin = "anonymous";
-(window as any).__MELO_AUDIO__ = audio;
+(window as any).__LUMI_AUDIO__ = audio;
 (window as any).__TOAST__ = showToast;
 
 // Theme logic
@@ -645,10 +615,10 @@ audio.crossOrigin = "anonymous";
 if (localStorage.getItem("melo-dynamic-theme") === null) {
   localStorage.setItem("melo-dynamic-theme", "1");
 }
-let theme: "light" | "dark" = (localStorage.getItem("melo-theme") || localStorage.getItem("lumi-theme") as any) || "dark";
+let theme: "light" | "dark" = (localStorage.getItem("lumi-theme") as any) || "dark";
 function applyThemeLocal(t: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem("melo-theme", t);
+  localStorage.setItem("lumi-theme", t);
   theme = t;
 }
 function applyTheme(t: "light" | "dark") {
@@ -658,7 +628,7 @@ function applyTheme(t: "light" | "dark") {
 applyThemeLocal(theme);
 busOn("melo:theme", (t: any) => { if (t === "light" || t === "dark") applyThemeLocal(t); });
 setInterval(() => {
-  const t = localStorage.getItem("melo-theme");
+  const t = localStorage.getItem("lumi-theme");
   if ((t === "light" || t === "dark") && t !== theme) applyThemeLocal(t);
 }, 1000);
 
@@ -698,42 +668,29 @@ async function persistGeometry(win: any, key: string) {
   win.onResized(save);
 }
 
-const panelBusy = new Set<string>();
-
 async function openPanelWindow(panel: string) {
-  if (panelBusy.has(panel)) return;
-  panelBusy.add(panel);
+  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  const label = "panel-" + panel;
   const btn = document.getElementById(panelBtnMap[panel]);
-  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
+  const existing = await WebviewWindow.getByLabel(label);
+  if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
   const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
   const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
+  const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
   const sz = sizes[panel] || [420, 520];
   let geo: any = null;
   try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
-  const useSavedPos = Number.isFinite(geo?.x) && Number.isFinite(geo?.y);
-  const width = Math.max((mins[panel] || [360, 360])[0], Number(geo?.w) || sz[0]);
-  const height = Math.max((mins[panel] || [360, 360])[1], Number(geo?.h) || sz[1]);
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const result = await invoke<string>("toggle_panel_window", {
-      panel,
-      title: titles[panel] || panel,
-      width,
-      height,
-      minWidth: (mins[panel] || [360, 360])[0],
-      minHeight: (mins[panel] || [360, 360])[1],
-      x: useSavedPos ? geo.x : null,
-      y: useSavedPos ? geo.y : null,
-    });
-    if (result === "closed") btn?.classList.remove("active");
-    else btn?.classList.add("active");
-  } catch (err) {
-    showToast("Could not open window");
-    console.error(err);
-    btn?.classList.remove("active");
-  } finally {
-    setTimeout(() => panelBusy.delete(panel), 450);
-  }
+  new WebviewWindow(label, {
+    url: `/?panel=${panel}`,
+    title: titles[panel] || panel,
+    width: geo?.w || sz[0], height: geo?.h || sz[1], minWidth: (mins[panel] || [360, 360])[0], minHeight: (mins[panel] || [360, 360])[1],
+    ...(geo?.x != null ? { x: geo.x, y: geo.y } : { center: true }),
+    decorations: false,
+    transparent: true,
+    shadow: false,
+    skipTaskbar: true
+  });
+  btn?.classList.add("active");
 }
 
 busOn("melo:panel-closed", (role: any) => {
@@ -772,7 +729,7 @@ function setVisible(id: string, visible: boolean) {
   const el = document.getElementById(id);
   if (!el) return;
   el.classList.toggle("hidden", !visible);
-  localStorage.setItem("melov2-" + id, visible ? "1" : "0");
+  localStorage.setItem("lumiv2-" + id, visible ? "1" : "0");
   if (visible) clampIntoDesktop(el);
   const active = visible;
   if (id === "win-library") {
@@ -797,9 +754,9 @@ function setVisible(id: string, visible: boolean) {
   }
 }
 
-if (!resolvedPanel) {
+if (!urlPanel) {
   winIds.forEach(id => {
-    const saved = localStorage.getItem("melov2-" + id) ?? localStorage.getItem("lumiv2-" + id);
+    const saved = localStorage.getItem("lumiv2-" + id);
     if (saved !== null) {
       setVisible(id, saved === "1");
     } else {
@@ -809,14 +766,8 @@ if (!resolvedPanel) {
   });
 }
 
-document.addEventListener("click", (e) => {
-  const hit = (e.target as HTMLElement | null)?.closest?.(".sbtn, [id^='btnToggle'], [id^='menuToggle'], #btnOpenSettings");
-  if (!hit) return;
-  const winId = toggleMap[(hit as HTMLElement).id];
-  if (!winId) return;
-  e.preventDefault();
-  e.stopPropagation();
-  toggleWin(winId);
+Object.entries(toggleMap).forEach(([btnId, winId]) => {
+  document.getElementById(btnId)?.addEventListener("click", () => toggleWin(winId));
 });
 
 document.querySelectorAll("[data-close]").forEach(btn => {
@@ -896,7 +847,7 @@ window.addEventListener("mouseup", () => {
     const win = document.getElementById(dragState.id);
     if (win) {
       win.classList.remove("dragging");
-      localStorage.setItem("melov2-pos-" + dragState.id, JSON.stringify({ left: win.style.left, top: win.style.top }));
+      localStorage.setItem("lumiv2-pos-" + dragState.id, JSON.stringify({ left: win.style.left, top: win.style.top }));
     }
     dragState = null;
   }
@@ -904,7 +855,7 @@ window.addEventListener("mouseup", () => {
     const win = document.getElementById(resizeState.id);
     if (win) {
       win.classList.remove("resizing");
-      localStorage.setItem("melov2-size-" + resizeState.id, JSON.stringify({ width: win.style.width, height: win.style.height }));
+      localStorage.setItem("lumiv2-size-" + resizeState.id, JSON.stringify({ width: win.style.width, height: win.style.height }));
     }
     resizeState = null;
   }
@@ -912,8 +863,8 @@ window.addEventListener("mouseup", () => {
 
 // Add files / folder dialogs
 async function addFilesViaDialog() {
-  const lib = (window as any).MeloLibrary;
-  const player = (window as any).MeloPlayer;
+  const lib = (window as any).LumiLibrary;
+  const player = (window as any).LumiPlayer;
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -955,8 +906,8 @@ async function addFilesViaDialog() {
 }
 
 async function addFolderViaDialog() {
-  const lib = (window as any).MeloLibrary;
-  const player = (window as any).MeloPlayer;
+  const lib = (window as any).LumiLibrary;
+  const player = (window as any).LumiPlayer;
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -1006,12 +957,11 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.shiftKey) { e.preventDefault(); addFolderViaDialog(); }
     else { e.preventDefault(); addFilesViaDialog(); }
   }
-  const comma = e.key === "," || e.code === "Comma";
-  if (((e.ctrlKey || e.metaKey) && comma) || e.key === "F2" || e.code === "F2") {
+  if (((e.ctrlKey || e.metaKey) && e.key === ",") || e.key === "F2") {
     e.preventDefault();
     toggleWin("win-settings");
   }
-}, true);
+});
 
 // Setup Settings panel handlers (works in floating window and Tauri secondary window)
 function setupSettings(toast: ToastFn) {
@@ -1059,8 +1009,8 @@ function setupSettings(toast: ToastFn) {
       const isNowOn = !swDynamic.classList.contains("on");
       swDynamic.classList.toggle("on", isNowOn);
       localStorage.setItem("melo-dynamic-theme", isNowOn ? "1" : "0");
-      const queue = (window as any).__MELO_QUEUE__;
-      const curIdx = (window as any).MeloPlayer?.currentIndex ?? 0;
+      const queue = (window as any).__LUMI_QUEUE__;
+      const curIdx = (window as any).LumiPlayer?.currentIndex ?? 0;
       if (queue && queue[curIdx]) {
         applyDynamicAmbientTheme(isNowOn ? queue[curIdx].cover : null);
       }
@@ -1101,7 +1051,7 @@ function setupSettings(toast: ToastFn) {
       <option value="compact-pill">Minimal Compact (Pill Bar)</option>
     `;
     installed.forEach(item => {
-      if (!/^compact-pill/i.test(item.filename)) {
+      if (item.filename !== "compact-pill.html" && item.filename !== "compact-pill-light.html" && item.filename !== "compact-pill-dark.html") {
         const opt = document.createElement("option");
         opt.value = item.filename;
         opt.textContent = `${item.name} (${item.filename})`;
@@ -1160,8 +1110,14 @@ function bindWinControls() {
 }
 bindWinControls();
 
-(window as any).__MELO_REBIND_MAIN__ = () => {
+(window as any).__LUMI_REBIND_MAIN__ = () => {
   bindWinControls();
+  Object.entries(toggleMap).forEach(([btnId, winId]) => {
+    const b = document.getElementById(btnId);
+    if (b) {
+      (b as HTMLElement).onclick = () => toggleWin(winId);
+    }
+  });
 };
 
 // About popup
@@ -1195,11 +1151,11 @@ document.addEventListener("click", (e) => {
 });
 
 // App Initialization
-if (isTauri && resolvedPanel) {
-  if (resolvedPanel === "library" || resolvedPanel === "playlist") setupLibrary(audio, showToast);
-  else if (resolvedPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
-  else if (resolvedPanel === "lyrics") setupLyrics(audio, showToast);
-  else if (resolvedPanel === "settings") { initLocale(); setupSettings(showToast); }
+if (isTauri && urlPanel) {
+  if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
+  else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
+  else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
+  else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); }
 } else {
   setupPlayer(audio, showToast);
   setupLibrary(audio, showToast);
@@ -1209,4 +1165,23 @@ if (isTauri && resolvedPanel) {
   setupSkinEngine(showToast);
   setupSettings(showToast);
   initLocale();
+
+  // Resume playback on reopen: restore the last-played track, paused, at
+  // the position it was left at. Only runs once, shortly after boot, so the
+  // library has had a chance to load from localStorage first.
+  setTimeout(async () => {
+    if (localStorage.getItem("melo-pref-resume") === "0") return;
+    try {
+      const state = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
+      const lib = (window as any).LumiLibrary;
+      const p = (window as any).LumiPlayer;
+      if (!state?.trackId || !lib || !p) return;
+      const track = await lib.getTrack(state.trackId);
+      if (!track) return;
+      p.queue = [track];
+      p.loadTrack(0, true, state.position || 0);
+    } catch {}
+  }, 500);
 }
+
+

@@ -364,10 +364,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       drawWave();
       return;
     }
-    const skinBars = Number(container?.dataset.bars || document.documentElement.dataset.meloVizBars || 0);
-    const n = (Number.isFinite(skinBars) && skinBars >= 4)
-      ? Math.min(128, Math.round(skinBars))
-      : mode === "bars" ? 16
+    const n = mode === "bars" ? 16
       : mode === "thin" ? 56
       : mode === "line" ? 64
       : mode === "spectrumWave" ? 72
@@ -483,5 +480,5 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     bindContainer();
     startLoop();
   }
-  (window as any).__MELO_REBIND_VISUALIZER__ = rebind;
+  (window as any).__LUMI_REBIND_VISUALIZER__ = rebind;
 }

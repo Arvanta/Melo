@@ -40,8 +40,8 @@ pub struct SkinFileInfo {
 
 // Embedded default skin templates to ensure the skins folder is always populated on disk
 const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
+const DEFAULT_SKIN_EXAMPLE: &str = include_str!("../../skins/example-custom.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
-const DEFAULT_SKIN_GUIDE: &str = include_str!("../../skins/SKIN-GUIDE.md");
 
 // ---- Helpers ----
 
@@ -162,11 +162,21 @@ fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 fn ensure_default_skins_on_disk(skins_dir: &Path) {
-    let _ = std::fs::write(skins_dir.join("compact-pill.html"), DEFAULT_SKIN_COMPACT);
+    let f1 = skins_dir.join("compact-pill.html");
+    if !f1.exists() {
+        let _ = std::fs::write(f1, DEFAULT_SKIN_COMPACT);
+    }
+    // Remove legacy split skins left by older installs so they don't linger
     let _ = std::fs::remove_file(skins_dir.join("compact-pill-light.html"));
     let _ = std::fs::remove_file(skins_dir.join("compact-pill-dark.html"));
-    let _ = std::fs::write(skins_dir.join("full-html-example.html"), DEFAULT_SKIN_FULL_EXAMPLE);
-    let _ = std::fs::write(skins_dir.join("SKIN-GUIDE.md"), DEFAULT_SKIN_GUIDE);
+    let f3 = skins_dir.join("example-custom.html");
+    if !f3.exists() {
+        let _ = std::fs::write(f3, DEFAULT_SKIN_EXAMPLE);
+    }
+    let f4 = skins_dir.join("full-html-example.html");
+    if !f4.exists() {
+        let _ = std::fs::write(f4, DEFAULT_SKIN_FULL_EXAMPLE);
+    }
 }
 
 // ---- Tauri Commands ----
@@ -251,8 +261,11 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
 
     // Check embedded fallback if filename matches
     match filename_or_path.as_str() {
-        "compact-pill.html" | "compact-pill" | "compact-pill-light.html" | "compact-pill-light"
-        | "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
+        "compact-pill.html" | "compact-pill" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
+        // Legacy ids keep older saved preferences working
+        "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
+        "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
+        "example-custom.html" | "example-custom" => Ok(DEFAULT_SKIN_EXAMPLE.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }
@@ -380,54 +393,6 @@ fn get_audio_devices() -> Result<Vec<String>, String> {
     Ok(vec!["Default".to_string()])
 }
 
-/// Open or close a secondary panel window from Rust so the JS WebviewWindow
-/// constructor cannot race (flash-open then immediately destroy / label-in-use).
-#[tauri::command]
-fn toggle_panel_window(
-    app: tauri::AppHandle,
-    panel: String,
-    title: String,
-    width: f64,
-    height: f64,
-    min_width: f64,
-    min_height: f64,
-    x: Option<f64>,
-    y: Option<f64>,
-) -> Result<String, String> {
-    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-    let allowed = ["library", "playlist", "equalizer", "lyrics", "settings"];
-    if !allowed.contains(&panel.as_str()) {
-        return Err(format!("unknown panel: {panel}"));
-    }
-    let label = format!("panel-{panel}");
-    if let Some(existing) = app.get_webview_window(&label) {
-        let _ = existing.close();
-        return Ok("closed".into());
-    }
-    let url = WebviewUrl::App(format!("index.html?panel={panel}").into());
-    let mut builder = WebviewWindowBuilder::new(&app, &label, url)
-        .title(title)
-        .inner_size(width, height)
-        .min_inner_size(min_width, min_height)
-        .decorations(false)
-        .transparent(false)
-        .shadow(true)
-        .skip_taskbar(false)
-        .focused(true)
-        .visible(true)
-        .resizable(true);
-    match (x, y) {
-        (Some(px), Some(py)) if px.is_finite() && py.is_finite() => {
-            builder = builder.position(px, py);
-        }
-        _ => {
-            builder = builder.center();
-        }
-    }
-    builder.build().map_err(|e| e.to_string())?;
-    Ok("opened".into())
-}
-
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -483,8 +448,7 @@ fn main() {
             open_skins_folder,
             write_tags,
             get_audio_devices,
-            open_url,
-            toggle_panel_window
+            open_url
         ])
         .setup(|app| {
             let library_state = library_db::LibraryState::new(app.handle())

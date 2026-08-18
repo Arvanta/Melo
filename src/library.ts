@@ -23,6 +23,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const trackList = document.getElementById("trackList") as HTMLElement | null;
   const libraryStats = document.getElementById("libraryStats") as HTMLElement | null;
   const searchInput = document.getElementById("searchInput") as HTMLInputElement | null;
+  const searchClear = document.getElementById("searchClear") as HTMLButtonElement | null;
   const tabs = document.getElementById("libraryTabs");
   const scanButton = document.getElementById("btn-scan") as HTMLButtonElement | null;
   const clearLibraryButton = document.getElementById("btn-clear-library") as HTMLButtonElement | null;
@@ -31,6 +32,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const playlistEmpty = document.getElementById("winPlaylistEmpty") as HTMLElement | null;
   const playlistSelect = document.getElementById("playlistSelect") as HTMLSelectElement | null;
   const playlistSearch = document.getElementById("playlistSearchInput") as HTMLInputElement | null;
+  const playlistSearchClear = document.getElementById("playlistSearchClear") as HTMLButtonElement | null;
   const playlistSort = document.getElementById("playlistSortSelect") as HTMLSelectElement | null;
   const clearPlaylistButton = document.getElementById("btn-clear-playlist") as HTMLButtonElement | null;
   const exportButton = document.getElementById("btn-export-playlist") as HTMLButtonElement | null;
@@ -39,8 +41,6 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let invoke: (<T>(command: string, args?: Record<string, unknown>) => Promise<T>) | null = null;
   let toAsset: ((path: string) => string) | null = null;
   let initialized = false;
-  let playingTrackId: string | null = null;
-  try { playingTrackId = JSON.parse(localStorage.getItem("melo-current-track") || "null")?.id || null; } catch {}
   let currentPlaylistId = localStorage.getItem("melo-currentPlaylist") || "p1";
   let playlists: PlaylistRow[] = [];
   let activeScanId: string | null = null;
@@ -54,6 +54,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let selectedAlbum: string | null = null;
   let selectedGenre: string | null = null;
   let librarySearch = "";
+  let currentTrackId: string | null = null;
 
   const libraryRowHeight = 54;
   const playlistRowHeight = 52;
@@ -103,6 +104,26 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function setScanLabel(text: string) {
     const label = scanButton?.querySelector<HTMLElement>(".scan-label");
     if (label) label.textContent = text;
+  }
+
+  function updateSearchClear() {
+    searchClear?.classList.toggle("show", !!searchInput?.value);
+  }
+
+  function updatePlaylistSearchClear() {
+    playlistSearchClear?.classList.toggle("show", !!playlistSearch?.value);
+  }
+
+  // Highlight the row that is currently playing in the Playlist window.
+  function applyActiveTrackHighlight() {
+    playlistList?.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
+      row.classList.toggle("active", row.dataset.plTrack === currentTrackId);
+    });
+  }
+
+  function setActiveTrack(id: string | null) {
+    currentTrackId = id;
+    applyActiveTrackHighlight();
   }
 
   function artworkUrl(path?: string): string {
@@ -284,7 +305,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           return `<div class="lib-item virtual-row" data-group-index="${index}" style="position:absolute;left:0;right:0;top:${top}px;height:${libraryRowHeight}px">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${esc(group.subtitle || `${group.count} tracks`)}</div></div><span class="chev-r">›</span></div>`;
         }
         const track = item as Track;
-        return `<div class="track-row virtual-row${playingTrackId === track.id ? " active" : ""}" data-track-id="${esc(track.id)}" data-page-index="${index}" style="position:absolute;left:0;right:0;top:${top}px;height:${libraryRowHeight}px">
+        return `<div class="track-row virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="position:absolute;left:0;right:0;top:${top}px;height:${libraryRowHeight}px">
           <span class="num">${absoluteIndex + 1}</span>
           ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
           <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>
@@ -413,7 +434,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (playlistEmpty) playlistEmpty.style.display = page.total ? "none" : "block";
     playlistList.style.display = page.total ? "block" : "none";
     if (!page.total) { playlistList.innerHTML = ""; return; }
-    const rows = page.items.map((track, i) => `<div class="track-row virtual-row${playingTrackId === track.id ? " active" : ""}" data-pl-track="${esc(track.id)}" data-page-index="${i}" style="position:absolute;left:0;right:0;top:${(page.offset+i)*playlistRowHeight}px;height:${playlistRowHeight}px"><span class="num">${page.offset+i+1}</span>${track.cover?`<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`:`<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}<div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div><span class="t-dur">${fmtDur(track.duration)}</span><button class="btn small ghost" data-remove-track="${esc(track.id)}">×</button></div>`).join("");
+    const rows = page.items.map((track, i) => `<div class="track-row virtual-row ${track.id === currentTrackId ? "active" : ""}" data-pl-track="${esc(track.id)}" data-page-index="${i}" style="position:absolute;left:0;right:0;top:${(page.offset+i)*playlistRowHeight}px;height:${playlistRowHeight}px"><span class="num">${page.offset+i+1}</span>${track.cover?`<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`:`<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}<div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div><span class="t-dur">${fmtDur(track.duration)}</span><button class="btn small ghost" data-remove-track="${esc(track.id)}">×</button></div>`).join("");
     playlistList.innerHTML = `<div style="position:relative;height:${Math.max(viewport,page.total*playlistRowHeight)}px">${rows}</div>`;
     bindLazyArtwork(playlistList);
     playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
@@ -482,23 +503,6 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return track ? normalizeTrack(track) : null;
   }
 
-  async function getPlaylistTracks(playlistId?: string): Promise<Track[]> {
-    await loadCore();
-    if (!invoke) return [];
-    const id = playlistId || currentPlaylistId;
-    const all: Track[] = [];
-    let offset = 0;
-    while (true) {
-      const page = await invoke<Page<Track>>("playlist_tracks", {
-        playlistId: id, search: null, sort: "default", limit: 400, offset,
-      });
-      all.push(...page.items.map(normalizeTrack));
-      offset += page.items.length;
-      if (offset >= page.total || !page.items.length) break;
-    }
-    return all;
-  }
-
   tabs?.querySelectorAll<HTMLElement>("[data-libtab]").forEach(tab => {
     tab.onclick = () => {
       tabs.querySelectorAll("[data-libtab]").forEach(x => x.classList.remove("active"));
@@ -508,25 +512,20 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       renderLibraryVirtual(true);
     };
   });
-  function bindSearchClear(input: HTMLInputElement | null) {
-    if (!input) return;
-    const btn = document.querySelector<HTMLButtonElement>(`.search-clear[data-clear-input="${input.id}"]`);
-    const sync = () => { if (btn) btn.hidden = !input.value; };
-    input.addEventListener("input", sync);
-    btn?.addEventListener("click", () => {
-      input.value = "";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.focus();
-    });
-    sync();
-  }
-  bindSearchClear(searchInput);
-  bindSearchClear(playlistSearch);
-
   searchInput?.addEventListener("input", () => {
+    updateSearchClear();
     librarySearch = searchInput.value.trim();
     window.clearTimeout(libraryScrollTimer);
     libraryScrollTimer = window.setTimeout(() => renderLibraryVirtual(true), 180);
+  });
+  searchClear?.addEventListener("click", () => {
+    if (!searchInput) return;
+    searchInput.value = "";
+    searchInput.focus();
+    updateSearchClear();
+    librarySearch = "";
+    window.clearTimeout(libraryScrollTimer);
+    renderLibraryVirtual(true);
   });
   trackList?.addEventListener("scroll", () => {
     window.clearTimeout(libraryScrollTimer);
@@ -537,8 +536,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     playlistScrollTimer = window.setTimeout(() => renderPlaylistVirtual(), 60);
   });
   playlistSearch?.addEventListener("input", () => {
+    updatePlaylistSearchClear();
     window.clearTimeout(playlistScrollTimer);
     playlistScrollTimer = window.setTimeout(() => renderPlaylistVirtual(true), 180);
+  });
+  playlistSearchClear?.addEventListener("click", () => {
+    if (!playlistSearch) return;
+    playlistSearch.value = "";
+    playlistSearch.focus();
+    updatePlaylistSearchClear();
+    window.clearTimeout(playlistScrollTimer);
+    renderPlaylistVirtual(true);
   });
   playlistSort?.addEventListener("change", () => renderPlaylistVirtual(true));
   playlistSelect?.addEventListener("change", () => {
@@ -652,27 +660,26 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     refreshPlaylists();
     renderPlaylistVirtual();
   });
-  function setPlayingTrack(track: any) {
-    playingTrackId = track?.id || playingTrackId;
-    document.querySelectorAll(".track-row").forEach(el => {
-      const row = el as HTMLElement;
-      const rowId = row.dataset.plTrack || row.dataset.trackId;
-      row.classList.toggle("active", !!playingTrackId && rowId === playingTrackId);
-    });
-  }
-  busOn("melo:track-changed", setPlayingTrack);
-  busOn("melo:playback-state", (state: any) => { if (state?.track) setPlayingTrack(state.track); });
+
+  // Keep the "now playing" row highlighted in the Playlist window.
+  busOn("melo:track-changed", (t: any) => setActiveTrack(t?.id || null));
+  busOn("melo:playback-state", (s: any) => setActiveTrack(s?.track?.id || null));
+
+  // When this window (re)opens, restore the active-track highlight from the
+  // player's current state instead of waiting for the next track change.
+  try {
+    const saved = JSON.parse(localStorage.getItem("melo-current-track") || "null");
+    if (saved?.id) setActiveTrack(saved.id);
+  } catch {}
   busEmit("melo:request-playback-state");
   setTimeout(() => busEmit("melo:request-playback-state"), 250);
 
-  (window as any).MeloLibrary = (window as any).LumiLibrary = {
+  (window as any).LumiLibrary = {
     get tracks() { return recentTracks; },
     get playlists() { return playlists; },
     scanFolder,
     importPaths,
     getTrack,
-    getPlaylistTracks,
-    currentPlaylistId: () => currentPlaylistId,
     render: () => renderLibraryVirtual(),
     addTracks: () => {},
     addToCurrentPlaylist: async (list: Track[]) => {
