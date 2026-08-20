@@ -200,7 +200,15 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // Never fade for longer than ~90% of the track, so very short tracks
     // still get a (shorter) sensible crossfade instead of a jarring one.
     const effectiveDur = Math.min(crossfadeDurationSec(), Math.max(1, dur * 0.9));
-    if (remaining <= effectiveDur) startCrossfade(nxt, effectiveDur);
+    if (remaining > effectiveDur) return;
+    // Clamp to what's actually left to play right now. Without this, a
+    // manual seek into the last few seconds of a track (with a longer
+    // crossfade duration configured) would still schedule the fade/handoff
+    // for the full configured duration, so the outgoing deck would run out
+    // of audio and go silent seconds before the track info / UI actually
+    // switches over to the next track.
+    const startDur = Math.max(0.15, Math.min(effectiveDur, remaining));
+    startCrossfade(nxt, startDur);
   }
 
   async function startCrossfade(nxt: number, dur: number) {

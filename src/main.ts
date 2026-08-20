@@ -1330,9 +1330,15 @@ if (isTauri && urlPanel) {
   // track up via the *playlist* first (which joins on playlist membership,
   // not library ownership), and only fall back to the full Library, then
   // finally to the single-track queue, if that fails.
+  //
+  // "Resume playback on reopen" only controls whether playback *starts
+  // automatically*. Even with it off, the last track/queue is still loaded
+  // (paused, at the saved position) so the Play button works immediately —
+  // otherwise there'd be nothing to play until the user picked a track from
+  // a playlist again.
   setTimeout(async () => {
-    if (localStorage.getItem("melo-pref-resume") === "0") return;
     try {
+      const autoplay = localStorage.getItem("melo-pref-resume") !== "0";
       const state = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
       const lib = (window as any).LumiLibrary;
       const p = (window as any).LumiPlayer;
@@ -1365,7 +1371,7 @@ if (isTauri && urlPanel) {
       }
 
       p.queue = queue;
-      p.loadTrack(idx, true, state.position || 0);
+      p.loadTrack(idx, autoplay, state.position || 0);
     } catch {}
   }, 500);
 }
