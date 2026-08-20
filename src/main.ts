@@ -1318,6 +1318,18 @@ if (isTauri && urlPanel) {
   // Resume playback on reopen: restore the last-played track, paused, at
   // the position it was left at. Only runs once, shortly after boot, so the
   // library has had a chance to load from localStorage first.
+  //
+  // IMPORTANT: the queue must be rebuilt as a real multi-track list, not
+  // just `[track]` — a single-item queue has no "next"/"previous" for
+  // computeNextIndex() to find, so Next would immediately pause and
+  // Previous could only restart the same file.
+  //
+  // The actual playback queue is normally built from the Playlist window
+  // (`currentPlaylistId`), and a playlist can contain tracks that were
+  // never scanned into the Library (library_owned=0) — so we must look the
+  // track up via the *playlist* first (which joins on playlist membership,
+  // not library ownership), and only fall back to the full Library, then
+  // finally to the single-track queue, if that fails.
   setTimeout(async () => {
     if (localStorage.getItem("melo-pref-resume") === "0") return;
     try {
@@ -1327,8 +1339,33 @@ if (isTauri && urlPanel) {
       if (!state?.trackId || !lib || !p) return;
       const track = await lib.getTrack(state.trackId);
       if (!track) return;
-      p.queue = [track];
-      p.loadTrack(0, true, state.position || 0);
+
+      let queue: Track[] = [track];
+      let idx = 0;
+
+      if (typeof lib.getCurrentPlaylistId === "function" && typeof lib.getPlaylistTracksAll === "function") {
+        const plId = lib.getCurrentPlaylistId();
+        if (plId) {
+          const plTracks: Track[] = await lib.getPlaylistTracksAll(plId);
+          const foundIdx = plTracks.findIndex((x) => x.id === track.id);
+          if (foundIdx >= 0) {
+            queue = plTracks;
+            idx = foundIdx;
+          }
+        }
+      }
+
+      if (queue.length === 1 && typeof lib.getAllTracks === "function") {
+        const all: Track[] = await lib.getAllTracks();
+        const foundIdx = all.findIndex((x) => x.id === track.id);
+        if (foundIdx >= 0) {
+          queue = all;
+          idx = foundIdx;
+        }
+      }
+
+      p.queue = queue;
+      p.loadTrack(idx, true, state.position || 0);
     } catch {}
   }, 500);
 }

@@ -674,12 +674,56 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   busEmit("melo:request-playback-state");
   setTimeout(() => busEmit("melo:request-playback-state"), 250);
 
+  function getCurrentPlaylistId(): string {
+    return currentPlaylistId;
+  }
+
+  async function getPlaylistTracksAll(playlistId: string): Promise<Track[]> {
+    if (!invoke || !playlistId) return [];
+    try {
+      // playlist_tracks joins on playlist membership, not library_owned, so
+      // this correctly includes tracks that only live inside a playlist
+      // and were never scanned into the Library.
+      const page = await invoke<Page<Track>>("playlist_tracks", {
+        playlistId,
+        search: null,
+        sort: "default",
+        limit: 20000,
+        offset: 0,
+      });
+      return page.items.map(normalizeTrack);
+    } catch {
+      return [];
+    }
+  }
+
+  async function getAllTracks(): Promise<Track[]> {
+    if (!invoke) return [];
+    try {
+      const page = await invoke<Page<Track>>("library_tracks", {
+        search: null,
+        artist: null,
+        album: null,
+        genre: null,
+        sort: "title-asc",
+        limit: 20000,
+        offset: 0,
+      });
+      return page.items.map(normalizeTrack);
+    } catch {
+      return [];
+    }
+  }
+
   (window as any).LumiLibrary = {
     get tracks() { return recentTracks; },
     get playlists() { return playlists; },
     scanFolder,
     importPaths,
     getTrack,
+    getCurrentPlaylistId,
+    getPlaylistTracksAll,
+    getAllTracks,
     render: () => renderLibraryVirtual(),
     addTracks: () => {},
     addToCurrentPlaylist: async (list: Track[]) => {
