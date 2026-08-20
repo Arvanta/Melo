@@ -22,6 +22,10 @@
   "settings.playback.replaygain.desc": "Equalize track volume levels automatically",
   "settings.playback.fadepause.label": "Fade out on pause",
   "settings.playback.fadepause.desc": "Smooth 0.5s fade-out on pause, fade back in on resume",
+  "settings.playback.crossfade.label": "Crossfade",
+  "settings.playback.crossfade.desc": "Smoothly blend the end of one track into the start of the next",
+  "settings.playback.crossfadeDuration.label": "Crossfade duration",
+  "settings.playback.crossfadeDuration.desc": "How long the transition between tracks lasts (1–12 seconds)",
 
   "settings.appearance.showstop.label": "Show Stop button",
   "settings.appearance.showstop.desc": "Display a Stop control next to Play/Pause in the player"

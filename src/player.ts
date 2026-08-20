@@ -4,13 +4,24 @@ import { applyDynamicAmbientTheme } from "./cover";
 import { getAudioGraph } from "./audio-graph";
 import { findHook } from "./skin";
 
-export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void) {
+export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) => void) {
   let btnPlay: HTMLButtonElement, iconPlay: HTMLElement, iconPause: HTMLElement;
   let btnPrev: HTMLButtonElement, btnNext: HTMLButtonElement, btnShuffle: HTMLButtonElement, btnRepeat: HTMLButtonElement;
   let btnStop: HTMLButtonElement | null = null;
   let seekBar: HTMLInputElement, volBar: HTMLInputElement, curTime: HTMLElement, durTime: HTMLElement, volPct: HTMLElement, volIcon: HTMLElement;
   let trackTitle: HTMLElement, trackArtist: HTMLElement, trackAlbum: HTMLElement, trackCodec: HTMLElement, trackSpecs: HTMLElement;
   let coverImg: HTMLImageElement, coverFallback: HTMLElement;
+
+  // "audio" always points at whichever physical <audio> element is the
+  // currently active / UI-bound deck. Playback normally happens on
+  // `primaryAudio`; a second element is created lazily, only if/when
+  // Crossfade is actually used, and `audio` is reassigned to it the
+  // instant a crossfade finishes (see finishCrossfade()). Everything below
+  // (seek bar, volume, mute, keyboard shortcuts, media session, etc.)
+  // reads/writes through the `audio` variable, so it transparently follows
+  // whichever deck is currently playing.
+  let audio: HTMLAudioElement = primaryAudio;
+  let secondaryAudio: HTMLAudioElement | null = null;
 
   let queue: Track[] = [];
   let currentIndex = 0;
@@ -67,6 +78,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
   function toggleMute(notify = true) {
     audio.muted = !audio.muted;
+    if (crossfadeActive && cfIncoming) cfIncoming.muted = audio.muted;
     syncMuteUI();
     if (notify) toast(audio.muted ? "Muted" : "Unmuted");
   }
@@ -83,25 +95,213 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     return p;
   }
 
-  async function loadTrack(idx: number, autoplay = true, seekTo?: number) {
-    if (!queue.length) return;
-    if (idx < 0) idx = queue.length - 1;
-    if (idx >= queue.length) idx = 0;
-    currentIndex = idx;
-    const t = queue[idx];
-    if (!t) return;
+  // ---------------------------------------------------------------------
+  // Crossfade engine
+  //
+  // A second <audio> element ("secondaryAudio") is created lazily the
+  // first time it's needed. Each element gets its own per-deck GainNode
+  // in the shared Web Audio graph (audio-graph.ts): both decks mix into
+  // the same EQ/analyser chain, so the equalizer and visualizer keep
+  // working unmodified and reflect whatever is actually audible.
+  //
+  // The fade curve itself is scheduled once via native AudioParam
+  // automation (setValueCurveAtTime) — the browser's audio thread runs it,
+  // not JS on every frame — so an active crossfade costs effectively zero
+  // extra CPU beyond decoding the second stream, which is unavoidable for
+  // any true crossfade.
+  // ---------------------------------------------------------------------
 
-    if (!trackTitle) bindDOM();
+  let crossfadeActive = false;
+  let cfOutgoing: HTMLAudioElement | null = null;
+  let cfIncoming: HTMLAudioElement | null = null;
+  let cfTargetIndex: number | null = null;
+  let cfTimer: number | null = null;
 
-    audio.src = await resolveSrc(t.path);
-    audio.load();
-    if (seekTo && seekTo > 0) {
-      const onMeta = () => {
-        audio.removeEventListener("loadedmetadata", onMeta);
-        try { audio.currentTime = seekTo; } catch {}
-      };
-      audio.addEventListener("loadedmetadata", onMeta);
+  function crossfadeEnabled(): boolean {
+    return localStorage.getItem("melo-pref-crossfade") === "1";
+  }
+
+  function crossfadeDurationSec(): number {
+    const raw = parseInt(localStorage.getItem("melo-pref-crossfadeDuration") || "4", 10);
+    if (!Number.isFinite(raw)) return 4;
+    return Math.min(12, Math.max(1, raw));
+  }
+
+  function getSecondaryAudio(): HTMLAudioElement {
+    if (!secondaryAudio) {
+      secondaryAudio = new Audio();
+      secondaryAudio.preload = "auto";
+      secondaryAudio.crossOrigin = "anonymous";
+      attachDeckListeners(secondaryAudio);
     }
+    return secondaryAudio;
+  }
+
+  function otherDeck(): HTMLAudioElement {
+    return audio === primaryAudio ? getSecondaryAudio() : primaryAudio;
+  }
+
+  function resetDeckGain(el: HTMLAudioElement, value: number) {
+    try {
+      const g = getAudioGraph(primaryAudio);
+      const deck = g.getDeck(el);
+      deck?.gain.gain.cancelScheduledValues(g.ctx.currentTime);
+      deck?.gain.gain.setValueAtTime(value, g.ctx.currentTime);
+    } catch {}
+  }
+
+  function cancelCrossfade() {
+    if (cfTimer) {
+      clearTimeout(cfTimer);
+      cfTimer = null;
+    }
+    if (!crossfadeActive) {
+      cfOutgoing = null;
+      cfIncoming = null;
+      cfTargetIndex = null;
+      return;
+    }
+    crossfadeActive = false;
+    if (cfIncoming) {
+      resetDeckGain(cfIncoming, 0);
+      try {
+        cfIncoming.pause();
+        cfIncoming.currentTime = 0;
+      } catch {}
+    }
+    if (cfOutgoing) resetDeckGain(cfOutgoing, 1);
+    cfOutgoing = null;
+    cfIncoming = null;
+    cfTargetIndex = null;
+  }
+
+  function computeVolumeFor(t: Track | null | undefined): number {
+    if (!volBar) return 1;
+    const baseVol = parseInt(volBar.value, 10) / 100;
+    const replayGainEnabled = localStorage.getItem("melo-pref-replayGainGlobal") !== "0";
+    const gainDb = replayGainEnabled ? t?.replayGain ?? 0 : 0;
+    const linear = Math.pow(10, gainDb / 20);
+    return Math.min(1, Math.max(0, baseVol * linear));
+  }
+  function computeTargetVolume(): number {
+    return computeVolumeFor(queue[currentIndex]);
+  }
+
+  function maybeStartCrossfade() {
+    if (crossfadeActive || !crossfadeEnabled()) return;
+    if (repeatMode === "one") return; // don't crossfade a track into itself
+    if (queue.length <= 1) return;
+    const dur = audio.duration;
+    if (!isFinite(dur) || dur <= 0) return;
+    const nxt = computeNextIndex();
+    if (nxt === null) return;
+    const remaining = dur - audio.currentTime;
+    if (remaining <= 0) return;
+    // Never fade for longer than ~90% of the track, so very short tracks
+    // still get a (shorter) sensible crossfade instead of a jarring one.
+    const effectiveDur = Math.min(crossfadeDurationSec(), Math.max(1, dur * 0.9));
+    if (remaining <= effectiveDur) startCrossfade(nxt, effectiveDur);
+  }
+
+  async function startCrossfade(nxt: number, dur: number) {
+    const nextTrack = queue[nxt];
+    if (!nextTrack) return;
+    crossfadeActive = true;
+    const outgoing = audio;
+    const incoming = otherDeck();
+    cfOutgoing = outgoing;
+    cfIncoming = incoming;
+    cfTargetIndex = nxt;
+
+    try {
+      incoming.pause();
+      incoming.src = await resolveSrc(nextTrack.path);
+      incoming.load();
+    } catch {
+      cancelCrossfade();
+      return;
+    }
+    // If cancelCrossfade() ran while we were awaiting resolveSrc (e.g. the
+    // user hit Next), don't resurrect a stale transition.
+    if (cfIncoming !== incoming || !crossfadeActive) return;
+
+    const onError = () => {
+      incoming.removeEventListener("error", onError);
+      if (cfIncoming === incoming) cancelCrossfade();
+    };
+    incoming.addEventListener("error", onError, { once: true });
+
+    const graph = getAudioGraph(primaryAudio);
+    const deckOut = graph.getDeck(outgoing);
+    const deckIn = graph.getDeck(incoming);
+    if (!deckOut || !deckIn) {
+      cancelCrossfade();
+      return;
+    }
+
+    incoming.volume = computeVolumeFor(nextTrack);
+    incoming.muted = outgoing.muted;
+
+    try {
+      await graph.resume();
+    } catch {}
+    try {
+      await incoming.play();
+    } catch {
+      cancelCrossfade();
+      return;
+    }
+    if (cfIncoming !== incoming || !crossfadeActive) return;
+
+    const ctx = graph.ctx;
+    const now = ctx.currentTime;
+    // Equal-power curve: perceived loudness stays roughly constant through
+    // the transition instead of dipping in the middle (as a plain linear
+    // fade would).
+    const steps = 40;
+    const curveIn = new Float32Array(steps + 1);
+    const curveOut = new Float32Array(steps + 1);
+    for (let i = 0; i <= steps; i++) {
+      const x = i / steps;
+      curveIn[i] = Math.sin((x * Math.PI) / 2);
+      curveOut[i] = Math.cos((x * Math.PI) / 2);
+    }
+    deckIn.gain.gain.cancelScheduledValues(now);
+    deckIn.gain.gain.setValueCurveAtTime(curveIn, now, dur);
+    deckOut.gain.gain.cancelScheduledValues(now);
+    deckOut.gain.gain.setValueCurveAtTime(curveOut, now, dur);
+
+    cfTimer = window.setTimeout(() => finishCrossfade(), Math.round(dur * 1000));
+  }
+
+  function finishCrossfade() {
+    cfTimer = null;
+    if (!crossfadeActive || !cfOutgoing || !cfIncoming || cfTargetIndex === null) {
+      crossfadeActive = false;
+      return;
+    }
+    const outgoing = cfOutgoing;
+    const incoming = cfIncoming;
+    const nxt = cfTargetIndex;
+    crossfadeActive = false;
+    cfOutgoing = null;
+    cfIncoming = null;
+    cfTargetIndex = null;
+
+    try {
+      outgoing.pause();
+      outgoing.currentTime = 0;
+    } catch {}
+    resetDeckGain(outgoing, 1);
+    resetDeckGain(incoming, 1);
+
+    audio = incoming;
+    currentIndex = nxt;
+    applyTrackMetadata(queue[nxt], { resetProgress: false });
+  }
+
+  function applyTrackMetadata(t: Track, opts: { resetProgress: boolean }) {
+    if (!trackTitle) bindDOM();
 
     if (trackTitle) trackTitle.textContent = t.title || "Unknown Title";
     if (trackArtist) trackArtist.textContent = t.artist || "Unknown Artist";
@@ -120,11 +320,12 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
     if (seekBar) {
       seekBar.max = String(t.duration || 240);
-      seekBar.value = "0";
+      if (opts.resetProgress) seekBar.value = "0";
+      else seekBar.value = String(Math.floor(audio.currentTime || 0));
       updateSeekBackground();
     }
     if (durTime) durTime.textContent = formatTime(t.duration);
-    if (curTime) curTime.textContent = "0:00";
+    if (curTime) curTime.textContent = opts.resetProgress ? "0:00" : formatTime(audio.currentTime || 0);
 
     applyReplayGain();
     applyDynamicAmbientTheme(t.cover || null);
@@ -149,8 +350,6 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       });
     }
 
-    if (autoplay) play();
-
     // Keep a small durable snapshot as a race-free fallback for a Lyrics
     // window created after this event. Cover art is omitted to avoid filling
     // localStorage with a large data URL.
@@ -163,9 +362,36 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     busEmit("melo:playback-state", { track: t, currentTime: audio.currentTime || 0, paused: audio.paused });
   }
 
+  async function loadTrack(idx: number, autoplay = true, seekTo?: number) {
+    if (!queue.length) return;
+    cancelCrossfade();
+    if (idx < 0) idx = queue.length - 1;
+    if (idx >= queue.length) idx = 0;
+    currentIndex = idx;
+    const t = queue[idx];
+    if (!t) return;
+
+    if (!trackTitle) bindDOM();
+
+    resetDeckGain(audio, 1);
+    audio.src = await resolveSrc(t.path);
+    audio.load();
+    if (seekTo && seekTo > 0) {
+      const onMeta = () => {
+        audio.removeEventListener("loadedmetadata", onMeta);
+        try { audio.currentTime = seekTo; } catch {}
+      };
+      audio.addEventListener("loadedmetadata", onMeta);
+    }
+
+    applyTrackMetadata(t, { resetProgress: true });
+
+    if (autoplay) play();
+  }
+
   let pendingPlay = false;
   async function onUnlocked() {
-    try { await getAudioGraph(audio).resume(); } catch {}
+    try { await getAudioGraph(primaryAudio).resume(); } catch {}
     if (!pendingPlay) return;
     pendingPlay = false;
     audio.play().then(() => {
@@ -179,6 +405,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   busOn("melo:pref-changed", (p: any) => {
     if (p && p.key === "replayGainGlobal") applyReplayGain();
     if (p && p.key === "showStopBtn") syncStopButtonVisibility(!!p.value);
+    if (p && p.key === "crossfade" && !p.value) cancelCrossfade();
   });
 
   // Secondary windows can be opened at any time. Reply with the current
@@ -210,7 +437,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   }
 
   async function play() {
-    try { await getAudioGraph(audio).resume(); } catch {}
+    try { await getAudioGraph(primaryAudio).resume(); } catch {}
     const fadeOn = localStorage.getItem("melo-pref-fadePause") !== "0";
     const target = computeTargetVolume();
     if (fadeOn && wasFadedPause) audio.volume = 0;
@@ -230,6 +457,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   }
 
   function pause() {
+    cancelCrossfade();
     const fadeOn = localStorage.getItem("melo-pref-fadePause") !== "0";
     if (fadeOn && !audio.paused) {
       wasFadedPause = true;
@@ -253,6 +481,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
   }
 
   function stop() {
+    cancelCrossfade();
     audio.pause();
     try { audio.currentTime = 0; } catch {}
     if (iconPlay) iconPlay.style.display = "block";
@@ -267,6 +496,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
   function next() {
     if (!queue.length) return;
+    cancelCrossfade();
     if (repeatMode === "one") {
       audio.currentTime = 0;
       play();
@@ -282,6 +512,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
   function prev() {
     if (!queue.length) return;
+    cancelCrossfade();
     if (audio.currentTime > 3) {
       audio.currentTime = 0;
       return;
@@ -295,18 +526,13 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     loadTrack(prv);
   }
 
-  function computeTargetVolume(): number {
-    const t = queue[currentIndex];
-    if (!volBar) return 1;
-    const baseVol = parseInt(volBar.value, 10) / 100;
-    const replayGainEnabled = localStorage.getItem("melo-pref-replayGainGlobal") !== "0";
-    const gainDb = replayGainEnabled ? t?.replayGain ?? 0 : 0;
-    const linear = Math.pow(10, gainDb / 20);
-    return Math.min(1, Math.max(0, baseVol * linear));
-  }
   function applyReplayGain() {
     if (!queue[currentIndex] || !volBar) return;
     audio.volume = computeTargetVolume();
+    if (crossfadeActive && cfIncoming && cfTargetIndex !== null) {
+      const nextTrack = queue[cfTargetIndex];
+      if (nextTrack) cfIncoming.volume = computeVolumeFor(nextTrack);
+    }
   }
 
   function syncStopButtonVisibility(enabled = localStorage.getItem("melo-pref-showStopBtn") === "1") {
@@ -372,6 +598,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
         updateSeekBackground();
       };
       seekBar.onchange = () => {
+        cancelCrossfade();
         audio.currentTime = parseFloat(seekBar.value);
         isSeeking = false;
       };
@@ -443,15 +670,32 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     volBar.dispatchEvent(new Event("input"));
   }, { passive: false });
 
-  audio.addEventListener("timeupdate", () => {
-    busEmit("melo:playback-position", audio.currentTime || 0);
-    if (!isSeeking && seekBar && curTime) {
-      seekBar.value = String(Math.floor(audio.currentTime));
-      curTime.textContent = formatTime(audio.currentTime);
+  function attachDeckListeners(el: HTMLAudioElement) {
+    el.addEventListener("timeupdate", () => {
+      if (el !== audio) return; // only the active deck drives UI + scheduling
+      busEmit("melo:playback-position", el.currentTime || 0);
+      if (!isSeeking && seekBar && curTime) {
+        seekBar.value = String(Math.floor(el.currentTime));
+        curTime.textContent = formatTime(el.currentTime);
+        updateSeekBackground();
+      }
+      saveResumeStateThrottled();
+      maybeStartCrossfade();
+    });
+
+    el.addEventListener("loadedmetadata", () => {
+      if (el !== audio || !seekBar || !durTime) return;
+      const dur = Math.floor(el.duration || queue[currentIndex]?.duration || 240);
+      seekBar.max = String(dur);
+      durTime.textContent = formatTime(dur);
       updateSeekBackground();
-    }
-    saveResumeStateThrottled();
-  });
+    });
+
+    el.addEventListener("ended", () => {
+      if (el !== audio || crossfadeActive) return; // stray/handled event
+      next();
+    });
+  }
 
   let resumeSaveTimer: any = null;
   function saveResumeStateThrottled() {
@@ -466,17 +710,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
     }, 4000);
   }
 
-  audio.addEventListener("loadedmetadata", () => {
-    if (!seekBar || !durTime) return;
-    const dur = Math.floor(audio.duration || queue[currentIndex]?.duration || 240);
-    seekBar.max = String(dur);
-    durTime.textContent = formatTime(dur);
-    updateSeekBackground();
-  });
-
-  audio.addEventListener("ended", () => {
-    next();
-  });
+  attachDeckListeners(primaryAudio);
 
   window.addEventListener("keydown", (e) => {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
@@ -485,9 +719,11 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
       togglePlay();
     }
     if (e.code === "ArrowRight") {
+      cancelCrossfade();
       audio.currentTime += 5;
     }
     if (e.code === "ArrowLeft") {
+      cancelCrossfade();
       audio.currentTime -= 5;
     }
     if (e.key === "m" || e.key === "M") {
@@ -539,6 +775,7 @@ export function setupPlayer(audio: HTMLAudioElement, toast: (m: string) => void)
 
   busOn("melo:play-tracks", (p: any) => {
     if (!p || !Array.isArray(p.tracks) || !p.tracks.length) return;
+    cancelCrossfade();
     queue = p.tracks;
     (window as any).__LUMI_SET_QUEUE__(queue);
     const idx = Math.max(0, Math.min(p.index || 0, queue.length - 1));

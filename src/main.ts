@@ -238,6 +238,19 @@ app.innerHTML = `
             <div><div class="label">${t("settings.playback.fadepause.label")}</div><div class="desc">${t("settings.playback.fadepause.desc")}</div></div>
             <div class="switch on" id="swFadePause" data-key="fadePause"></div>
           </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.playback.crossfade.label")}</div><div class="desc">${t("settings.playback.crossfade.desc")}</div></div>
+            <div class="switch" id="swCrossfade" data-key="crossfade"></div>
+          </div>
+          <div class="settings-row" id="crossfadeDurationRow">
+            <div><div class="label">${t("settings.playback.crossfadeDuration.label")}</div><div class="desc">${t("settings.playback.crossfadeDuration.desc")}</div></div>
+            <div class="stepper-control">
+              <button type="button" class="btn small stepper-btn" id="btnCrossfadeDown" aria-label="Decrease crossfade duration">−</button>
+              <input type="range" class="crossfade-range" id="crossfadeDurationRange" min="1" max="12" step="1" value="4" />
+              <span class="stepper-value" id="crossfadeDurationValue">4s</span>
+              <button type="button" class="btn small stepper-btn" id="btnCrossfadeUp" aria-label="Increase crossfade duration">+</button>
+            </div>
+          </div>
         </div>
 
         <!-- APPEARANCE & SKINS TAB -->
@@ -307,7 +320,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.5.1 Beta</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.5.2 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -1076,6 +1089,48 @@ function setupSettings(toast: ToastFn) {
     };
   });
 
+  // Crossfade: reuses the generic .switch[data-key="crossfade"] handler
+  // above for on/off persistence + melo:pref-changed broadcast; here we
+  // just dim the duration row when it's off and wire the duration control.
+  const swCrossfade = document.getElementById("swCrossfade");
+  const crossfadeRow = document.getElementById("crossfadeDurationRow");
+  const crossfadeRange = document.getElementById("crossfadeDurationRange") as HTMLInputElement | null;
+  const crossfadeValue = document.getElementById("crossfadeDurationValue");
+  const btnCrossfadeDown = document.getElementById("btnCrossfadeDown");
+  const btnCrossfadeUp = document.getElementById("btnCrossfadeUp");
+
+  function syncCrossfadeRowState() {
+    const on = localStorage.getItem("melo-pref-crossfade") === "1";
+    crossfadeRow?.classList.toggle("disabled-row", !on);
+  }
+  syncCrossfadeRowState();
+  swCrossfade?.addEventListener("click", () => setTimeout(syncCrossfadeRowState, 0));
+
+  function updateCrossfadeRangeBackground() {
+    if (!crossfadeRange) return;
+    const v = parseInt(crossfadeRange.value, 10) || 1;
+    const pct = ((v - 1) / (12 - 1)) * 100;
+    crossfadeRange.style.setProperty("--progress", pct + "%");
+  }
+  function setCrossfadeDuration(seconds: number) {
+    const clamped = Math.min(12, Math.max(1, Math.round(seconds)));
+    localStorage.setItem("melo-pref-crossfadeDuration", String(clamped));
+    if (crossfadeRange) crossfadeRange.value = String(clamped);
+    if (crossfadeValue) crossfadeValue.textContent = clamped + "s";
+    updateCrossfadeRangeBackground();
+    busEmit("melo:pref-changed", { key: "crossfadeDuration", value: clamped });
+  }
+  const savedCrossfadeDuration = parseInt(localStorage.getItem("melo-pref-crossfadeDuration") || "4", 10);
+  {
+    const clamped = Math.min(12, Math.max(1, Number.isFinite(savedCrossfadeDuration) ? savedCrossfadeDuration : 4));
+    if (crossfadeRange) crossfadeRange.value = String(clamped);
+    if (crossfadeValue) crossfadeValue.textContent = clamped + "s";
+    updateCrossfadeRangeBackground();
+  }
+  if (crossfadeRange) crossfadeRange.oninput = () => setCrossfadeDuration(parseInt(crossfadeRange.value, 10));
+  btnCrossfadeDown?.addEventListener("click", () => setCrossfadeDuration(parseInt(crossfadeRange?.value || "4", 10) - 1));
+  btnCrossfadeUp?.addEventListener("click", () => setCrossfadeDuration(parseInt(crossfadeRange?.value || "4", 10) + 1));
+
   const langSelect = document.getElementById("setLanguage") as HTMLSelectElement | null;
   if (langSelect) {
     langSelect.value = getLocaleCode();
@@ -1223,7 +1278,7 @@ document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement)?.closest('#btnAbout, [data-melo="about"]')) return;
   e.stopPropagation();
   aboutPop.innerHTML = `
-    <div class="about-head">Melo <b>0.5.1 Beta</b></div>
+    <div class="about-head">Melo <b>0.5.2 Beta</b></div>
     <div style="font-size:11.5px; color:var(--text-soft); margin:6px 0 10px;">
       Modern Windows Music Player<br/>
       Tauri 2 + TypeScript + Rust
