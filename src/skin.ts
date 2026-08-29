@@ -33,7 +33,7 @@ export function findHook<T extends HTMLElement = HTMLElement>(id: string, role: 
 /**
  * A full HTML skin may declare the native window size it wants via
  * data-window-width / data-window-height (plus optional min sizes and
- * resizability) on <html>, <body> or the #lumi-player root.
+ * resizability) on <html>, <body> or the #melo-player root.
  */
 export function parseSkinGeometry(htmlText: string): SkinGeometry | null {
   const read = (attr: string): number | null => {
@@ -340,7 +340,7 @@ const COMPACT_PILL = `<!doctype html>
 </style>
 </head>
 <body>
-<div id="lumi-player">
+<div id="melo-player">
   <div class="player-titlebar" data-tauri-drag-region>
     <!-- Top-Left: App name + Add files + Add folder + Theme toggle + Windows buttons -->
     <div class="titlebar-left">
@@ -502,7 +502,11 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void, a
   }
   const tempDiv = document.createElement("div");
   tempDiv.innerHTML = bodyHTML;
-  const lumiRoot = tempDiv.querySelector("#lumi-player");
+  // "melo-player" is the current root id documented in skins/README.md.
+  // "lumi-player" is kept as a fallback purely for backward-compatibility
+  // with custom skins created before the app was renamed from Lumi to
+  // Melo — those existing user skins must keep working unmodified.
+  const lumiRoot = tempDiv.querySelector("#melo-player") || tempDiv.querySelector("#lumi-player");
   if (lumiRoot) bodyHTML = lumiRoot.innerHTML;
 
   if (isFull && bodyHTML.trim().length > 20) {
@@ -536,8 +540,8 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void, a
     }
   }
 
-  localStorage.setItem("lumi-custom-skin", htmlText);
-  localStorage.setItem("lumi-custom-skin-isFull", isFull ? "1" : "0");
+  localStorage.setItem("melo-custom-skin", htmlText);
+  localStorage.setItem("melo-custom-skin-isFull", isFull ? "1" : "0");
 }
 
 export function resetSkin(toast?: (m: string) => void, broadcast = true) {
@@ -559,8 +563,8 @@ export function resetSkin(toast?: (m: string) => void, broadcast = true) {
       (window as any).__LUMI_REBIND_MAIN__?.();
     }, 40);
   }
-  localStorage.removeItem("lumi-custom-skin");
-  localStorage.removeItem("lumi-custom-skin-isFull");
+  localStorage.removeItem("melo-custom-skin");
+  localStorage.removeItem("melo-custom-skin-isFull");
   localStorage.removeItem("melo-skin-geometry");
   localStorage.setItem("melo-active-skin-id", "default");
   if (broadcast) busEmit("melo:skin-changed", "default");
@@ -669,7 +673,7 @@ export function setupSkinEngine(toast: (m: string) => void) {
   const skinUpload = document.getElementById("skinUpload") as HTMLInputElement;
 
   const savedSkinId = localStorage.getItem("melo-active-skin-id") || "default";
-  const theme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";
+  const theme = (localStorage.getItem("melo-theme") as "light" | "dark") || "dark";
 
   if (savedSkinId && savedSkinId !== "default") {
     setTimeout(() => {
@@ -688,7 +692,7 @@ export function setupSkinEngine(toast: (m: string) => void) {
 
   busOn("melo:skin-changed", (skinChoice: any) => {
     if (skinChoice && typeof skinChoice === "string") {
-      const currentTheme = (localStorage.getItem("lumi-theme") as "light" | "dark") || "dark";
+      const currentTheme = (localStorage.getItem("melo-theme") as "light" | "dark") || "dark";
       applySkinChoice(skinChoice, currentTheme, undefined, false, false);
     }
   });

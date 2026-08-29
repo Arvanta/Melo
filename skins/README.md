@@ -54,7 +54,7 @@ A full HTML skin is a normal HTML document:
 </style>
 </head>
 <body>
-<div id="lumi-player">
+<div id="melo-player">
   <!-- Your player markup goes here -->
 </div>
 </body>
@@ -62,15 +62,20 @@ A full HTML skin is a normal HTML document:
 ```
 
 - The `<style>` block(s) are injected into the app.
-- The contents of `<div id="lumi-player">` replace the player's markup.
+- The contents of `<div id="melo-player">` replace the player's markup.
 - The `<title>` is used as the skin's display name in the skin list.
+
+> Skins made before the app was renamed from Lumi to Melo may still use
+> `<div id="lumi-player">` — that id still works as a fallback, so older
+> custom skins don't need to be edited. New/updated skins should use
+> `melo-player`.
 
 ---
 
 ## 4. Declaring the window size (and shape)
 
 The player window normally is 960×240. A skin can declare its own size by
-adding these attributes to the `<body>` (or `<html>`, or the `#lumi-player`
+adding these attributes to the `<body>` (or `<html>`, or the `#melo-player`
 root):
 
 | Attribute | Meaning |
@@ -159,7 +164,46 @@ finds them by role, not by position.
 |---|---|
 | `visualizer` | A container (any size). Melo draws the visualization into a `<canvas>` that fills it. Add `data-bars="24"` to set the number of bars/columns (any positive integer). The mode (classic bars, line, wave, …) is user-selectable by clicking/right-clicking the visualizer. |
 
-### 5.6 App actions & windows
+### 5.6 Optional: Playlist / Lyrics embedded in the skin
+
+The Playlist and Lyrics windows normally open as their own separate
+windows (via `toggle-playlist` / `toggle-lyrics` above, unchanged). A skin
+can *additionally* show a lightweight, optional view of either one
+directly inside the player itself — this is entirely opt-in; skins that
+don't include these hooks are completely unaffected.
+
+| Role | Element type | Notes |
+|---|---|---|
+| `embedded-playlist` | a container | Melo renders a compact, read-mostly list of the current playlist here (click a row to play it). No search box, sort control, drag-reorder, remove button, or M3U export — this is meant to be small and glanceable, not a replacement for the full Playlist window. |
+| `embedded-lyrics` | a container | Melo renders the current track's synced/plain lyrics here, the same way the Lyrics window does. |
+| `toggle-embedded-playlist` | clickable | Toggles the `melo-show-playlist` class on `<html>`. |
+| `toggle-embedded-lyrics` | clickable | Toggles the `melo-show-lyrics` class on `<html>`. |
+
+By default, `embedded-playlist` / `embedded-lyrics` are hidden until their
+matching `html.melo-show-playlist` / `html.melo-show-lyrics` class is
+present — a skin doesn't need to hide them itself.
+
+**"Swap with the visualizer" pattern**: to make a toggle button replace the
+visualizer with the playlist/lyrics view (instead of showing both at once
+or adding new space), style your `visualizer` container to hide under the
+same state class in your own CSS, e.g.:
+
+```css
+html.melo-show-playlist [data-melo="visualizer"] { display: none; }
+```
+
+Melo detects when the visualizer's container becomes hidden this way and
+pauses its render loop entirely (rather than just leaving it invisible),
+so there's no wasted drawing/CPU while it's swapped out — this happens
+automatically, you don't need to do anything extra for it.
+
+Two settings — under Settings → Appearance → *Embedded Playlist (skins)* —
+let the user show/hide cover art and scale the text size of the embedded
+playlist independently of the standalone Playlist window's own look;
+these only matter if your skin actually includes the `embedded-playlist`
+hook.
+
+### 5.7 App actions & windows
 
 | Role | What it does |
 |---|---|
@@ -175,7 +219,7 @@ finds them by role, not by position.
 | `minimize` | Minimize the window |
 | `close` | Close the window |
 
-### 5.7 Draggable window region
+### 5.8 Draggable window region
 
 Add `data-tauri-drag-region` to any element to make it a window-drag handle
 (so the frameless window can be moved). Add `-webkit-app-region: no-drag;`

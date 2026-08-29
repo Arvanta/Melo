@@ -12,6 +12,45 @@ import type { Track } from "./types";
 
 type ToastFn = (msg: string) => void;
 
+// One-time migration from the old "Lumi" branding's localStorage keys to
+// the current "melo-*" keys, so existing users don't lose their saved
+// theme / custom skin across an upgrade. Runs once at module load, before
+// anything below reads these keys. Safe to run every launch: once the new
+// key exists, the old one is simply removed and this becomes a no-op.
+(function migrateLegacyLumiStorageKeys() {
+  const renames: [string, string][] = [
+    ["lumi-theme", "melo-theme"],
+    ["lumi-custom-skin", "melo-custom-skin"],
+    ["lumi-custom-skin-isFull", "melo-custom-skin-isFull"],
+  ];
+  for (const [oldKey, newKey] of renames) {
+    try {
+      const oldVal = localStorage.getItem(oldKey);
+      if (oldVal !== null && localStorage.getItem(newKey) === null) {
+        localStorage.setItem(newKey, oldVal);
+      }
+      if (oldVal !== null) localStorage.removeItem(oldKey);
+    } catch {}
+  }
+  // Browser-fallback (non-Tauri dev/preview) window position/size/visibility
+  // keys used a dynamic "lumiv2-<id>" prefix rather than a fixed key name.
+  try {
+    const legacyKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("lumiv2-")) legacyKeys.push(k);
+    }
+    for (const oldKey of legacyKeys) {
+      const newKey = "melo-win-" + oldKey.slice("lumiv2-".length);
+      const oldVal = localStorage.getItem(oldKey);
+      if (oldVal !== null && localStorage.getItem(newKey) === null) {
+        localStorage.setItem(newKey, oldVal);
+      }
+      localStorage.removeItem(oldKey);
+    }
+  } catch {}
+})();
+
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
 app.innerHTML = `
@@ -51,6 +90,7 @@ app.innerHTML = `
           <button class="tab active" data-libtab="artists">Artists</button>
           <button class="tab" data-libtab="albums">Albums</button>
           <button class="tab" data-libtab="genres">Genres</button>
+          <button class="tab" data-libtab="recent">Recent</button>
         </div>
         <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
           <span id="libraryStats">0 tracks • 0 artists • 0 albums</span>
@@ -299,6 +339,25 @@ app.innerHTML = `
               <button class="btn small" id="btn-reset-skin-settings">Reset to Default</button>
             </div>
           </div>
+          <div class="settings-row" style="flex-direction:column; align-items:stretch;">
+            <div class="label" style="margin-bottom:4px;">${t("settings.appearance.embeddedPlaylist.label")}</div>
+            <div style="font-size:11px; color:var(--text-soft); line-height:1.6; margin-bottom:8px;">
+              ${t("settings.appearance.embeddedPlaylist.desc")}
+            </div>
+            <div class="settings-row" style="padding:0;">
+              <div><div class="label" style="font-size:12px;">${t("settings.appearance.embeddedPlaylistCover.label")}</div></div>
+              <div class="switch on" id="swEmbeddedPlaylistCover" data-key="embeddedPlaylistCover"></div>
+            </div>
+            <div class="settings-row" style="padding:0;">
+              <div><div class="label" style="font-size:12px;">${t("settings.appearance.embeddedPlaylistFontScale.label")}</div></div>
+              <div class="stepper-control">
+                <button type="button" class="btn small stepper-btn" id="btnEmbeddedFontDown" aria-label="Decrease font size">−</button>
+                <input type="range" class="crossfade-range" id="embeddedFontScaleRange" min="70" max="140" step="10" value="100" />
+                <span class="stepper-value" id="embeddedFontScaleValue">100%</span>
+                <button type="button" class="btn small stepper-btn" id="btnEmbeddedFontUp" aria-label="Increase font size">+</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- SHORTCUTS TAB -->
@@ -320,7 +379,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.5.2 Beta</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.6.0 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -712,10 +771,10 @@ audio.crossOrigin = "anonymous";
 if (localStorage.getItem("melo-dynamic-theme") === null) {
   localStorage.setItem("melo-dynamic-theme", "1");
 }
-let theme: "light" | "dark" = (localStorage.getItem("lumi-theme") as any) || "dark";
+let theme: "light" | "dark" = (localStorage.getItem("melo-theme") as any) || "dark";
 function applyThemeLocal(t: "light" | "dark") {
   document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem("lumi-theme", t);
+  localStorage.setItem("melo-theme", t);
   theme = t;
 }
 function applyTheme(t: "light" | "dark") {
@@ -725,7 +784,7 @@ function applyTheme(t: "light" | "dark") {
 applyThemeLocal(theme);
 busOn("melo:theme", (t: any) => { if (t === "light" || t === "dark") applyThemeLocal(t); });
 setInterval(() => {
-  const t = localStorage.getItem("lumi-theme");
+  const t = localStorage.getItem("melo-theme");
   if ((t === "light" || t === "dark") && t !== theme) applyThemeLocal(t);
 }, 1000);
 
@@ -826,7 +885,7 @@ function setVisible(id: string, visible: boolean) {
   const el = document.getElementById(id);
   if (!el) return;
   el.classList.toggle("hidden", !visible);
-  localStorage.setItem("lumiv2-" + id, visible ? "1" : "0");
+  localStorage.setItem("melo-win-" + id, visible ? "1" : "0");
   if (visible) clampIntoDesktop(el);
   const active = visible;
   if (id === "win-library") {
@@ -853,7 +912,7 @@ function setVisible(id: string, visible: boolean) {
 
 if (!urlPanel) {
   winIds.forEach(id => {
-    const saved = localStorage.getItem("lumiv2-" + id);
+    const saved = localStorage.getItem("melo-win-" + id);
     if (saved !== null) {
       setVisible(id, saved === "1");
     } else {
@@ -944,7 +1003,7 @@ window.addEventListener("mouseup", () => {
     const win = document.getElementById(dragState.id);
     if (win) {
       win.classList.remove("dragging");
-      localStorage.setItem("lumiv2-pos-" + dragState.id, JSON.stringify({ left: win.style.left, top: win.style.top }));
+      localStorage.setItem("melo-win-pos-" + dragState.id, JSON.stringify({ left: win.style.left, top: win.style.top }));
     }
     dragState = null;
   }
@@ -952,7 +1011,7 @@ window.addEventListener("mouseup", () => {
     const win = document.getElementById(resizeState.id);
     if (win) {
       win.classList.remove("resizing");
-      localStorage.setItem("lumiv2-size-" + resizeState.id, JSON.stringify({ width: win.style.width, height: win.style.height }));
+      localStorage.setItem("melo-win-size-" + resizeState.id, JSON.stringify({ width: win.style.width, height: win.style.height }));
     }
     resizeState = null;
   }
@@ -1131,6 +1190,37 @@ function setupSettings(toast: ToastFn) {
   btnCrossfadeDown?.addEventListener("click", () => setCrossfadeDuration(parseInt(crossfadeRange?.value || "4", 10) - 1));
   btnCrossfadeUp?.addEventListener("click", () => setCrossfadeDuration(parseInt(crossfadeRange?.value || "4", 10) + 1));
 
+  // Embedded Playlist (skins) customization — cover toggle reuses the
+  // generic .switch[data-key] handler for persistence; the font-scale
+  // stepper follows the same pattern as the crossfade duration stepper.
+  const swEmbeddedPlaylistCover = document.getElementById("swEmbeddedPlaylistCover");
+  const embeddedFontRange = document.getElementById("embeddedFontScaleRange") as HTMLInputElement | null;
+  const embeddedFontValue = document.getElementById("embeddedFontScaleValue");
+  const btnEmbeddedFontDown = document.getElementById("btnEmbeddedFontDown");
+  const btnEmbeddedFontUp = document.getElementById("btnEmbeddedFontUp");
+
+  function refreshEmbeddedPlaylist() {
+    (window as any).__MELO_EMBEDDED_PLAYLIST__?.refresh?.();
+  }
+  swEmbeddedPlaylistCover?.addEventListener("click", () => setTimeout(refreshEmbeddedPlaylist, 0));
+
+  function setEmbeddedFontScale(percent: number) {
+    const clamped = Math.min(140, Math.max(70, Math.round(percent / 10) * 10));
+    localStorage.setItem("melo-pref-embeddedPlaylistFontScale", String(clamped));
+    if (embeddedFontRange) embeddedFontRange.value = String(clamped);
+    if (embeddedFontValue) embeddedFontValue.textContent = clamped + "%";
+    refreshEmbeddedPlaylist();
+  }
+  const savedFontScale = parseInt(localStorage.getItem("melo-pref-embeddedPlaylistFontScale") || "100", 10);
+  {
+    const clamped = Math.min(140, Math.max(70, Number.isFinite(savedFontScale) ? savedFontScale : 100));
+    if (embeddedFontRange) embeddedFontRange.value = String(clamped);
+    if (embeddedFontValue) embeddedFontValue.textContent = clamped + "%";
+  }
+  if (embeddedFontRange) embeddedFontRange.oninput = () => setEmbeddedFontScale(parseInt(embeddedFontRange.value, 10));
+  btnEmbeddedFontDown?.addEventListener("click", () => setEmbeddedFontScale(parseInt(embeddedFontRange?.value || "100", 10) - 10));
+  btnEmbeddedFontUp?.addEventListener("click", () => setEmbeddedFontScale(parseInt(embeddedFontRange?.value || "100", 10) + 10));
+
   const langSelect = document.getElementById("setLanguage") as HTMLSelectElement | null;
   if (langSelect) {
     langSelect.value = getLocaleCode();
@@ -1267,7 +1357,82 @@ const panelHookMap: Array<[string, string, string]> = [
       (b as HTMLElement).onclick = () => toggleWin(winId);
     }
   });
+  attachEmbeddedPanels();
 };
+
+// ---------------------------------------------------------------------
+// Optional skin-embedded Playlist / Lyrics (in addition to the standalone
+// Playlist/Lyrics windows, which keep working unchanged via toggle-playlist
+// / toggle-lyrics above). A skin opts in by including a
+// data-melo="embedded-playlist" and/or data-melo="embedded-lyrics"
+// container somewhere in its markup, plus optional
+// data-melo="toggle-embedded-playlist" / "toggle-embedded-lyrics" buttons
+// to show/hide them (e.g. swapped in over the visualizer's slot). None of
+// this is required — skins that don't include these hooks are completely
+// unaffected.
+//
+// The actual containers are created ONCE and reused (reparented) across
+// skin swaps rather than rebuilt each time, so their listeners never leak.
+// ---------------------------------------------------------------------
+const embeddedLyricsContainer = document.createElement("div");
+embeddedLyricsContainer.className = "embedded-lyrics";
+const embeddedLyricsTitle = document.createElement("div");
+embeddedLyricsTitle.className = "embedded-lyrics-title";
+let embeddedLyricsInitialized = false;
+
+function syncVisualizerPauseState() {
+  // Pause the visualizer's render loop only when its own slot is actually
+  // hidden right now (e.g. a skin's CSS hides it while
+  // .melo-show-playlist/.melo-show-lyrics is set on <html>) — this is
+  // decided by checking real visibility, not by assuming any particular
+  // skin swaps the visualizer specifically, so it works for any skin
+  // layout that happens to hide it.
+  const vizEl = findHook<HTMLElement>("visualizer", "visualizer");
+  const hidden = !vizEl || vizEl.offsetParent === null;
+  (window as any).__MELO_VISUALIZER_SET_PAUSED__?.(hidden);
+}
+
+function attachEmbeddedPanels() {
+  const embeddedPlaylist = (window as any).__MELO_EMBEDDED_PLAYLIST__;
+  const playlistHook = findHook<HTMLElement>("embedded-playlist", "embedded-playlist");
+  if (playlistHook && embeddedPlaylist?.container) {
+    if (embeddedPlaylist.container.parentElement !== playlistHook) {
+      playlistHook.appendChild(embeddedPlaylist.container);
+    }
+    embeddedPlaylist.refresh?.();
+  }
+
+  const lyricsHook = findHook<HTMLElement>("embedded-lyrics", "embedded-lyrics");
+  if (lyricsHook) {
+    if (embeddedLyricsContainer.parentElement !== lyricsHook) {
+      lyricsHook.appendChild(embeddedLyricsTitle);
+      lyricsHook.appendChild(embeddedLyricsContainer);
+    }
+    if (!embeddedLyricsInitialized) {
+      embeddedLyricsInitialized = true;
+      setupLyrics(audio, showToast, { container: embeddedLyricsContainer, title: embeddedLyricsTitle });
+    }
+  }
+
+  const toggleP = findHook<HTMLElement>("toggle-embedded-playlist", "toggle-embedded-playlist");
+  if (toggleP) {
+    toggleP.onclick = () => {
+      document.documentElement.classList.toggle("melo-show-playlist");
+      document.documentElement.classList.remove("melo-show-lyrics");
+      embeddedPlaylist?.refresh?.();
+      syncVisualizerPauseState();
+    };
+  }
+  const toggleL = findHook<HTMLElement>("toggle-embedded-lyrics", "toggle-embedded-lyrics");
+  if (toggleL) {
+    toggleL.onclick = () => {
+      document.documentElement.classList.toggle("melo-show-lyrics");
+      document.documentElement.classList.remove("melo-show-playlist");
+      syncVisualizerPauseState();
+    };
+  }
+  syncVisualizerPauseState();
+}
 
 // About popup
 const aboutPop = document.createElement("div");
@@ -1314,6 +1479,7 @@ if (isTauri && urlPanel) {
   setupSkinEngine(showToast);
   setupSettings(showToast);
   initLocale();
+  attachEmbeddedPanels();
 
   // Resume playback on reopen: restore the last-played track, paused, at
   // the position it was left at. Only runs once, shortly after boot, so the

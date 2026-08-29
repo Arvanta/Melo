@@ -47,9 +47,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let ownedScanId: string | null = null;
   let replacePlaylistAfterScan = false;
   let recentTracks: Track[] = [];
-  const artistAlbumsCache = new Map<string, GroupRow[]>();
 
-  let libTab: "artists" | "albums" | "genres" = "artists";
+  let libTab: "artists" | "albums" | "genres" | "recent" = "artists";
   let selectedArtist: string | null = null;
   let selectedAlbum: string | null = null;
   let selectedGenre: string | null = null;
@@ -59,6 +58,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const libraryRowHeight = 54;
   const playlistRowHeight = 52;
   let libraryRequest = 0;
+  // Scroll position of the groups list (artists/albums/genres) right
+  // before drilling into a group, so pressing "Back" restores the user to
+  // where they were instead of jumping to the top of the list.
+  let savedGroupsScrollTop = 0;
+  // Tracks how many grid columns the track list last rendered with, so a
+  // ResizeObserver can tell when the column count actually needs to change
+  // (and only re-render then, not on every pixel of a resize drag).
+  let lastLibraryColumns = 1;
   let playlistRequest = 0;
   let libraryScrollTimer = 0;
   let playlistScrollTimer = 0;
@@ -79,6 +86,141 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     contextTrackId = null;
     busEmit("melo:library-changed", { removed: 1 });
   };
+
+  // ---------------------------------------------------------------------
+  // Multi-select (Ctrl+click to toggle one, Shift+click to select a range)
+  // + bulk actions, for both the Library track list and the Playlist.
+  // A plain click (no modifier) always clears the selection and performs
+  // the normal single-item action (play / drill-in) — multi-select only
+  // ever starts via Ctrl or Shift.
+  // ---------------------------------------------------------------------
+  const librarySelectedIds = new Set<string>();
+  let libraryAnchorIndex: number | null = null;
+  const playlistSelectedIds = new Set<string>();
+  let playlistAnchorIndex: number | null = null;
+
+  function applySelectionRange(
+    selected: Set<string>,
+    id: string,
+    index: number,
+    renderedIds: string[],
+    anchor: number | null,
+    event: MouseEvent
+  ): number | null {
+    if (event.shiftKey && anchor !== null) {
+      const from = Math.min(anchor, index);
+      const to = Math.max(anchor, index);
+      for (let i = from; i <= to; i++) if (renderedIds[i]) selected.add(renderedIds[i]);
+      return anchor;
+    }
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+    return index;
+  }
+
+  function createBulkBar(actions: { label: string; danger?: boolean; onClick: () => void }[]) {
+    const bar = document.createElement("div");
+    bar.className = "bulk-action-bar";
+    bar.style.display = "none";
+    const countEl = document.createElement("span");
+    countEl.className = "bulk-count";
+    bar.appendChild(countEl);
+    for (const action of actions) {
+      const btn = document.createElement("button");
+      btn.className = `btn small ${action.danger ? "danger" : ""}`;
+      btn.textContent = action.label;
+      btn.onclick = action.onClick;
+      bar.appendChild(btn);
+    }
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "btn small ghost";
+    clearBtn.textContent = "Clear";
+    bar.appendChild(clearBtn);
+    document.body.appendChild(bar);
+    return { bar, countEl, clearBtn };
+  }
+
+  const libraryBulk = createBulkBar([
+    {
+      label: "Add to Playlist",
+      onClick: async () => {
+        if (!invoke || !librarySelectedIds.size) return;
+        await invoke("add_tracks_to_playlist", { playlistId: currentPlaylistId, trackIds: Array.from(librarySelectedIds) });
+        busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+        toast(`Added ${librarySelectedIds.size} track(s) to playlist`);
+        librarySelectedIds.clear();
+        updateLibrarySelectionUI();
+      },
+    },
+    {
+      label: "Remove from Library",
+      danger: true,
+      onClick: async () => {
+        if (!invoke || !librarySelectedIds.size) return;
+        const ids = Array.from(librarySelectedIds);
+        await invoke("delete_tracks", { ids });
+        librarySelectedIds.clear();
+        updateLibrarySelectionUI();
+        busEmit("melo:library-changed", { removed: ids.length });
+      },
+    },
+  ]);
+  libraryBulk.clearBtn.onclick = () => {
+    librarySelectedIds.clear();
+    updateLibrarySelectionUI();
+  };
+
+  const playlistBulk = createBulkBar([
+    {
+      label: "Remove from Playlist",
+      danger: true,
+      onClick: async () => {
+        if (!invoke || !playlistSelectedIds.size) return;
+        const ids = Array.from(playlistSelectedIds);
+        for (const id of ids) {
+          await invoke("remove_track_from_playlist", { playlistId: currentPlaylistId, trackId: id });
+        }
+        playlistSelectedIds.clear();
+        updatePlaylistSelectionUI();
+        busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+      },
+    },
+  ]);
+  playlistBulk.clearBtn.onclick = () => {
+    playlistSelectedIds.clear();
+    updatePlaylistSelectionUI();
+  };
+
+  function updateLibrarySelectionUI() {
+    if (!trackList) return;
+    trackList.querySelectorAll<HTMLElement>("[data-track-id]").forEach(row => {
+      row.classList.toggle("row-selected", librarySelectedIds.has(row.dataset.trackId || ""));
+    });
+    libraryBulk.bar.style.display = librarySelectedIds.size ? "flex" : "none";
+    libraryBulk.countEl.textContent = `${librarySelectedIds.size} selected`;
+  }
+
+  function updatePlaylistSelectionUI() {
+    if (!playlistList) return;
+    playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
+      row.classList.toggle("row-selected", playlistSelectedIds.has(row.dataset.plTrack || ""));
+    });
+    playlistBulk.bar.style.display = playlistSelectedIds.size ? "flex" : "none";
+    playlistBulk.countEl.textContent = `${playlistSelectedIds.size} selected`;
+  }
+
+  function clearLibrarySelection() {
+    if (!librarySelectedIds.size) return;
+    librarySelectedIds.clear();
+    libraryAnchorIndex = null;
+    updateLibrarySelectionUI();
+  }
+  function clearPlaylistSelection() {
+    if (!playlistSelectedIds.size) return;
+    playlistSelectedIds.clear();
+    playlistAnchorIndex = null;
+    updatePlaylistSelectionUI();
+  }
 
   function confirmLibraryClear(): Promise<boolean> {
     return new Promise(resolve => {
@@ -213,17 +355,28 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   function resetLibrarySelection() {
     selectedArtist = selectedAlbum = selectedGenre = null;
+    savedGroupsScrollTop = 0;
+    clearLibrarySelection();
     if (trackList) trackList.scrollTop = 0;
   }
 
+  // Artists tab now drills two levels deep — Artists -> (that artist's)
+  // Albums -> Tracks of the chosen album — matching how Albums/Genres tabs
+  // already work, instead of showing a flat "All Tracks" list with a
+  // sticky horizontal album-chip row above it.
   function libraryMode(): "groups" | "tracks" {
-    if (libTab === "artists") return selectedArtist ? "tracks" : "groups";
+    if (libTab === "artists") return selectedArtist ? (selectedAlbum ? "tracks" : "groups") : "groups";
     if (libTab === "albums") return selectedAlbum ? "tracks" : "groups";
     return selectedGenre ? "tracks" : "groups";
   }
 
   function libraryGroupKind(): "artists" | "albums" | "genres" {
-    return libTab;
+    // While viewing a specific artist's album list, the group rows being
+    // rendered/fetched are albums (scoped to that artist), not artists.
+    if (libTab === "artists" && selectedArtist && !selectedAlbum) return "albums";
+    // "recent" never reaches here — renderLibraryVirtual() redirects to
+    // renderRecentlyPlayed() before this function is ever called for it.
+    return libTab === "recent" ? "artists" : libTab;
   }
 
   function libraryCrumb(): string {
@@ -260,40 +413,53 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return page;
   }
 
-  async function getArtistAlbums(artist: string): Promise<GroupRow[]> {
-    const cached = artistAlbumsCache.get(artist);
-    if (cached) return cached;
-    if (!invoke) return [];
-    const page = await invoke<Page<GroupRow>>("library_groups", { kind: "albums", search: null, artist, limit: 500, offset: 0 });
-    artistAlbumsCache.set(artist, page.items);
-    return page.items;
+  // How many track-row columns fit the current panel width. Only the flat
+  // track list uses multiple columns (grid layout); group rows (artists /
+  // albums / genres) always stay single-column.
+  const GRID_MIN_COLUMN_WIDTH = 300; // px — below this a 2nd column would feel cramped
+  const GRID_GAP = 8; // px
+  function libraryColumns(): number {
+    if (!trackList) return 1;
+    if (libraryMode() !== "tracks") return 1;
+    const width = trackList.clientWidth || 0;
+    return width >= GRID_MIN_COLUMN_WIDTH * 2 + GRID_GAP ? 2 : 1;
   }
 
   async function renderLibraryVirtual(reset = false) {
     if (!trackList || !invoke) return;
+    if (libTab === "recent") {
+      if (reset) trackList.scrollTop = 0;
+      return renderRecentlyPlayed();
+    }
     if (reset) trackList.scrollTop = 0;
     trackList.style.display = "block";
     trackList.style.position = "relative";
     trackList.style.overflowY = "auto";
     const viewport = Math.max(300, trackList.clientHeight || 420);
-    const artistDetail = libTab === "artists" && !!selectedArtist;
     const crumb = libraryCrumb();
-    const headerHeight = artistDetail ? 84 : (crumb ? 38 : 0);
-    const visible = Math.ceil(viewport / libraryRowHeight);
+    const headerHeight = crumb ? 38 : 0;
+    const columns = libraryColumns();
+    lastLibraryColumns = columns;
+    const rowsVisible = Math.ceil(viewport / libraryRowHeight);
     const effectiveScroll = Math.max(0, trackList.scrollTop - headerHeight);
-    const start = Math.max(0, Math.floor(effectiveScroll / libraryRowHeight) - 8);
-    const limit = Math.max(40, visible + 16);
+    const startRow = Math.max(0, Math.floor(effectiveScroll / libraryRowHeight) - 4);
+    const start = startRow * columns;
+    const limit = Math.max(40, (rowsVisible + 8) * columns);
     const request = ++libraryRequest;
     try {
-      const albumsPromise: Promise<GroupRow[] | null> = artistDetail && selectedArtist
-        ? getArtistAlbums(selectedArtist)
-        : Promise.resolve(null);
-      const [page, artistAlbums] = await Promise.all([fetchLibraryPage(start, limit), albumsPromise]);
+      const page = await fetchLibraryPage(start, limit);
       if (request !== libraryRequest) return;
-      const totalHeight = page.total * libraryRowHeight + headerHeight;
+      const totalRows = Math.max(1, Math.ceil(page.total / columns));
+      const totalHeight = totalRows * libraryRowHeight + headerHeight;
+      const colWidthPct = 100 / columns;
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
-        const top = headerHeight + absoluteIndex * libraryRowHeight;
+        const rowIdx = Math.floor(absoluteIndex / columns);
+        const col = absoluteIndex % columns;
+        const top = headerHeight + rowIdx * libraryRowHeight;
+        const posStyle = columns > 1
+          ? `position:absolute;top:${top}px;height:${libraryRowHeight}px;left:calc(${col * colWidthPct}% + ${col === 0 ? 0 : GRID_GAP / 2}px);width:calc(${colWidthPct}% - ${GRID_GAP / 2}px)`
+          : `position:absolute;left:0;right:0;top:${top}px;height:${libraryRowHeight}px`;
         if (libraryMode() === "groups") {
           const group = item as GroupRow;
           const cover = artworkUrl(group.cover);
@@ -302,10 +468,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           const avatar = cover
             ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}')"></div>`
             : `<div class="${avatarClass}" data-artwork-id="${esc(group.artworkTrackId || "")}">${fallback}</div>`;
-          return `<div class="lib-item virtual-row" data-group-index="${index}" style="position:absolute;left:0;right:0;top:${top}px;height:${libraryRowHeight}px">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${esc(group.subtitle || `${group.count} tracks`)}</div></div><span class="chev-r">›</span></div>`;
+          return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${esc(group.subtitle || `${group.count} tracks`)}</div></div><span class="chev-r">›</span></div>`;
         }
         const track = item as Track;
-        return `<div class="track-row virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="position:absolute;left:0;right:0;top:${top}px;height:${libraryRowHeight}px">
+        return `<div class="track-row virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="${posStyle}">
           <span class="num">${absoluteIndex + 1}</span>
           ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
           <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>
@@ -313,42 +479,38 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
         </div>`;
       }).join("");
-      const artistHeader = artistDetail && artistAlbums
-        ? `<div class="artist-detail-header" style="position:sticky;top:0;height:${headerHeight}px;z-index:4;background:var(--card)">
-            <div class="lib-crumb" style="height:38px"><button class="btn small" id="virtualBack">‹ Artists</button><b>${esc(selectedArtist)}</b></div>
-            <div class="chip-row artist-album-chips custom-scrollbar" style="height:46px;padding-top:6px;padding-bottom:6px">
-              <button class="chip ${selectedAlbum === null ? "active" : ""}" data-artist-album="all">All Tracks</button>
-              ${artistAlbums.map((album, index) => {
-                const cover = artworkUrl(album.cover);
-                const thumb = cover
-                  ? `<span class="chip-thumb" style="background-image:url('${esc(cover)}')"></span>`
-                  : `<span class="chip-thumb cover-default" data-artwork-id="${esc(album.artworkTrackId || "")}">♪</span>`;
-                return `<button class="chip ${selectedAlbum === album.name ? "active" : ""}" data-artist-album-index="${index}">${thumb}${esc(album.name)}</button>`;
-              }).join("")}
-            </div>
-          </div>`
-        : (crumb ? `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;height:${headerHeight}px;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(crumb)}</b></div>` : "");
-      trackList.innerHTML = `<div class="virtual-list-space" style="position:relative;height:${Math.max(totalHeight, viewport)}px">${artistHeader}${rows}</div>`;
-      bindLibraryRows(page.items, artistAlbums || []);
+      const header = crumb
+        ? `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;height:${headerHeight}px;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(crumb)}</b></div>`
+        : "";
+      trackList.innerHTML = `<div class="virtual-list-space" style="position:relative;height:${Math.max(totalHeight, viewport)}px">${header}${rows}</div>`;
+      bindLibraryRows(page.items);
       bindLazyArtwork(trackList);
     } catch (error) {
       trackList.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Could not read the Library database.</div>`;
     }
   }
 
-  function bindLibraryRows(items: Array<GroupRow | Track>, artistAlbums: GroupRow[] = []) {
+  function bindLibraryRows(items: Array<GroupRow | Track>) {
     if (!trackList) return;
     trackList.querySelectorAll<HTMLElement>("[data-group-index]").forEach(row => {
       row.onclick = () => {
         const group = items[Number(row.dataset.groupIndex || 0)] as GroupRow;
         const name = group?.name || "";
         const key = group?.key || name;
-        if (libTab === "artists" && !selectedArtist) selectedArtist = name;
-        else if ((libTab === "artists" && selectedArtist) || libTab === "albums") {
+        savedGroupsScrollTop = trackList!.scrollTop;
+        clearLibrarySelection();
+        if (libTab === "artists" && !selectedArtist) {
+          selectedArtist = name;
+        } else if (libTab === "artists" && selectedArtist && !selectedAlbum) {
           const parts = key.split("\0");
-          if (libTab === "albums") selectedArtist = parts[0] || null;
           selectedAlbum = parts[1] || name;
-        } else if (libTab === "genres") selectedGenre = name;
+        } else if (libTab === "albums") {
+          const parts = key.split("\0");
+          selectedArtist = parts[0] || null;
+          selectedAlbum = parts[1] || name;
+        } else if (libTab === "genres") {
+          selectedGenre = name;
+        }
         renderLibraryVirtual(true);
       };
     });
@@ -364,6 +526,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       row.onclick = async event => {
         if ((event.target as HTMLElement).closest("[data-add-track]")) return;
         const index = Number(row.dataset.pageIndex || 0);
+        const id = row.dataset.trackId || "";
+        const mouseEvent = event as MouseEvent;
+        if (mouseEvent.shiftKey || mouseEvent.ctrlKey || mouseEvent.metaKey) {
+          const renderedIds = items.filter((x): x is Track => "path" in x).map(t => t.id);
+          libraryAnchorIndex = applySelectionRange(librarySelectedIds, id, index, renderedIds, libraryAnchorIndex, mouseEvent);
+          updateLibrarySelectionUI();
+          return;
+        }
+        if (librarySelectedIds.size) clearLibrarySelection();
         const list = items.filter((x): x is Track => "path" in x).map(normalizeTrack);
         if (invoke && list.length) {
           await invoke("replace_playlist_tracks", { playlistId: currentPlaylistId, trackIds: list.map(t => t.id) });
@@ -382,23 +553,33 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
     });
     trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
-      if (libTab === "artists" && selectedArtist) { selectedArtist = null; selectedAlbum = null; }
-      else if (selectedAlbum) selectedAlbum = null;
-      else if (selectedArtist) selectedArtist = null;
-      else selectedGenre = null;
-      renderLibraryVirtual(true);
+      // Artists tab unwinds one level at a time (Tracks -> Albums ->
+      // Artists); Albums/Genres tabs have only one level to unwind.
+      if (libTab === "artists" && selectedAlbum) selectedAlbum = null;
+      else if (libTab === "artists" && selectedArtist) selectedArtist = null;
+      else if (libTab === "albums" && selectedAlbum) { selectedArtist = null; selectedAlbum = null; }
+      else if (libTab === "genres" && selectedGenre) selectedGenre = null;
+      clearLibrarySelection();
+      trackList!.scrollTop = savedGroupsScrollTop;
+      renderLibraryVirtual(false);
     });
-    trackList.querySelector<HTMLElement>("[data-artist-album='all']")?.addEventListener("click", () => {
-      selectedAlbum = null;
-      renderLibraryVirtual(true);
+    updateLibrarySelectionUI();
+  }
+
+  // Re-render (only) when a resize actually crosses the 1-col/2-col
+  // breakpoint — not on every pixel of a resize drag — so widening the
+  // Library window reflows the track list into a grid once there's room.
+  if (trackList && typeof ResizeObserver !== "undefined") {
+    let resizeDebounce: number | null = null;
+    const ro = new ResizeObserver(() => {
+      if (resizeDebounce) window.clearTimeout(resizeDebounce);
+      resizeDebounce = window.setTimeout(() => {
+        resizeDebounce = null;
+        const cols = libraryColumns();
+        if (cols !== lastLibraryColumns) renderLibraryVirtual(false);
+      }, 120);
     });
-    trackList.querySelectorAll<HTMLElement>("[data-artist-album-index]").forEach(button => {
-      button.onclick = () => {
-        const album = artistAlbums[Number(button.dataset.artistAlbumIndex || 0)];
-        selectedAlbum = album?.name || null;
-        renderLibraryVirtual(true);
-      };
-    });
+    ro.observe(trackList);
   }
 
   async function refreshPlaylists() {
@@ -440,9 +621,20 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
       row.onclick = event => {
         if ((event.target as HTMLElement).closest("[data-remove-track]")) return;
-        busEmit("melo:play-tracks", { tracks: page.items, index: Number(row.dataset.pageIndex || 0) });
+        const index = Number(row.dataset.pageIndex || 0);
+        const id = row.dataset.plTrack || "";
+        const mouseEvent = event as MouseEvent;
+        if (mouseEvent.shiftKey || mouseEvent.ctrlKey || mouseEvent.metaKey) {
+          const renderedIds = page.items.map(t => t.id);
+          playlistAnchorIndex = applySelectionRange(playlistSelectedIds, id, index, renderedIds, playlistAnchorIndex, mouseEvent);
+          updatePlaylistSelectionUI();
+          return;
+        }
+        if (playlistSelectedIds.size) clearPlaylistSelection();
+        busEmit("melo:play-tracks", { tracks: page.items, index });
       };
     });
+    updatePlaylistSelectionUI();
     playlistList.querySelectorAll<HTMLElement>("[data-remove-track]").forEach(button => {
       button.onclick = async event => {
         event.stopPropagation();
@@ -503,6 +695,150 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return track ? normalizeTrack(track) : null;
   }
 
+  // Recently Played is tracked client-side (localStorage), not in the
+  // SQLite database — it doesn't need to be queryable/sortable, survive a
+  // full library rescan, or be shared across machines, so a small rolling
+  // list here avoids a schema migration for something this simple.
+  const RECENTLY_PLAYED_KEY = "melo-recently-played";
+  const RECENTLY_PLAYED_MAX = 50;
+
+  function recordRecentlyPlayed(trackId: string) {
+    if (!trackId) return;
+    try {
+      const raw = localStorage.getItem(RECENTLY_PLAYED_KEY);
+      let list: { id: string; playedAt: number }[] = raw ? JSON.parse(raw) : [];
+      list = list.filter(entry => entry.id !== trackId);
+      list.unshift({ id: trackId, playedAt: Date.now() });
+      if (list.length > RECENTLY_PLAYED_MAX) list = list.slice(0, RECENTLY_PLAYED_MAX);
+      localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(list));
+      if (libTab === "recent") renderRecentlyPlayed();
+    } catch {}
+  }
+
+  function getRecentlyPlayedIds(): string[] {
+    try {
+      const raw = localStorage.getItem(RECENTLY_PLAYED_KEY);
+      const list: { id: string; playedAt: number }[] = raw ? JSON.parse(raw) : [];
+      return list.map(entry => entry.id);
+    } catch {
+      return [];
+    }
+  }
+
+  // Recently Played is a small, bounded list (<= 50 items) so it's
+  // rendered directly, without the virtualization/paging machinery the
+  // main track list uses for potentially huge libraries.
+  async function renderRecentlyPlayed() {
+    if (!trackList) return;
+    trackList.style.display = "block";
+    trackList.style.position = "relative";
+    trackList.style.overflowY = "auto";
+    const ids = getRecentlyPlayedIds();
+    if (!ids.length) {
+      trackList.innerHTML = `<div style="padding:32px 16px;text-align:center;color:var(--text-muted)">No recently played tracks yet.</div>`;
+      return;
+    }
+    const resolved = (await Promise.all(ids.map(id => getTrack(id)))).filter((t): t is Track => !!t);
+    if (!resolved.length) {
+      trackList.innerHTML = `<div style="padding:32px 16px;text-align:center;color:var(--text-muted)">No recently played tracks yet.</div>`;
+      return;
+    }
+    const rows = resolved.map((track, index) => `<div class="track-row" data-track-id="${esc(track.id)}" data-recent-index="${index}">
+      <span class="num">${index + 1}</span>
+      ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
+      <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>
+      <span class="t-dur">${fmtDur(track.duration)}</span>
+      <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
+    </div>`).join("");
+    trackList.innerHTML = `<div class="virtual-list-space" style="position:relative">${rows}</div>`;
+    trackList.querySelectorAll<HTMLElement>("[data-add-track]").forEach(button => {
+      button.onclick = async event => {
+        event.stopPropagation();
+        if (!invoke || !button.dataset.addTrack) return;
+        await invoke("add_tracks_to_playlist", { playlistId: currentPlaylistId, trackIds: [button.dataset.addTrack] });
+        busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+      };
+    });
+    trackList.querySelectorAll<HTMLElement>("[data-track-id]").forEach(row => {
+      row.onclick = async event => {
+        if ((event.target as HTMLElement).closest("[data-add-track]")) return;
+        const index = Number(row.dataset.recentIndex || 0);
+        if (invoke && resolved.length) {
+          await invoke("replace_playlist_tracks", { playlistId: currentPlaylistId, trackIds: resolved.map(t => t.id) });
+          busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+        }
+        busEmit("melo:play-tracks", { tracks: resolved, index });
+      };
+    });
+    bindLazyArtwork(trackList);
+  }
+
+  // -----------------------------------------------------------------------
+  // Embedded Playlist (optional, skin-provided slot)
+  //
+  // A deliberately lightweight, non-virtualized view of the current
+  // playlist meant to live inside a skin's own layout (see skins/README.md
+  // "embedded-playlist" hook). It intentionally does NOT include the
+  // standalone Playlist window's search box, sort control, drag-reorder,
+  // per-row remove button, or M3U export — those add real interactive/
+  // rendering weight that isn't worth it for a compact, glanceable, skin-
+  // embedded view. It reuses the same "playlist_tracks" backend query as
+  // the standalone window, capped to a fixed batch since an embedded skin
+  // panel is not the place for scrolling through a 5,000-track playlist.
+  // -----------------------------------------------------------------------
+  const EMBEDDED_PLAYLIST_LIMIT = 150;
+  const embeddedPlaylistContainer = document.createElement("div");
+  embeddedPlaylistContainer.className = "embedded-playlist";
+
+  function embeddedPlaylistShowCover(): boolean {
+    return localStorage.getItem("melo-pref-embeddedPlaylistCover") !== "0";
+  }
+  function embeddedPlaylistFontScale(): number {
+    const raw = parseInt(localStorage.getItem("melo-pref-embeddedPlaylistFontScale") || "100", 10);
+    return Math.min(140, Math.max(70, Number.isFinite(raw) ? raw : 100));
+  }
+
+  async function renderEmbeddedPlaylist() {
+    // Only do the work (query + render) while the container is actually
+    // attached inside a skin's hook — if no active skin declares the
+    // embedded-playlist slot, this container just sits detached and idle.
+    if (!embeddedPlaylistContainer.isConnected || !invoke) return;
+    embeddedPlaylistContainer.style.fontSize = `${embeddedPlaylistFontScale()}%`;
+    const page = await invoke<Page<Track>>("playlist_tracks", {
+      playlistId: currentPlaylistId,
+      search: null,
+      sort: "default",
+      limit: EMBEDDED_PLAYLIST_LIMIT,
+      offset: 0,
+    }).catch(() => null);
+    if (!page) return;
+    const items = page.items.map(normalizeTrack);
+    const showCover = embeddedPlaylistShowCover();
+    if (!items.length) {
+      embeddedPlaylistContainer.innerHTML = `<div class="embedded-playlist-empty">Playlist is empty</div>`;
+      return;
+    }
+    embeddedPlaylistContainer.innerHTML = items.map((track, index) => `
+      <div class="embedded-playlist-row ${track.id === currentTrackId ? "active" : ""}" data-ep-track="${esc(track.id)}" data-ep-index="${index}">
+        ${showCover ? (track.cover
+          ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`
+          : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`) : ""}
+        <div class="ep-meta"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)}</div></div>
+        <span class="t-dur">${fmtDur(track.duration)}</span>
+      </div>`).join("");
+    embeddedPlaylistContainer.querySelectorAll<HTMLElement>("[data-ep-track]").forEach(row => {
+      row.onclick = () => {
+        busEmit("melo:play-tracks", { tracks: items, index: Number(row.dataset.epIndex || 0) });
+      };
+    });
+    if (showCover) bindLazyArtwork(embeddedPlaylistContainer);
+  }
+
+  (window as any).__MELO_EMBEDDED_PLAYLIST__ = {
+    container: embeddedPlaylistContainer,
+    refresh: renderEmbeddedPlaylist,
+  };
+
   tabs?.querySelectorAll<HTMLElement>("[data-libtab]").forEach(tab => {
     tab.onclick = () => {
       tabs.querySelectorAll("[data-libtab]").forEach(x => x.classList.remove("active"));
@@ -546,12 +882,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     playlistSearch.focus();
     updatePlaylistSearchClear();
     window.clearTimeout(playlistScrollTimer);
+    clearPlaylistSelection();
     renderPlaylistVirtual(true);
   });
-  playlistSort?.addEventListener("change", () => renderPlaylistVirtual(true));
+  playlistSort?.addEventListener("change", () => { clearPlaylistSelection(); renderPlaylistVirtual(true); });
   playlistSelect?.addEventListener("change", () => {
     currentPlaylistId = playlistSelect.value;
     localStorage.setItem("melo-currentPlaylist", currentPlaylistId);
+    clearPlaylistSelection();
     renderPlaylistVirtual(true);
   });
   scanButton?.addEventListener("click", chooseAndScanFolder);
@@ -564,7 +902,6 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!await confirmLibraryClear()) return;
     await invoke("clear_library_database");
     recentTracks = [];
-    artistAlbumsCache.clear();
     await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true), renderPlaylistVirtual(true)]);
     busEmit("melo:library-changed", { cleared: true });
   });
@@ -648,7 +985,6 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   });
   let refreshTimer = 0;
   busOn("melo:library-changed", () => {
-    artistAlbumsCache.clear();
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
       refreshStats();
@@ -659,10 +995,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   busOn("melo:playlist-changed", () => {
     refreshPlaylists();
     renderPlaylistVirtual();
+    renderEmbeddedPlaylist();
   });
 
   // Keep the "now playing" row highlighted in the Playlist window.
-  busOn("melo:track-changed", (t: any) => setActiveTrack(t?.id || null));
+  busOn("melo:track-changed", (t: any) => {
+    setActiveTrack(t?.id || null);
+    if (t?.id) recordRecentlyPlayed(t.id);
+    embeddedPlaylistContainer.querySelectorAll<HTMLElement>("[data-ep-track]").forEach(row => {
+      row.classList.toggle("active", row.dataset.epTrack === (t?.id || null));
+    });
+  });
   busOn("melo:playback-state", (s: any) => setActiveTrack(s?.track?.id || null));
 
   // When this window (re)opens, restore the active-track highlight from the

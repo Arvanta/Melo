@@ -47,10 +47,17 @@ export function parseLRC(lrcText: string): { isSynced: boolean; lines: LyricLine
   return { isSynced: hasTimestamp, lines, raw: lrcText };
 }
 
-export function setupLyrics(audio: HTMLAudioElement, toast: (m: string) => void) {
-  const lyricsContainer = document.getElementById("lyricsContainer") as HTMLElement | null;
-  const lyricsStatus = document.getElementById("lyricsStatus") as HTMLElement | null;
-  const lyricsTitle = document.getElementById("lyricsTrackTitle") as HTMLElement | null;
+export function setupLyrics(
+  audio: HTMLAudioElement,
+  toast: (m: string) => void,
+  elements?: { container: HTMLElement; status?: HTMLElement | null; title?: HTMLElement | null }
+) {
+  const lyricsContainer = elements ? elements.container : (document.getElementById("lyricsContainer") as HTMLElement | null);
+  const lyricsStatus = elements ? (elements.status ?? null) : (document.getElementById("lyricsStatus") as HTMLElement | null);
+  const lyricsTitle = elements ? (elements.title ?? null) : (document.getElementById("lyricsTrackTitle") as HTMLElement | null);
+  // Nothing to render into (e.g. the current document/skin doesn't have a
+  // lyrics container at all) — bail out before subscribing to any events.
+  if (!lyricsContainer) return;
 
   let currentParsed: { isSynced: boolean; lines: LyricLine[]; raw: string } = { isSynced: false, lines: [], raw: "" };
   let currentTrackId: string | null = null;

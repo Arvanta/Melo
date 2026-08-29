@@ -27,12 +27,12 @@
   }
 
   * { box-sizing: border-box; }
-  body:not(.tauri-main):has(#lumi-player) {
+  body:not(.tauri-main):has(#melo-player) {
     min-height: 100vh; margin: 0; padding: 24px; display: grid; place-items: center;
     overflow: hidden; background: #0c1118; font-family: Inter,"Segoe UI",system-ui,sans-serif;
   }
 
-  #lumi-player,
+  #melo-player,
   body.tauri-main .player-card,
   body.custom-skin-active .player-card {
     width: min(1200px,100%); height: 50px; min-height: 50px; max-height: 50px;
@@ -160,7 +160,7 @@
 </style>
 </head>
 <body data-window-width="1200" data-window-height="50" data-min-width="1000" data-min-height="50" data-max-width="1600" data-max-height="50" data-resizable="true">
-<div id="lumi-player">
+<div id="melo-player">
   <div class="ml-row">
     <div class="ml-brand-zone">
       <span class="ml-drag-handle" data-tauri-drag-region title="Drag window"></span>

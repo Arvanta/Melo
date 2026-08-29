@@ -39,6 +39,13 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   let levels: number[] = [];
   let slowMax = 0.45;
   let menuEl: HTMLElement | null = null;
+  // Set true when a skin's toggle button is showing the embedded
+  // playlist/lyrics view in the visualizer's slot instead of the
+  // visualizer itself — the canvas is invisible in that state, so the
+  // render loop (which otherwise runs every frame reading the analyser
+  // and drawing) is stopped entirely rather than just CSS-hidden, to avoid
+  // wasting CPU/battery on draws nobody can see.
+  let externallyPaused = false;
 
   function ensureCanvas(host: HTMLElement) {
     let c = host.querySelector("canvas") as HTMLCanvasElement | null;
@@ -395,6 +402,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     draw();
   }
   function startLoop() {
+    if (externallyPaused) return;
     if (!raf) loop();
   }
 
@@ -492,4 +500,15 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     startLoop();
   }
   (window as any).__LUMI_REBIND_VISUALIZER__ = rebind;
+
+  function setExternallyPaused(paused: boolean) {
+    externallyPaused = paused;
+    if (paused) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    } else if (!document.hidden) {
+      startLoop();
+    }
+  }
+  (window as any).__MELO_VISUALIZER_SET_PAUSED__ = setExternallyPaused;
 }

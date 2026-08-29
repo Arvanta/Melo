@@ -26,6 +26,10 @@
   "settings.playback.crossfade.desc": "Smoothly blend the end of one track into the start of the next",
   "settings.playback.crossfadeDuration.label": "Crossfade duration",
   "settings.playback.crossfadeDuration.desc": "How long the transition between tracks lasts (1–12 seconds)",
+  "settings.appearance.embeddedPlaylist.label": "Embedded Playlist (skins)",
+  "settings.appearance.embeddedPlaylist.desc": "If the active skin includes a playlist slot, these control how it looks. Skins without this slot are unaffected.",
+  "settings.appearance.embeddedPlaylistCover.label": "Show track cover art",
+  "settings.appearance.embeddedPlaylistFontScale.label": "Text size",
 
   "settings.appearance.showstop.label": "Show Stop button",
   "settings.appearance.showstop.desc": "Display a Stop control next to Play/Pause in the player"

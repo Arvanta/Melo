@@ -32,7 +32,7 @@
   }
 
   * { box-sizing: border-box; }
-  body:not(.tauri-main):has(#lumi-player) {
+  body:not(.tauri-main):has(#melo-player) {
     min-height: 100vh;
     margin: 0;
     padding: 26px;
@@ -44,8 +44,8 @@
     font-family: Inter, "Segoe UI", system-ui, sans-serif;
   }
 
-  /* Melo extracts the inner HTML of #lumi-player into .player-card. */
-  #lumi-player,
+  /* Melo extracts the inner HTML of #melo-player into .player-card. */
+  #melo-player,
   body.tauri-main .player-card,
   body.custom-skin-active .player-card {
     width: min(620px, 100%);
@@ -231,7 +231,7 @@
   /* Short-window mode: preserve text, seek, visualizer, and volume instead of
      letting flex items shrink and clip their line boxes. */
   @media (max-height: 360px) {
-    #lumi-player,
+    #melo-player,
     body.tauri-main .player-card,
     body.custom-skin-active .player-card { grid-template-rows: 35px minmax(0,1fr) 49px; }
     .so-titlebar { padding-left: 13px; }
@@ -253,7 +253,7 @@
 </style>
 </head>
 <body data-window-width="620" data-window-height="380" data-min-width="520" data-min-height="340" data-max-width="780" data-max-height="520" data-resizable="true">
-<div id="lumi-player">
+<div id="melo-player">
   <div class="so-titlebar" data-tauri-drag-region>
     <div class="so-brand" data-tauri-drag-region>
       <span class="so-brand-orb"></span>

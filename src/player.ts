@@ -394,7 +394,18 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
 
     applyTrackMetadata(t, { resetProgress: true });
 
-    if (autoplay) play();
+    if (autoplay) {
+      play();
+    } else {
+      // loadTrack() can be called with autoplay=false (e.g. "Resume
+      // playback on reopen" turned off) — the track is cued up paused, so
+      // the transport icons must reflect that (Play visible, Pause
+      // hidden). Without this, the icons keep whatever state they were
+      // last in (e.g. still showing Pause from before the app closed).
+      if (iconPlay) iconPlay.style.display = "block";
+      if (iconPause) iconPause.style.display = "none";
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+    }
   }
 
   let pendingPlay = false;
