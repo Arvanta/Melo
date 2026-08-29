@@ -91,6 +91,20 @@ app.innerHTML = `
           <button class="tab" data-libtab="albums">Albums</button>
           <button class="tab" data-libtab="genres">Genres</button>
           <button class="tab" data-libtab="recent">Recent</button>
+          <div class="lib-view-switch" id="libViewSwitch" title="Library view">
+            <button type="button" class="lib-view-btn active" data-libview="details" title="Details">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            </button>
+            <button type="button" class="lib-view-btn" data-libview="compact" title="Compact">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+            </button>
+            <button type="button" class="lib-view-btn" data-libview="tiles" title="Tiles">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            </button>
+            <button type="button" class="lib-view-btn" data-libview="mosaic" title="Mosaic">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="5" rx="0.8"/><rect x="10" y="3" width="5" height="5" rx="0.8"/><rect x="17" y="3" width="4" height="5" rx="0.8"/><rect x="3" y="10" width="5" height="5" rx="0.8"/><rect x="10" y="10" width="5" height="5" rx="0.8"/><rect x="17" y="10" width="4" height="5" rx="0.8"/><rect x="3" y="17" width="5" height="4" rx="0.8"/><rect x="10" y="17" width="5" height="4" rx="0.8"/><rect x="17" y="17" width="4" height="4" rx="0.8"/></svg>
+            </button>
+          </div>
         </div>
         <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
           <span id="libraryStats">0 tracks • 0 artists • 0 albums</span>
@@ -379,7 +393,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.6.0 Beta</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.6.1 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -478,7 +492,22 @@ app.innerHTML = `
 
       <div class="right-panel">
         <div class="right-main">
-          <div class="visualizer-bars" id="vizBars"></div>
+          <div class="stage-switch">
+            <button type="button" class="stage-btn active" data-melo="toggle-embedded-viz" title="Visualizer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/></svg>
+            </button>
+            <button type="button" class="stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </button>
+            <button type="button" class="stage-btn" data-melo="toggle-embedded-playlist" title="Playlist">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
+            </button>
+          </div>
+          <div class="player-stage">
+            <div class="visualizer-bars" id="vizBars" data-melo="visualizer"></div>
+            <div class="player-stage-panel" data-melo="embedded-lyrics"></div>
+            <div class="player-stage-panel" data-melo="embedded-playlist"></div>
+          </div>
         </div>
         <div class="side-actions">
           <button class="sbtn active" id="btnToggleLibrary" title="Library">
@@ -722,29 +751,37 @@ if (isTauri && !urlPanel) {
     });
   });
 
-  // Handle Windows Explorer "Open With" / CLI file arguments & single-instance file opening
+  // Handle Windows Explorer "Open With" / CLI file arguments & single-instance file opening.
+  // Explorer launches one process per selected file unless MultiSelectModel=Player
+  // is registered; each extra instance is forwarded here as its own event with
+  // a single path. If we import with mode:"replace" immediately, only the last
+  // file survives. Coalesce arrivals for a short window, then import once.
+  const pendingOpenPaths: string[] = [];
+  let pendingOpenTimer = 0;
+  const queueOpenPaths = (paths: string[]) => {
+    for (const p of paths) if (p && !pendingOpenPaths.includes(p)) pendingOpenPaths.push(p);
+    window.clearTimeout(pendingOpenTimer);
+    pendingOpenTimer = window.setTimeout(async () => {
+      const batch = pendingOpenPaths.splice(0, pendingOpenPaths.length);
+      if (!batch.length) return;
+      const lib = (window as any).LumiLibrary;
+      const imported = await lib?.importPaths(batch, "replace") || [];
+      if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
+    }, 450);
+  };
+
   import("@tauri-apps/api/core").then(async ({ invoke }) => {
     try {
       const cliTracks: any[] = await invoke("get_cli_tracks");
       if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-        setTimeout(async () => {
-          const lib = (window as any).LumiLibrary;
-          const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-          const imported = await lib?.importPaths(paths, "replace") || [];
-          if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
-        }, 350);
+        queueOpenPaths(cliTracks.map((t: any) => t.path).filter(Boolean));
       }
     } catch {}
   });
 
   busOn("melo:open-files", (cliTracks: any) => {
     if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-      const paths = cliTracks.map((t: any) => t.path).filter(Boolean);
-      setTimeout(async () => {
-        const lib = (window as any).LumiLibrary;
-        const imported = await lib?.importPaths(paths, "replace") || [];
-        if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
-      }, 100);
+      queueOpenPaths(cliTracks.map((t: any) => t.path).filter(Boolean));
     }
   });
 }
@@ -1380,15 +1417,28 @@ const embeddedLyricsTitle = document.createElement("div");
 embeddedLyricsTitle.className = "embedded-lyrics-title";
 let embeddedLyricsInitialized = false;
 
+function resolveVisualizerHost(): HTMLElement | null {
+  // Skins historically use #vizBars; data-melo="visualizer" is the newer
+  // hook. findHook("visualizer") would miss #vizBars and treat the viz as
+  // missing → pause the render loop forever after a skin swap.
+  return (
+    document.getElementById("vizBars") ||
+    findHook<HTMLElement>("visualizer", "visualizer") ||
+    document.querySelector<HTMLElement>(".visualizer-bars")
+  );
+}
+
 function syncVisualizerPauseState() {
-  // Pause the visualizer's render loop only when its own slot is actually
-  // hidden right now (e.g. a skin's CSS hides it while
-  // .melo-show-playlist/.melo-show-lyrics is set on <html>) — this is
-  // decided by checking real visibility, not by assuming any particular
-  // skin swaps the visualizer specifically, so it works for any skin
-  // layout that happens to hide it.
-  const vizEl = findHook<HTMLElement>("visualizer", "visualizer");
-  const hidden = !vizEl || vizEl.offsetParent === null;
+  // Pause only when the slot is actually hidden (display:none / not in
+  // layout). Missing host is treated as "no visualizer in this skin"
+  // (compact pill hides it on purpose) — but a visible #vizBars must
+  // never be paused just because it lacks data-melo="visualizer".
+  const vizEl = resolveVisualizerHost();
+  if (!vizEl) {
+    (window as any).__MELO_VISUALIZER_SET_PAUSED__?.(true);
+    return;
+  }
+  const hidden = vizEl.offsetParent === null && getComputedStyle(vizEl).display === "none";
   (window as any).__MELO_VISUALIZER_SET_PAUSED__?.(hidden);
 }
 
@@ -1414,24 +1464,29 @@ function attachEmbeddedPanels() {
     }
   }
 
+  function setStageMode(mode: "viz" | "playlist" | "lyrics") {
+    document.documentElement.classList.toggle("melo-show-playlist", mode === "playlist");
+    document.documentElement.classList.toggle("melo-show-lyrics", mode === "lyrics");
+    document.querySelectorAll(".stage-btn").forEach(btn => {
+      const role = btn.getAttribute("data-melo");
+      const on = (mode === "viz" && role === "toggle-embedded-viz")
+        || (mode === "playlist" && role === "toggle-embedded-playlist")
+        || (mode === "lyrics" && role === "toggle-embedded-lyrics");
+      btn.classList.toggle("active", on);
+    });
+    if (mode === "playlist") embeddedPlaylist?.refresh?.();
+    syncVisualizerPauseState();
+  }
+
+  const toggleViz = findHook<HTMLElement>("toggle-embedded-viz", "toggle-embedded-viz");
+  if (toggleViz) toggleViz.onclick = () => setStageMode("viz");
   const toggleP = findHook<HTMLElement>("toggle-embedded-playlist", "toggle-embedded-playlist");
-  if (toggleP) {
-    toggleP.onclick = () => {
-      document.documentElement.classList.toggle("melo-show-playlist");
-      document.documentElement.classList.remove("melo-show-lyrics");
-      embeddedPlaylist?.refresh?.();
-      syncVisualizerPauseState();
-    };
-  }
+  if (toggleP) toggleP.onclick = () => setStageMode("playlist");
   const toggleL = findHook<HTMLElement>("toggle-embedded-lyrics", "toggle-embedded-lyrics");
-  if (toggleL) {
-    toggleL.onclick = () => {
-      document.documentElement.classList.toggle("melo-show-lyrics");
-      document.documentElement.classList.remove("melo-show-playlist");
-      syncVisualizerPauseState();
-    };
-  }
-  syncVisualizerPauseState();
+  if (toggleL) toggleL.onclick = () => setStageMode("lyrics");
+  if (document.documentElement.classList.contains("melo-show-playlist")) setStageMode("playlist");
+  else if (document.documentElement.classList.contains("melo-show-lyrics")) setStageMode("lyrics");
+  else setStageMode("viz");
 }
 
 // About popup

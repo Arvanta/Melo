@@ -683,6 +683,8 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   document.addEventListener("wheel", event => {
     const target = event.target as HTMLElement | null;
     if (!target?.closest("#playerCard") || !volBar) return;
+    // Let the embedded playlist / lyrics panel scroll instead of changing volume.
+    if (target.closest(".embedded-playlist, .embedded-lyrics, [data-melo=\"embedded-playlist\"], [data-melo=\"embedded-lyrics\"], .player-stage-panel")) return;
     event.preventDefault();
     const step = event.deltaY < 0 ? 5 : -5;
     volBar.value = String(Math.max(0, Math.min(100, Number(volBar.value) + step)));

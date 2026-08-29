@@ -1,6 +1,6 @@
 [package]
 name = "melo"
-version = "0.6.0"
+version = "0.6.1"
 description = "Melo - Modern Windows Music Player"
 authors = ["Melo Team"]
 license = "GPL-3.0-only"

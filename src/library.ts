@@ -55,8 +55,19 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let librarySearch = "";
   let currentTrackId: string | null = null;
 
-  const libraryRowHeight = 54;
   const playlistRowHeight = 52;
+  type LibView = "details" | "compact" | "tiles" | "mosaic";
+  const LIB_VIEWS: LibView[] = ["details", "compact", "tiles", "mosaic"];
+  let libView: LibView = ((): LibView => {
+    const saved = localStorage.getItem("melo-lib-view") || "details";
+    return (LIB_VIEWS as string[]).includes(saved) ? saved as LibView : "details";
+  })();
+  function libraryRowHeight(): number {
+    if (libView === "compact") return 36;
+    if (libView === "tiles") return 118;
+    if (libView === "mosaic") return 96;
+    return 54;
+  }
   let libraryRequest = 0;
   // Scroll position of the groups list (artists/albums/genres) right
   // before drilling into a group, so pressing "Back" restores the user to
@@ -360,29 +371,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (trackList) trackList.scrollTop = 0;
   }
 
-  // Artists tab now drills two levels deep — Artists -> (that artist's)
-  // Albums -> Tracks of the chosen album — matching how Albums/Genres tabs
-  // already work, instead of showing a flat "All Tracks" list with a
-  // sticky horizontal album-chip row above it.
+  // Artists tab: click an artist → albums with their tracks listed under
+  // each album (no extra drill). Albums/Genres tabs still drill one level
+  // into a flat track list.
   function libraryMode(): "groups" | "tracks" {
-    if (libTab === "artists") return selectedArtist ? (selectedAlbum ? "tracks" : "groups") : "groups";
+    if (libTab === "artists") return "groups";
     if (libTab === "albums") return selectedAlbum ? "tracks" : "groups";
     return selectedGenre ? "tracks" : "groups";
   }
 
   function libraryGroupKind(): "artists" | "albums" | "genres" {
-    // While viewing a specific artist's album list, the group rows being
-    // rendered/fetched are albums (scoped to that artist), not artists.
-    if (libTab === "artists" && selectedArtist && !selectedAlbum) return "albums";
-    // "recent" never reaches here — renderLibraryVirtual() redirects to
-    // renderRecentlyPlayed() before this function is ever called for it.
     return libTab === "recent" ? "artists" : libTab;
   }
 
   function libraryCrumb(): string {
-    if (libTab === "artists" && selectedArtist) {
-      return selectedAlbum ? `${selectedArtist} › ${selectedAlbum}` : selectedArtist;
-    }
+    if (libTab === "artists" && selectedArtist) return selectedArtist;
     if (libTab === "albums" && selectedAlbum) return selectedAlbum;
     if (libTab === "genres" && selectedGenre) return selectedGenre;
     return "";
@@ -416,33 +419,50 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // How many track-row columns fit the current panel width. Only the flat
   // track list uses multiple columns (grid layout); group rows (artists /
   // albums / genres) always stay single-column.
-  const GRID_MIN_COLUMN_WIDTH = 300; // px — below this a 2nd column would feel cramped
-  const GRID_GAP = 8; // px
+  const GRID_MIN_COLUMN_WIDTH = 300;
+  const GRID_GAP = 8;
   function libraryColumns(): number {
     if (!trackList) return 1;
-    if (libraryMode() !== "tracks") return 1;
     const width = trackList.clientWidth || 0;
+    if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
+    if (libView === "mosaic") return Math.max(3, Math.min(8, Math.floor((width + GRID_GAP) / 92)));
+    if (libraryMode() !== "tracks") return 1;
+    if (libView === "compact") return 1;
     return width >= GRID_MIN_COLUMN_WIDTH * 2 + GRID_GAP ? 2 : 1;
   }
 
-  async function renderLibraryVirtual(reset = false) {
+  function syncLibViewButtons() {
+    document.querySelectorAll<HTMLElement>("[data-libview]").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.libview === libView);
+    });
+    trackList?.setAttribute("data-lib-view", libView);
+  }
+
+  async function renderLibraryVirtual(reset = false, restoreScroll?: number) {
     if (!trackList || !invoke) return;
     if (libTab === "recent") {
       if (reset) trackList.scrollTop = 0;
       return renderRecentlyPlayed();
     }
+    if (libTab === "artists" && selectedArtist) {
+      return renderArtistDiscography(reset);
+    }
     if (reset) trackList.scrollTop = 0;
+    else if (restoreScroll != null) trackList.scrollTop = restoreScroll;
+    const keepScroll = reset ? 0 : (restoreScroll ?? trackList.scrollTop);
     trackList.style.display = "block";
     trackList.style.position = "relative";
     trackList.style.overflowY = "auto";
     const viewport = Math.max(300, trackList.clientHeight || 420);
     const crumb = libraryCrumb();
     const headerHeight = crumb ? 38 : 0;
+    const rowH = libraryRowHeight();
     const columns = libraryColumns();
     lastLibraryColumns = columns;
-    const rowsVisible = Math.ceil(viewport / libraryRowHeight);
+    syncLibViewButtons();
+    const rowsVisible = Math.ceil(viewport / rowH);
     const effectiveScroll = Math.max(0, trackList.scrollTop - headerHeight);
-    const startRow = Math.max(0, Math.floor(effectiveScroll / libraryRowHeight) - 4);
+    const startRow = Math.max(0, Math.floor(effectiveScroll / rowH) - 4);
     const start = startRow * columns;
     const limit = Math.max(40, (rowsVisible + 8) * columns);
     const request = ++libraryRequest;
@@ -450,16 +470,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const page = await fetchLibraryPage(start, limit);
       if (request !== libraryRequest) return;
       const totalRows = Math.max(1, Math.ceil(page.total / columns));
-      const totalHeight = totalRows * libraryRowHeight + headerHeight;
+      const totalHeight = totalRows * rowH + headerHeight;
       const colWidthPct = 100 / columns;
+      const card = libView === "tiles" || libView === "mosaic";
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
         const rowIdx = Math.floor(absoluteIndex / columns);
         const col = absoluteIndex % columns;
-        const top = headerHeight + rowIdx * libraryRowHeight;
+        const top = headerHeight + rowIdx * rowH;
         const posStyle = columns > 1
-          ? `position:absolute;top:${top}px;height:${libraryRowHeight}px;left:calc(${col * colWidthPct}% + ${col === 0 ? 0 : GRID_GAP / 2}px);width:calc(${colWidthPct}% - ${GRID_GAP / 2}px)`
-          : `position:absolute;left:0;right:0;top:${top}px;height:${libraryRowHeight}px`;
+          ? `position:absolute;top:${top}px;height:${rowH}px;left:calc(${col * colWidthPct}% + ${col === 0 ? 0 : GRID_GAP / 2}px);width:calc(${colWidthPct}% - ${GRID_GAP / 2}px)`
+          : `position:absolute;left:0;right:0;top:${top}px;height:${rowH}px`;
         if (libraryMode() === "groups") {
           const group = item as GroupRow;
           const cover = artworkUrl(group.cover);
@@ -468,12 +489,25 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           const avatar = cover
             ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}')"></div>`
             : `<div class="${avatarClass}" data-artwork-id="${esc(group.artworkTrackId || "")}">${fallback}</div>`;
+          if (card) {
+            return `<div class="lib-item lib-card virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title">${esc(group.name)}</div><div class="t-artist">${esc(group.subtitle || `${group.count} tracks`)}</div></div>`;
+          }
           return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${esc(group.subtitle || `${group.count} tracks`)}</div></div><span class="chev-r">›</span></div>`;
         }
         const track = item as Track;
+        const coverEl = track.cover
+          ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`
+          : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`;
+        if (card) {
+          return `<div class="track-row lib-card virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="${posStyle}">
+            ${coverEl}
+            <div class="t-title">${esc(track.title)}</div>
+            <div class="t-artist">${esc(track.artist)}</div>
+          </div>`;
+        }
         return `<div class="track-row virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="${posStyle}">
           <span class="num">${absoluteIndex + 1}</span>
-          ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
+          ${coverEl}
           <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>
           <span class="t-dur">${fmtDur(track.duration)}</span>
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
@@ -485,6 +519,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       trackList.innerHTML = `<div class="virtual-list-space" style="position:relative;height:${Math.max(totalHeight, viewport)}px">${header}${rows}</div>`;
       bindLibraryRows(page.items);
       bindLazyArtwork(trackList);
+      if (!reset) trackList.scrollTop = keepScroll;
     } catch (error) {
       trackList.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Could not read the Library database.</div>`;
     }
@@ -553,17 +588,109 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
     });
     trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
-      // Artists tab unwinds one level at a time (Tracks -> Albums ->
-      // Artists); Albums/Genres tabs have only one level to unwind.
-      if (libTab === "artists" && selectedAlbum) selectedAlbum = null;
-      else if (libTab === "artists" && selectedArtist) selectedArtist = null;
+      if (libTab === "artists" && selectedArtist) selectedArtist = null;
       else if (libTab === "albums" && selectedAlbum) { selectedArtist = null; selectedAlbum = null; }
       else if (libTab === "genres" && selectedGenre) selectedGenre = null;
       clearLibrarySelection();
-      trackList!.scrollTop = savedGroupsScrollTop;
-      renderLibraryVirtual(false);
+      renderLibraryVirtual(false, savedGroupsScrollTop);
     });
     updateLibrarySelectionUI();
+  }
+
+  async function renderArtistDiscography(reset = false) {
+    if (!trackList || !invoke || !selectedArtist) return;
+    const keepScroll = reset ? 0 : trackList.scrollTop;
+    if (reset) trackList.scrollTop = 0;
+    trackList.style.display = "block";
+    trackList.style.position = "relative";
+    trackList.style.overflowY = "auto";
+    const request = ++libraryRequest;
+    try {
+      const page = await invoke<Page<Track>>("library_tracks", {
+        search: librarySearch || null,
+        artist: selectedArtist,
+        album: null,
+        genre: null,
+        sort: "album-asc",
+        limit: 5000,
+        offset: 0,
+      });
+      if (request !== libraryRequest) return;
+      const items = page.items.map(normalizeTrack);
+      recentTracks = items;
+      const albums: { name: string; cover?: string; tracks: Track[] }[] = [];
+      const byName = new Map<string, { name: string; cover?: string; tracks: Track[] }>();
+      for (const track of items) {
+        const name = track.album || "Unknown Album";
+        let block = byName.get(name.toLowerCase());
+        if (!block) {
+          block = { name, cover: track.cover, tracks: [] };
+          byName.set(name.toLowerCase(), block);
+          albums.push(block);
+        }
+        if (!block.cover && track.cover) block.cover = track.cover;
+        block.tracks.push(track);
+      }
+      const header = `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(selectedArtist)}</b></div>`;
+      const body = albums.map((album, ai) => {
+        const cover = artworkUrl(album.cover);
+        const avatar = cover
+          ? `<div class="lib-avatar lib-avatar-album" style="background-image:url('${esc(cover)}')"></div>`
+          : `<div class="lib-avatar lib-avatar-album">💿</div>`;
+        const rows = album.tracks.map((track, ti) => `<div class="track-row" data-track-id="${esc(track.id)}" data-album-index="${ai}" data-track-index="${ti}">
+          <span class="num">${ti + 1}</span>
+          ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
+          <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)}</div></div>
+          <span class="t-dur">${fmtDur(track.duration)}</span>
+          <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
+        </div>`).join("");
+        return `<section class="lib-album-block">
+          <div class="lib-album-head">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(album.name)}</div><div class="t-artist">${album.tracks.length} track${album.tracks.length === 1 ? "" : "s"}</div></div></div>
+          ${rows}
+        </section>`;
+      }).join("");
+      trackList.innerHTML = `${header}${body || `<div style="padding:24px;text-align:center;color:var(--text-muted)">No tracks for this artist.</div>`}`;
+      trackList.querySelectorAll<HTMLElement>("[data-add-track]").forEach(button => {
+        button.onclick = async event => {
+          event.stopPropagation();
+          if (!invoke || !button.dataset.addTrack) return;
+          await invoke("add_tracks_to_playlist", { playlistId: currentPlaylistId, trackIds: [button.dataset.addTrack] });
+          busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+        };
+      });
+      trackList.querySelectorAll<HTMLElement>("[data-track-id]").forEach(row => {
+        row.onclick = async event => {
+          if ((event.target as HTMLElement).closest("[data-add-track]")) return;
+          const ai = Number(row.dataset.albumIndex || 0);
+          const ti = Number(row.dataset.trackIndex || 0);
+          const list = albums[ai]?.tracks || [];
+          if (invoke && list.length) {
+            await invoke("replace_playlist_tracks", { playlistId: currentPlaylistId, trackIds: list.map(t => t.id) });
+            busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+          }
+          busEmit("melo:play-tracks", { tracks: list, index: ti });
+        };
+        row.oncontextmenu = event => {
+          event.preventDefault();
+          event.stopPropagation();
+          contextTrackId = row.dataset.trackId || null;
+          libraryContextMenu.style.display = "block";
+          const rect = libraryContextMenu.getBoundingClientRect();
+          libraryContextMenu.style.left = `${Math.max(6, Math.min(event.clientX, window.innerWidth - rect.width - 6))}px`;
+          libraryContextMenu.style.top = `${Math.max(6, Math.min(event.clientY, window.innerHeight - rect.height - 6))}px`;
+        };
+      });
+      trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
+        selectedArtist = null;
+        selectedAlbum = null;
+        clearLibrarySelection();
+        renderLibraryVirtual(false, savedGroupsScrollTop);
+      });
+      bindLazyArtwork(trackList);
+      if (!reset) trackList.scrollTop = keepScroll;
+    } catch {
+      trackList.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Could not read the Library database.</div>`;
+    }
   }
 
   // Re-render (only) when a resize actually crosses the 1-col/2-col
@@ -788,7 +915,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // -----------------------------------------------------------------------
   const EMBEDDED_PLAYLIST_LIMIT = 150;
   const embeddedPlaylistContainer = document.createElement("div");
-  embeddedPlaylistContainer.className = "embedded-playlist";
+  embeddedPlaylistContainer.className = "embedded-playlist embedded-playlist-mini";
 
   function embeddedPlaylistShowCover(): boolean {
     return localStorage.getItem("melo-pref-embeddedPlaylistCover") !== "0";
@@ -839,6 +966,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     refresh: renderEmbeddedPlaylist,
   };
 
+  document.querySelectorAll<HTMLElement>("[data-libview]").forEach(btn => {
+    btn.onclick = event => {
+      event.stopPropagation();
+      const next = btn.dataset.libview as LibView;
+      if (!LIB_VIEWS.includes(next) || next === libView) return;
+      libView = next;
+      localStorage.setItem("melo-lib-view", libView);
+      syncLibViewButtons();
+      renderLibraryVirtual(true);
+    };
+  });
+  syncLibViewButtons();
   tabs?.querySelectorAll<HTMLElement>("[data-libtab]").forEach(tab => {
     tab.onclick = () => {
       tabs.querySelectorAll("[data-libtab]").forEach(x => x.classList.remove("active"));
@@ -864,6 +1003,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     renderLibraryVirtual(true);
   });
   trackList?.addEventListener("scroll", () => {
+    if (libTab === "artists" && selectedArtist) return;
     window.clearTimeout(libraryScrollTimer);
     libraryScrollTimer = window.setTimeout(() => renderLibraryVirtual(), 60);
   });

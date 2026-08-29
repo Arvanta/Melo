@@ -15,7 +15,8 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
 function getContainer(): HTMLElement | null {
   return (
     (document.getElementById("vizBars") as HTMLElement | null) ||
-    document.querySelector<HTMLElement>('[data-melo="visualizer"]')
+    document.querySelector<HTMLElement>('[data-melo="visualizer"]') ||
+    document.querySelector<HTMLElement>(".visualizer-bars")
   );
 }
 
