@@ -200,7 +200,7 @@ input[type="range"].seek::-moz-range-thumb { width: 14px; height: 14px; border-r
   width: 280px; flex-shrink: 0; display: flex; flex-direction: row; gap: 12px;
   border-left: 1px solid var(--card-border); padding-left: 16px; justify-content: center; align-items: stretch;
 }
-.right-main { flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: center; min-width: 0; }
+.right-main { flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: flex-start; align-items: stretch; min-width: 0; min-height: 0; align-self: stretch; }
 .volume-row { display: flex; align-items: center; gap: 8px; }
 .volume-row .vol-icon { color: var(--text-soft); display: grid; place-items: center; }
 input[type="range"].vol { -webkit-appearance: none; flex: 1; height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol, 60%), var(--track-bg) var(--vol, 60%), var(--track-bg) 100%); outline: none; cursor: pointer; }
@@ -209,8 +209,8 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
 
 /* Visualizer (canvas-based, multiple modes) */
 .stage-switch {
-  display: flex; gap: 3px; justify-content: flex-end; flex-shrink: 0;
-  margin-bottom: 4px;
+  display: flex; gap: 4px; justify-content: center; align-items: center;
+  flex-shrink: 0; width: 100%; margin: 0;
 }
 .stage-btn {
   width: 22px; height: 20px; padding: 0; border-radius: 6px;
@@ -220,12 +220,25 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
 .stage-btn:hover { color: var(--text); background: var(--track-bg); }
 .stage-btn.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .player-stage {
-  position: relative; height: 56px; min-height: 56px; flex-shrink: 0;
+  position: relative; height: 56px; min-height: 56px; flex: 0 0 56px;
+}
+html.melo-show-playlist .player-stage,
+html.melo-show-lyrics .player-stage {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 56px;
 }
 .player-stage-panel {
   position: absolute; inset: 0; overflow: auto; border-radius: 10px;
-  background: var(--track-bg);
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
+.player-stage-panel::-webkit-scrollbar { width: 6px; }
+.player-stage-panel::-webkit-scrollbar-track { background: var(--scrollbar-track); border-radius: 999px; }
+.player-stage-panel::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; }
 .player-stage .embedded-lyrics-title { display: none; }
 .player-stage .lyric-line { font-size: 11px; padding: 2px 6px; transform: none !important; }
 .visualizer-bars {
@@ -315,20 +328,31 @@ html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: b
 .lib-view-btn:hover { background: var(--track-bg); color: var(--text); }
 .lib-view-btn.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .lib-card {
+  display: flex !important;
   flex-direction: column !important; align-items: stretch !important; justify-content: flex-start !important;
-  gap: 4px !important; padding: 6px !important; border-radius: 10px; overflow: hidden;
+  gap: 5px !important; padding: 6px !important; border-radius: 10px; overflow: hidden;
+  box-sizing: border-box;
 }
 .lib-card .lib-avatar, .lib-card .track-cover-mini {
   width: 100% !important; height: auto !important; aspect-ratio: 1; border-radius: 8px !important;
-  font-size: 22px;
+  font-size: 22px; flex-shrink: 0;
 }
-.lib-card .t-title { font-size: 11px; font-weight: 650; }
-.lib-card .t-artist { font-size: 10px; }
+.lib-card .t-title {
+  font-size: 11px; font-weight: 650; line-height: 1.25; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px;
+}
+.lib-card .t-artist {
+  font-size: 10px; line-height: 1.2; text-align: center; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px;
+}
 .lib-card .num, .lib-card .t-dur, .lib-card .chev-r, .lib-card .btn { display: none !important; }
 #trackList[data-lib-view="compact"] .lib-item,
-#trackList[data-lib-view="compact"] .track-row { padding-top: 4px; padding-bottom: 4px; gap: 8px; }
+#trackList[data-lib-view="compact"] .track-row { padding-top: 3px; padding-bottom: 3px; gap: 7px; }
 #trackList[data-lib-view="compact"] .lib-avatar,
-#trackList[data-lib-view="compact"] .track-cover-mini { width: 26px; height: 26px; }
+#trackList[data-lib-view="compact"] .track-cover-mini { width: 22px; height: 22px; }
+#trackList[data-lib-view="compact"] .t-title { font-size: 11px; font-weight: 600; }
+#trackList[data-lib-view="compact"] .t-artist { font-size: 10px; }
+#trackList[data-lib-view="compact"] .t-dur { font-size: 10px; }
 .tab { padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; background: transparent; color: var(--text-soft); white-space: nowrap; }
 .tab.active { background: var(--track-bg); color: var(--text); }
 .lyrics-box { padding: 14px; font-size: 13px; line-height: 1.8; color: var(--text); white-space: pre-line; }
@@ -590,6 +614,14 @@ body.show-stop-btn #btnStop { display: inline-flex; }
    size and style its own container; this just keeps things readable if a
    skin doesn't add its own rules. */
 .embedded-playlist { overflow-y: auto; height: 100%; font-size: 100%; }
+.embedded-playlist-mini { color: var(--text); }
+.embedded-playlist-mini .track-cover-mini { width: 16px; height: 16px; border-radius: 3px; }
+.embedded-playlist-mini .embedded-playlist-row { padding: 2px 5px; gap: 5px; }
+.embedded-playlist-mini .t-title { font-size: 10px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.embedded-playlist-mini .t-artist,
+.embedded-playlist-mini .t-dur { display: none !important; }
+.embedded-playlist-mini .embedded-playlist-row.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.embedded-playlist-mini .embedded-playlist-empty { color: var(--text-muted); font-size: 10px; }
 .embedded-playlist-row {
   display: flex; align-items: center; gap: 8px; padding: 5px 8px;
   border-radius: 8px; cursor: pointer; font-size: 0.92em;

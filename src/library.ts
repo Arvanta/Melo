@@ -426,9 +426,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const width = trackList.clientWidth || 0;
     if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
     if (libView === "mosaic") return Math.max(3, Math.min(8, Math.floor((width + GRID_GAP) / 92)));
-    if (libraryMode() !== "tracks") return 1;
     if (libView === "compact") return 1;
-    return width >= GRID_MIN_COLUMN_WIDTH * 2 + GRID_GAP ? 2 : 1;
+    // Details: 2 columns for tracks (and wide group lists) when the panel is wide enough.
+    const minCol = libraryMode() === "tracks" ? 240 : GRID_MIN_COLUMN_WIDTH;
+    return width >= minCol * 2 + GRID_GAP ? 2 : 1;
   }
 
   function syncLibViewButtons() {
@@ -489,10 +490,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           const avatar = cover
             ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}')"></div>`
             : `<div class="${avatarClass}" data-artwork-id="${esc(group.artworkTrackId || "")}">${fallback}</div>`;
+          const sub = esc(group.subtitle || `${group.count} tracks`);
           if (card) {
-            return `<div class="lib-item lib-card virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title">${esc(group.name)}</div><div class="t-artist">${esc(group.subtitle || `${group.count} tracks`)}</div></div>`;
+            return `<div class="lib-item lib-card virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title">${esc(group.name)}</div><div class="t-artist">${sub}</div></div>`;
           }
-          return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${esc(group.subtitle || `${group.count} tracks`)}</div></div><span class="chev-r">›</span></div>`;
+          if (libView === "compact") {
+            return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title" style="flex:1;min-width:0">${esc(group.name)}</div><div class="t-artist" style="flex-shrink:0">${sub}</div><span class="chev-r">›</span></div>`;
+          }
+          return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${sub}</div></div><span class="chev-r">›</span></div>`;
         }
         const track = item as Track;
         const coverEl = track.cover
@@ -502,7 +507,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           return `<div class="track-row lib-card virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="${posStyle}">
             ${coverEl}
             <div class="t-title">${esc(track.title)}</div>
-            <div class="t-artist">${esc(track.artist)}</div>
+            <div class="t-artist">${esc(track.artist)}${track.album ? ` · ${esc(track.album)}` : ""}</div>
           </div>`;
         }
         return `<div class="track-row virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="${posStyle}">

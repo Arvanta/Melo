@@ -671,7 +671,13 @@ pub async fn library_groups(
     let (group_expr, key_expr, subtitle_expr, extra_where, extra): (&str, &str, &str, &str, Option<String>) = match kind.as_str() {
         "albums" => ("album", "artist || char(0) || album", "artist", if artist.is_some() {" AND artist=?2"} else {""}, artist),
         "genres" => ("genre", "genre", "COUNT(*) || ' tracks'", "", None),
-        _ => ("artist", "artist", "COUNT(*) || ' tracks'", "", None),
+        _ => (
+            "artist",
+            "artist",
+            "COUNT(DISTINCT album) || ' albums · ' || COUNT(*) || ' tracks'",
+            "",
+            None,
+        ),
     };
     let where_sql = format!(" WHERE library_owned=1 AND {} LIKE ?1 COLLATE NOCASE{}", group_expr, extra_where);
     let count_sql = format!("SELECT COUNT(*) FROM (SELECT {} FROM tracks{} GROUP BY {})", group_expr, where_sql, if kind=="albums" {"artist,album"} else {group_expr});
