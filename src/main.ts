@@ -101,9 +101,6 @@ app.innerHTML = `
             <button type="button" class="lib-view-btn" data-libview="tiles" title="Tiles">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
             </button>
-            <button type="button" class="lib-view-btn" data-libview="mosaic" title="Mosaic">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="5" rx="0.8"/><rect x="10" y="3" width="5" height="5" rx="0.8"/><rect x="17" y="3" width="4" height="5" rx="0.8"/><rect x="3" y="10" width="5" height="5" rx="0.8"/><rect x="10" y="10" width="5" height="5" rx="0.8"/><rect x="17" y="10" width="4" height="5" rx="0.8"/><rect x="3" y="17" width="5" height="4" rx="0.8"/><rect x="10" y="17" width="5" height="4" rx="0.8"/><rect x="17" y="17" width="4" height="4" rx="0.8"/></svg>
-            </button>
           </div>
         </div>
         <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">

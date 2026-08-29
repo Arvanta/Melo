@@ -743,9 +743,24 @@ body.panel-window {
 .panel-window .track-row,
 .panel-window .lib-item,
 .panel-window .playlist-item {
-  width: 100%;
   min-width: 0;
   overflow: hidden;
+}
+.panel-window .track-row:not(.virtual-row),
+.panel-window .lib-item:not(.virtual-row),
+.panel-window .playlist-item {
+  width: 100%;
+}
+.panel-window .virtual-row {
+  max-width: none;
+}
+#trackList {
+  width: 100%;
+  min-width: 0;
+}
+#trackList .virtual-list-space {
+  width: 100%;
+  box-sizing: border-box;
 }
 .panel-window .track-row > div,
 .panel-window .lib-item > div,

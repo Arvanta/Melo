@@ -43,14 +43,16 @@
   body.custom-skin-active .player-card {
     width: min(380px,100%); height: 650px; min-width: 0; min-height: 500px;
     margin: 0; padding: 0; position: relative; overflow: hidden;
-    display: grid; grid-template-rows: 36px minmax(0,1fr) 49px;
+    display: grid !important;
+    grid-template-rows: 36px minmax(0,1fr) auto;
+    grid-template-columns: minmax(0,1fr);
     color: var(--ic-text);
     background:
       radial-gradient(circle at 50% -8%, color-mix(in srgb,var(--accent) 12%,transparent), transparent 36%),
       var(--ic-bg);
     border: 1px solid var(--ic-line); border-radius: 15px; box-shadow: var(--ic-shadow);
     font-family: Inter, "Segoe UI", system-ui, sans-serif;
-    --ic-cover-size: clamp(140px, min(calc(100vw - 60px), calc(100vh - 350px)), 300px);
+    --ic-cover-size: clamp(120px, min(calc(100vw - 60px), calc(100vh - 380px)), 260px);
   }
   body.tauri-main,
   body.tauri-main .app-shell { min-width: 0 !important; }
@@ -75,14 +77,19 @@
   .win-btn.close:hover { color: white; background: #dc5268; }
 
   .ic-main {
-    min-width: 0; min-height: 0; padding: 1px 15px 7px;
+    min-width: 0; min-height: 0; overflow: hidden;
+    padding: 1px 15px 4px;
     display: flex; flex-direction: column; align-items: stretch;
+    position: relative; z-index: 1;
   }
 
-  .ic-art-stage { min-height: 0; flex: 0 0 auto; display: grid; place-items: center; position: relative; }
+  .ic-art-stage {
+    min-height: 0; flex: 1 1 auto; display: grid; place-items: center;
+    position: relative; overflow: hidden;
+  }
   .cover-wrap {
     width: min(100%, var(--ic-cover-size)); height: auto !important; min-height: 0 !important;
-    max-height: none !important; aspect-ratio: 1 / 1; flex: 0 0 auto;
+    max-height: 100% !important; aspect-ratio: 1 / 1; flex: 0 0 auto;
     position: relative; overflow: hidden;
     border-radius: 22px; background: var(--track-bg);
     box-shadow: 0 22px 48px rgba(35,38,47,.18), inset 0 1px rgba(255,255,255,.3);
@@ -144,7 +151,11 @@
   #btnStop { display: none; }
   body.show-stop-btn #btnStop { display: grid !important; }
 
-  .ic-lower { flex-shrink: 0; margin-top: auto; margin-bottom: 6px; padding-top: 7px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: center; }
+  .ic-lower {
+    flex: 0 0 auto; margin-top: 6px; margin-bottom: 0; padding-top: 6px;
+    display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: center;
+    position: relative; z-index: 2;
+  }
   .volume-row { min-width: 0; display: grid; grid-template-columns: 17px minmax(0,1fr) 28px; gap: 7px; align-items: center; }
   #volIcon { display: grid; place-items: center; color: var(--ic-soft); cursor: pointer; }
   #volIcon:hover { color: var(--accent); }
@@ -159,9 +170,11 @@
   .ic-tool svg { width: 13px; height: 13px; }
 
   .ic-footer {
-    margin: 0 11px 7px; padding: 3px;
+    margin: 0 11px 8px; padding: 3px;
     display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 3px;
     border: 1px solid var(--ic-line); border-radius: 17px; background: var(--ic-surface); backdrop-filter: blur(20px);
+    position: relative; z-index: 4; flex-shrink: 0;
+    align-self: stretch;
   }
   .ic-footer button {
     height: 31px; min-width: 0; padding: 0 5px; border: 0; border-radius: 11px;

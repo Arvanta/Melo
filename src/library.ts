@@ -56,16 +56,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let currentTrackId: string | null = null;
 
   const playlistRowHeight = 52;
-  type LibView = "details" | "compact" | "tiles" | "mosaic";
-  const LIB_VIEWS: LibView[] = ["details", "compact", "tiles", "mosaic"];
+  type LibView = "details" | "compact" | "tiles";
+  const LIB_VIEWS: LibView[] = ["details", "compact", "tiles"];
   let libView: LibView = ((): LibView => {
     const saved = localStorage.getItem("melo-lib-view") || "details";
+    if (saved === "mosaic") return "tiles";
     return (LIB_VIEWS as string[]).includes(saved) ? saved as LibView : "details";
   })();
   function libraryRowHeight(): number {
     if (libView === "compact") return 36;
     if (libView === "tiles") return 148;
-    if (libView === "mosaic") return 118;
     return 54;
   }
   let libraryRequest = 0;
@@ -426,11 +426,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const width = trackList.clientWidth || 0;
     if (libView === "compact") return 1;
     const trackLike = libraryMode() === "tracks" || (libTab === "artists" && !!selectedArtist);
-    if (trackLike) return width >= 240 * 2 + GRID_GAP ? 2 : 1;
+    if (trackLike) return width >= 400 ? 2 : 1;
     if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
-    if (libView === "mosaic") return Math.max(3, Math.min(8, Math.floor((width + GRID_GAP) / 92)));
-    const minCol = GRID_MIN_COLUMN_WIDTH;
-    return width >= minCol * 2 + GRID_GAP ? 2 : 1;
+    return width >= GRID_MIN_COLUMN_WIDTH * 2 + GRID_GAP ? 2 : 1;
   }
 
   function syncLibViewButtons() {
@@ -474,7 +472,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const totalRows = Math.max(1, Math.ceil(page.total / columns));
       const totalHeight = totalRows * rowH + headerHeight;
       const colWidthPct = 100 / columns;
-      const card = (libView === "tiles" || libView === "mosaic") && libraryMode() === "groups";
+      const card = libView === "tiles" && libraryMode() === "groups";
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
         const rowIdx = Math.floor(absoluteIndex / columns);
@@ -652,7 +650,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <span class="t-dur">${fmtDur(track.duration)}</span>
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
         </div>`).join("");
-        const twoCol = columns > 1 && libView === "details";
+        const twoCol = columns > 1 && libView !== "compact";
         const rowCount = twoCol ? Math.max(1, Math.ceil(album.tracks.length / 2)) : album.tracks.length;
         const gridClass = twoCol ? "lib-album-tracks two-col" : "lib-album-tracks";
         const gridStyle = twoCol ? `grid-template-rows:repeat(${rowCount},auto)` : "";
@@ -708,18 +706,25 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Re-render (only) when a resize actually crosses the 1-col/2-col
   // breakpoint — not on every pixel of a resize drag — so widening the
   // Library window reflows the track list into a grid once there's room.
+  function maybeReflowLibrary() {
+    const cols = libraryColumns();
+    if (cols !== lastLibraryColumns) renderLibraryVirtual(false);
+  }
   if (trackList && typeof ResizeObserver !== "undefined") {
     let resizeDebounce: number | null = null;
     const ro = new ResizeObserver(() => {
       if (resizeDebounce) window.clearTimeout(resizeDebounce);
       resizeDebounce = window.setTimeout(() => {
         resizeDebounce = null;
-        const cols = libraryColumns();
-        if (cols !== lastLibraryColumns) renderLibraryVirtual(false);
-      }, 120);
+        maybeReflowLibrary();
+      }, 80);
     });
     ro.observe(trackList);
   }
+  window.addEventListener("resize", () => {
+    window.clearTimeout(libraryScrollTimer);
+    libraryScrollTimer = window.setTimeout(maybeReflowLibrary, 80);
+  });
 
   async function refreshPlaylists() {
     if (!invoke) return;
