@@ -289,13 +289,52 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return { ...track, cover: artworkUrl(track.cover), source: "scan" };
   }
 
-  const artworkQueue: Array<{ id: string; element: HTMLElement }> = [];
+  const artworkQueue: Array<{ id: string }> = [];
   const artworkPending = new Set<string>();
+  const artworkCache = new Map<string, string>();
+  const artworkWaiters = new Map<string, Set<HTMLElement>>();
   let artworkWorkers = 0;
+  let artworkObserver: IntersectionObserver | null = null;
+
+  function paintArtwork(el: HTMLElement, url: string) {
+    el.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
+    el.style.backgroundSize = "cover";
+    el.style.backgroundPosition = "center";
+    el.textContent = "";
+  }
+  function applyArtwork(id: string, url: string) {
+    if (!id || !url) return;
+    artworkCache.set(id, url);
+    recentTracks.forEach(t => { if (t.id === id) t.cover = url; });
+    const waiters = artworkWaiters.get(id);
+    if (waiters) {
+      waiters.forEach(el => { if (el.isConnected) paintArtwork(el, url); });
+      artworkWaiters.delete(id);
+    }
+    document.querySelectorAll<HTMLElement>("[data-artwork-id]").forEach(el => {
+      if (el.dataset.artworkId === id) paintArtwork(el, url);
+    });
+  }
+  function resolvedCover(id?: string, cover?: string): string {
+    if (cover) return cover;
+    return (id && artworkCache.get(id)) || "";
+  }
   function enqueueArtwork(id: string | undefined, element: HTMLElement) {
-    if (!id || !invoke || artworkPending.has(id)) return;
+    if (!id || !invoke) return;
+    const cached = artworkCache.get(id);
+    if (cached) {
+      paintArtwork(element, cached);
+      return;
+    }
+    let waiters = artworkWaiters.get(id);
+    if (!waiters) {
+      waiters = new Set();
+      artworkWaiters.set(id, waiters);
+    }
+    waiters.add(element);
+    if (artworkPending.has(id)) return;
     artworkPending.add(id);
-    artworkQueue.push({ id, element });
+    artworkQueue.push({ id });
     pumpArtworkQueue();
   }
   function pumpArtworkQueue() {
@@ -304,12 +343,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       artworkWorkers++;
       invoke<string | null>("ensure_track_artwork", { id: item.id })
         .then(path => {
-          if (!path || !item.element.isConnected) return;
-          const url = artworkUrl(path);
-          const track = recentTracks.find(t => t.id === item.id);
-          if (track) track.cover = url;
-          item.element.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
-          item.element.textContent = "";
+          if (!path) return;
+          applyArtwork(item.id, artworkUrl(path));
         })
         .catch(() => {})
         .finally(() => {
@@ -320,20 +355,36 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
   function bindLazyArtwork(root: HTMLElement) {
+    artworkObserver?.disconnect();
     const elements = [...root.querySelectorAll<HTMLElement>("[data-artwork-id]")];
+    elements.forEach(el => {
+      const cached = el.dataset.artworkId ? artworkCache.get(el.dataset.artworkId) : undefined;
+      if (cached) paintArtwork(el, cached);
+    });
+    const pending = elements.filter(el => el.dataset.artworkId && !artworkCache.has(el.dataset.artworkId));
+    if (!pending.length) return;
     if (!("IntersectionObserver" in window)) {
-      elements.forEach(el => enqueueArtwork(el.dataset.artworkId, el));
+      pending.forEach(el => enqueueArtwork(el.dataset.artworkId, el));
       return;
     }
-    const observer = new IntersectionObserver(entries => {
+    artworkObserver = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
         const el = entry.target as HTMLElement;
-        observer.unobserve(el);
+        artworkObserver?.unobserve(el);
         enqueueArtwork(el.dataset.artworkId, el);
       });
-    }, { root, rootMargin: "120px" });
-    elements.forEach(el => observer.observe(el));
+    }, { root, rootMargin: "240px" });
+    pending.forEach(el => artworkObserver!.observe(el));
+    // Drill-in replaces innerHTML before layout; IO can miss the first frame.
+    requestAnimationFrame(() => {
+      pending.forEach(el => {
+        if (!el.isConnected || !el.dataset.artworkId || artworkCache.has(el.dataset.artworkId)) return;
+        const r = el.getBoundingClientRect();
+        const rr = root.getBoundingClientRect();
+        if (r.bottom >= rr.top - 240 && r.top <= rr.bottom + 240) enqueueArtwork(el.dataset.artworkId, el);
+      });
+    });
   }
 
   async function loadCore() {
@@ -483,11 +534,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           : `position:absolute;left:0;right:0;top:${top}px;height:${rowH}px`;
         if (libraryMode() === "groups") {
           const group = item as GroupRow;
-          const cover = artworkUrl(group.cover);
+          const cover = resolvedCover(group.artworkTrackId, artworkUrl(group.cover));
           const avatarClass = `lib-avatar ${libraryGroupKind() === "albums" ? "lib-avatar-album" : ""}`;
           const fallback = libraryGroupKind() === "albums" ? "💿" : esc((group.name[0] || "?").toUpperCase());
           const avatar = cover
-            ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}')"></div>`
+            ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(group.artworkTrackId || "")}"></div>`
             : `<div class="${avatarClass}" data-artwork-id="${esc(group.artworkTrackId || "")}">${fallback}</div>`;
           const sub = esc(group.subtitle || `${group.count} tracks`);
           if (card) {
@@ -499,8 +550,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${sub}</div></div><span class="chev-r">›</span></div>`;
         }
         const track = item as Track;
-        const coverEl = track.cover
-          ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`
+        const tCover = resolvedCover(track.id, track.cover);
+        const coverEl = tCover
+          ? `<div class="track-cover-mini" style="background-image:url('${esc(tCover)}');background-size:cover;background-position:center" data-artwork-id="${esc(track.id)}"></div>`
           : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`;
         if (card) {
           return `<div class="track-row lib-card virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" style="${posStyle}">
@@ -639,17 +691,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       lastLibraryColumns = columns;
       const header = `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(selectedArtist)}</b></div>`;
       const body = albums.map((album, ai) => {
-        const cover = artworkUrl(album.cover);
+        const artId = album.tracks[0]?.id || "";
+        const cover = resolvedCover(artId, artworkUrl(album.cover));
         const avatar = cover
-          ? `<div class="lib-avatar lib-avatar-album" style="background-image:url('${esc(cover)}')"></div>`
-          : `<div class="lib-avatar lib-avatar-album">💿</div>`;
-        const rows = album.tracks.map((track, ti) => `<div class="track-row" data-track-id="${esc(track.id)}" data-album-index="${ai}" data-track-index="${ti}">
+          ? `<div class="lib-avatar lib-avatar-album" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(artId)}"></div>`
+          : `<div class="lib-avatar lib-avatar-album" data-artwork-id="${esc(artId)}">💿</div>`;
+        const rows = album.tracks.map((track, ti) => {
+          const tCover = resolvedCover(track.id, track.cover);
+          return `<div class="track-row" data-track-id="${esc(track.id)}" data-album-index="${ai}" data-track-index="${ti}">
           <span class="num">${ti + 1}</span>
-          ${track.cover ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
+          ${tCover ? `<div class="track-cover-mini" style="background-image:url('${esc(tCover)}');background-size:cover;background-position:center" data-artwork-id="${esc(track.id)}"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
           <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)}</div></div>
           <span class="t-dur">${fmtDur(track.duration)}</span>
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
-        </div>`).join("");
+        </div>`;
+        }).join("");
         const twoCol = columns > 1 && libView !== "compact";
         const rowCount = twoCol ? Math.max(1, Math.ceil(album.tracks.length / 2)) : album.tracks.length;
         const gridClass = twoCol ? "lib-album-tracks two-col" : "lib-album-tracks";

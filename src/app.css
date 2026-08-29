@@ -474,7 +474,7 @@ body.tauri-main #app { background: transparent !important; }
 body.tauri-main .desktop { display: none !important; }
 body.tauri-main .app-shell { padding: 0; gap: 0; height: 100vh; min-height: 100vh; background: transparent !important; }
 body.tauri-main .player-card {
-  border: none; border-radius: var(--radius); box-shadow: none;
+  border: 1px solid var(--card-border); border-radius: var(--radius); box-shadow: none;
   height: 100vh; min-height: 100vh; max-height: 100vh;
   width: 100%; padding: 12px 20px 14px 20px; box-sizing: border-box; overflow: hidden;
 }
