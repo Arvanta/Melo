@@ -409,7 +409,13 @@ html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: b
 
 .settings-row.disabled-row { opacity: 0.45; pointer-events: none; }
 .stepper-control { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.stepper-btn { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; font-size: 14px; line-height: 1; border-radius: 6px; flex-shrink: 0; }
+.stepper-btn {
+  width: 22px; height: 22px; padding: 0 !important;
+  display: grid !important; place-items: center;
+  justify-content: center; align-items: center;
+  font-size: 15px; line-height: 1; font-weight: 500;
+  border-radius: 6px; flex-shrink: 0;
+}
 .crossfade-range { -webkit-appearance: none; appearance: none; width: 100px; height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress, 27%), var(--track-bg) var(--progress, 27%), var(--track-bg) 100%); outline: none; cursor: pointer; }
 .crossfade-range::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: white; box-shadow: 0 1px 6px rgba(0,0,0,0.22); border: 1px solid rgba(0,0,0,0.08); cursor: pointer; }
 .crossfade-range::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 6px rgba(0,0,0,0.22); }

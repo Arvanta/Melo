@@ -417,9 +417,6 @@ app.innerHTML = `
         <button class="win-btn" id="btnAddFolder" title="Add folder (Ctrl+Shift+O)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
         </button>
-        <button class="win-btn" id="btnAbout" title="About Melo">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-        </button>
         <button class="win-btn" id="btnThemeToggle" title="Toggle light / dark theme">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
         </button>
@@ -1238,11 +1235,17 @@ function setupSettings(toast: ToastFn) {
   }
   swEmbeddedPlaylistCover?.addEventListener("click", () => setTimeout(refreshEmbeddedPlaylist, 0));
 
+  function updateEmbeddedFontRangeBackground(value: number) {
+    if (!embeddedFontRange) return;
+    const pct = ((value - 70) / (140 - 70)) * 100;
+    embeddedFontRange.style.setProperty("--progress", pct + "%");
+  }
   function setEmbeddedFontScale(percent: number) {
     const clamped = Math.min(140, Math.max(70, Math.round(percent / 10) * 10));
     localStorage.setItem("melo-pref-embeddedPlaylistFontScale", String(clamped));
     if (embeddedFontRange) embeddedFontRange.value = String(clamped);
     if (embeddedFontValue) embeddedFontValue.textContent = clamped + "%";
+    updateEmbeddedFontRangeBackground(clamped);
     refreshEmbeddedPlaylist();
   }
   const savedFontScale = parseInt(localStorage.getItem("melo-pref-embeddedPlaylistFontScale") || "100", 10);
@@ -1250,6 +1253,7 @@ function setupSettings(toast: ToastFn) {
     const clamped = Math.min(140, Math.max(70, Number.isFinite(savedFontScale) ? savedFontScale : 100));
     if (embeddedFontRange) embeddedFontRange.value = String(clamped);
     if (embeddedFontValue) embeddedFontValue.textContent = clamped + "%";
+    updateEmbeddedFontRangeBackground(clamped);
   }
   if (embeddedFontRange) embeddedFontRange.oninput = () => setEmbeddedFontScale(parseInt(embeddedFontRange.value, 10));
   btnEmbeddedFontDown?.addEventListener("click", () => setEmbeddedFontScale(parseInt(embeddedFontRange?.value || "100", 10) - 10));
