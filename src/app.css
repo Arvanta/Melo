@@ -223,13 +223,15 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
   position: relative;
   flex: 1 1 auto;
   min-height: 56px;
+  width: 100%;
   display: flex;
-  align-items: center;
-  justify-content: stretch;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
 }
 html.melo-show-playlist .player-stage,
 html.melo-show-lyrics .player-stage {
-  align-items: stretch;
+  justify-content: stretch;
 }
 .player-stage-panel {
   position: absolute; inset: 0; overflow: auto; border-radius: 10px;
@@ -254,7 +256,9 @@ html.melo-show-lyrics .player-stage {
   position: relative;
   height: 56px;
   width: 100%;
+  max-width: 100%;
   flex: 0 0 56px;
+  align-self: stretch;
   border-radius: 10px;
   cursor: pointer;
   user-select: none;
@@ -341,20 +345,22 @@ html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: b
 .lib-card {
   display: flex !important;
   flex-direction: column !important; align-items: stretch !important; justify-content: flex-start !important;
-  gap: 5px !important; padding: 6px !important; border-radius: 10px; overflow: hidden;
+  gap: 4px !important; padding: 6px !important; border-radius: 10px; overflow: hidden;
   box-sizing: border-box;
 }
 .lib-card .lib-avatar, .lib-card .track-cover-mini {
   width: 100% !important; height: auto !important; aspect-ratio: 1; border-radius: 8px !important;
-  font-size: 22px; flex-shrink: 0;
+  font-size: 22px; flex-shrink: 1; min-height: 0; max-height: calc(100% - 34px);
 }
 .lib-card .t-title {
   font-size: 11px; font-weight: 650; line-height: 1.25; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px;
+  flex-shrink: 0;
 }
 .lib-card .t-artist {
   font-size: 10px; line-height: 1.2; text-align: center; color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px;
+  flex-shrink: 0;
 }
 .lib-card .num, .lib-card .t-dur, .lib-card .chev-r, .lib-card .btn { display: none !important; }
 #trackList[data-lib-view="compact"] .lib-item,

@@ -64,8 +64,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   })();
   function libraryRowHeight(): number {
     if (libView === "compact") return 36;
-    if (libView === "tiles") return 118;
-    if (libView === "mosaic") return 96;
+    if (libView === "tiles") return 148;
+    if (libView === "mosaic") return 118;
     return 54;
   }
   let libraryRequest = 0;
@@ -424,12 +424,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function libraryColumns(): number {
     if (!trackList) return 1;
     const width = trackList.clientWidth || 0;
+    if (libView === "compact") return 1;
+    const trackLike = libraryMode() === "tracks" || (libTab === "artists" && !!selectedArtist);
+    if (trackLike) return width >= 240 * 2 + GRID_GAP ? 2 : 1;
     if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
     if (libView === "mosaic") return Math.max(3, Math.min(8, Math.floor((width + GRID_GAP) / 92)));
-    if (libView === "compact") return 1;
-    // Details: 2 columns for tracks (and artist discography) when the panel is wide enough.
-    const trackLike = libraryMode() === "tracks" || (libTab === "artists" && !!selectedArtist);
-    const minCol = trackLike ? 240 : GRID_MIN_COLUMN_WIDTH;
+    const minCol = GRID_MIN_COLUMN_WIDTH;
     return width >= minCol * 2 + GRID_GAP ? 2 : 1;
   }
 
@@ -474,7 +474,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const totalRows = Math.max(1, Math.ceil(page.total / columns));
       const totalHeight = totalRows * rowH + headerHeight;
       const colWidthPct = 100 / columns;
-      const card = libView === "tiles" || libView === "mosaic";
+      const card = (libView === "tiles" || libView === "mosaic") && libraryMode() === "groups";
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
         const rowIdx = Math.floor(absoluteIndex / columns);
