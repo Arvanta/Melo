@@ -1443,8 +1443,14 @@ function attachEmbeddedPanels() {
   const embeddedPlaylist = (window as any).__MELO_EMBEDDED_PLAYLIST__;
   const playlistHook = findHook<HTMLElement>("embedded-playlist", "embedded-playlist");
   if (playlistHook && embeddedPlaylist?.container) {
+    // Skin swaps rebuild the player HTML. If the previous live playlist
+    // was serialized into the template, a static copy stays in the hook
+    // and appendChild would add a second list. Keep only the live node.
+    [...playlistHook.querySelectorAll(".embedded-playlist")].forEach(el => {
+      if (el !== embeddedPlaylist.container) el.remove();
+    });
     if (embeddedPlaylist.container.parentElement !== playlistHook) {
-      playlistHook.appendChild(embeddedPlaylist.container);
+      playlistHook.replaceChildren(embeddedPlaylist.container);
     }
     embeddedPlaylist.refresh?.();
   }

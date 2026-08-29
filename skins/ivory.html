@@ -40,31 +40,41 @@
 
   #melo-player,
   body.tauri-main .player-card,
-  body.custom-skin-active .player-card {
-    width: min(380px,100%); height: 650px; min-width: 0; min-height: 500px;
-    margin: 0; padding: 0; position: relative; overflow: hidden;
+  body.custom-skin-active .player-card,
+  body.tauri-main.custom-skin-active .player-card {
+    width: min(380px, 100%);
+    height: 650px;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    margin: 0; padding: 0; position: relative; overflow: hidden !important;
     display: grid !important;
-    grid-template-rows: 36px minmax(0,1fr) auto;
-    grid-template-columns: minmax(0,1fr);
+    grid-template-rows: 36px minmax(0, 1fr) 46px;
+    grid-template-columns: minmax(0, 1fr);
     color: var(--ic-text);
     background:
       radial-gradient(circle at 50% -8%, color-mix(in srgb,var(--accent) 12%,transparent), transparent 36%),
       var(--ic-bg);
     border: 1px solid var(--ic-line); border-radius: 15px; box-shadow: var(--ic-shadow);
     font-family: Inter, "Segoe UI", system-ui, sans-serif;
-    --ic-cover-size: clamp(120px, min(calc(100vw - 60px), calc(100vh - 380px)), 260px);
   }
   body.tauri-main,
   body.tauri-main .app-shell { min-width: 0 !important; }
-  body.tauri-main .player-card {
-    width: 100% !important; height: 100vh !important; min-height: 0 !important;
-    max-height: 100vh !important; border-radius: 15px !important; box-shadow: none !important;
+  body.tauri-main .player-card,
+  body.tauri-main.custom-skin-active .player-card {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100vh !important;
+    min-height: 0 !important;
+    border-radius: 15px !important;
+    box-shadow: none !important;
   }
   body.tauri-main .ic-viz.visualizer-bars { display: block !important; }
 
   .ic-titlebar {
     padding: 0 10px 0 17px; display: flex; align-items: center; justify-content: space-between;
     -webkit-app-region: drag; user-select: none; position: relative; z-index: 5;
+    min-height: 0;
   }
   .ic-brand { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 800; letter-spacing: .14em; }
   .ic-brand svg { color: var(--accent); }
@@ -77,19 +87,34 @@
   .win-btn.close:hover { color: white; background: #dc5268; }
 
   .ic-main {
-    min-width: 0; min-height: 0; overflow: hidden;
-    padding: 1px 15px 4px;
-    display: flex; flex-direction: column; align-items: stretch;
-    position: relative; z-index: 1;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden;
+    padding: 0 15px 2px;
+    display: grid !important;
+    grid-template-rows: minmax(72px, 1fr) auto auto auto auto auto;
+    align-content: stretch;
+    position: relative;
+    z-index: 1;
   }
 
   .ic-art-stage {
-    min-height: 0; flex: 1 1 auto; display: grid; place-items: center;
-    position: relative; overflow: hidden;
+    min-width: 0;
+    min-height: 0 !important;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    container-type: size;
   }
   .cover-wrap {
-    width: min(100%, var(--ic-cover-size)); height: auto !important; min-height: 0 !important;
-    max-height: 100% !important; aspect-ratio: 1 / 1; flex: 0 0 auto;
+    width: min(100cqw, 100cqh, 260px) !important;
+    height: min(100cqw, 100cqh, 260px) !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    aspect-ratio: auto !important;
+    flex: none !important;
     position: relative; overflow: hidden;
     border-radius: 22px; background: var(--track-bg);
     box-shadow: 0 22px 48px rgba(35,38,47,.18), inset 0 1px rgba(255,255,255,.3);
@@ -106,7 +131,7 @@
       linear-gradient(145deg,color-mix(in srgb,var(--accent) 70%,#7fbad1),#9c83c8 55%,#e89a89);
   }
 
-  .ic-meta { min-width: 0; flex-shrink: 0; margin-top: 10px; text-align: center; }
+  .ic-meta { min-width: 0; margin-top: 8px; text-align: center; }
   .track-title {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: var(--ic-text); font-size: 20px; font-weight: 790; line-height: 1.18; letter-spacing: -.035em;
@@ -117,12 +142,12 @@
   .badge-flac { padding: 3px 6px; border: 1px solid var(--ic-line); border-radius: 6px; color: var(--accent); font-weight: 780; letter-spacing: .06em; }
 
   .ic-viz {
-    width: 100%; flex-shrink: 0; height: 34px; min-height: 34px; margin-top: 7px; overflow: hidden; border-radius: 12px;
+    width: 100%; height: 34px; min-height: 24px; margin-top: 6px; overflow: hidden; border-radius: 12px;
     background: linear-gradient(180deg,transparent,color-mix(in srgb,var(--accent) 5%,transparent)); cursor: pointer;
   }
   .ic-viz canvas { width: 100% !important; height: 100% !important; display: block; }
 
-  .ic-seek { flex-shrink: 0; margin-top: 11px; display: grid; grid-template-columns: 33px minmax(0,1fr) 33px; gap: 8px; align-items: center; }
+  .ic-seek { margin-top: 8px; display: grid; grid-template-columns: 33px minmax(0,1fr) 33px; gap: 8px; align-items: center; }
   .ic-time { color: var(--ic-muted); font: 500 9px/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric: tabular-nums; }
   #durTime { text-align: right; }
   .seek, .vol {
@@ -134,7 +159,7 @@
     background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb,var(--accent) 35%,transparent);
   }
 
-  .transport { flex-shrink: 0; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .transport { margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
   .transport button {
     width: 33px; height: 33px; padding: 0; border: 0; border-radius: 13px;
     display: grid; place-items: center; color: var(--ic-soft); background: transparent; cursor: pointer;
@@ -152,7 +177,7 @@
   body.show-stop-btn #btnStop { display: grid !important; }
 
   .ic-lower {
-    flex: 0 0 auto; margin-top: 6px; margin-bottom: 0; padding-top: 6px;
+    margin-top: 6px; padding-top: 4px; padding-bottom: 2px;
     display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: center;
     position: relative; z-index: 2;
   }
@@ -173,8 +198,9 @@
     margin: 0 11px 8px; padding: 3px;
     display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 3px;
     border: 1px solid var(--ic-line); border-radius: 17px; background: var(--ic-surface); backdrop-filter: blur(20px);
-    position: relative; z-index: 4; flex-shrink: 0;
-    align-self: stretch;
+    position: relative; z-index: 6;
+    min-height: 0;
+    align-self: end;
   }
   .ic-footer button {
     height: 31px; min-width: 0; padding: 0 5px; border: 0; border-radius: 11px;
@@ -185,6 +211,12 @@
   .ic-footer button.active { color: var(--accent); background: color-mix(in srgb,var(--accent) 10%,transparent); }
   .ic-footer svg { width: 13px; height: 13px; }
 
+  @media (max-height: 560px) {
+    .track-album, .track-format { display: none; }
+    .ic-viz { height: 22px; margin-top: 4px; }
+    .track-title { font-size: 17px; }
+    .ic-main { grid-template-rows: minmax(56px, 1fr) auto auto auto auto auto; }
+  }
 </style>
 </head>
 <body data-window-width="380" data-window-height="650" data-min-width="320" data-min-height="500" data-max-width="450" data-max-height="650" data-resizable="true">

@@ -65,7 +65,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   })();
   function libraryRowHeight(): number {
     if (libView === "compact") return 36;
-    if (libView === "tiles") return 148;
+    if (libView === "tiles" && libraryMode() === "groups") return 148;
     return 54;
   }
   let libraryRequest = 0;
