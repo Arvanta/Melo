@@ -637,6 +637,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (!block.cover && track.cover) block.cover = track.cover;
         block.tracks.push(track);
       }
+      const columns = libraryColumns();
+      lastLibraryColumns = columns;
       const header = `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(selectedArtist)}</b></div>`;
       const body = albums.map((album, ai) => {
         const cover = artworkUrl(album.cover);
@@ -650,9 +652,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <span class="t-dur">${fmtDur(track.duration)}</span>
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
         </div>`).join("");
+        const twoCol = columns > 1 && libView === "details";
+        const rowCount = twoCol ? Math.max(1, Math.ceil(album.tracks.length / 2)) : album.tracks.length;
+        const gridClass = twoCol ? "lib-album-tracks two-col" : "lib-album-tracks";
+        const gridStyle = twoCol ? `grid-template-rows:repeat(${rowCount},auto)` : "";
         return `<section class="lib-album-block">
           <div class="lib-album-head">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(album.name)}</div><div class="t-artist">${album.tracks.length} track${album.tracks.length === 1 ? "" : "s"}</div></div></div>
-          ${rows}
+          <div class="${gridClass}" style="${gridStyle}">${rows}</div>
         </section>`;
       }).join("");
       trackList.innerHTML = `${header}${body || `<div style="padding:24px;text-align:center;color:var(--text-muted)">No tracks for this artist.</div>`}`;
@@ -956,8 +962,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         ${showCover ? (track.cover
           ? `<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`
           : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`) : ""}
-        <div class="ep-meta"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)}</div></div>
-        <span class="t-dur">${fmtDur(track.duration)}</span>
+        <div class="ep-meta"><div class="t-title">${esc(track.title)}</div></div>
       </div>`).join("");
     embeddedPlaylistContainer.querySelectorAll<HTMLElement>("[data-ep-track]").forEach(row => {
       row.onclick = () => {
@@ -1010,14 +1015,6 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   });
   trackList?.addEventListener("scroll", () => {
     if (libTab === "artists" && selectedArtist) return;
-    window.clearTimeout(libraryScrollTimer);
-    libraryScrollTimer = window.setTimeout(() => renderLibraryVirtual(), 60);
-  });
-  playlistList?.addEventListener("scroll", () => {
-    window.clearTimeout(playlistScrollTimer);
-    playlistScrollTimer = window.setTimeout(() => renderPlaylistVirtual(), 60);
-  });
-  playlistSearch?.addEventListener("input", () & selectedArtist) return;
     window.clearTimeout(libraryScrollTimer);
     libraryScrollTimer = window.setTimeout(() => renderLibraryVirtual(), 60);
   });
