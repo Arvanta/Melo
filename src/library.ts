@@ -427,8 +427,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
     if (libView === "mosaic") return Math.max(3, Math.min(8, Math.floor((width + GRID_GAP) / 92)));
     if (libView === "compact") return 1;
-    // Details: 2 columns for tracks (and wide group lists) when the panel is wide enough.
-    const minCol = libraryMode() === "tracks" ? 240 : GRID_MIN_COLUMN_WIDTH;
+    // Details: 2 columns for tracks (and artist discography) when the panel is wide enough.
+    const trackLike = libraryMode() === "tracks" || (libTab === "artists" && !!selectedArtist);
+    const minCol = trackLike ? 240 : GRID_MIN_COLUMN_WIDTH;
     return width >= minCol * 2 + GRID_GAP ? 2 : 1;
   }
 
@@ -1009,6 +1010,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   });
   trackList?.addEventListener("scroll", () => {
     if (libTab === "artists" && selectedArtist) return;
+    window.clearTimeout(libraryScrollTimer);
+    libraryScrollTimer = window.setTimeout(() => renderLibraryVirtual(), 60);
+  });
+  playlistList?.addEventListener("scroll", () => {
+    window.clearTimeout(playlistScrollTimer);
+    playlistScrollTimer = window.setTimeout(() => renderPlaylistVirtual(), 60);
+  });
+  playlistSearch?.addEventListener("input", () & selectedArtist) return;
     window.clearTimeout(libraryScrollTimer);
     libraryScrollTimer = window.setTimeout(() => renderLibraryVirtual(), 60);
   });

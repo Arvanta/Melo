@@ -220,13 +220,16 @@ input[type="range"].vol::-webkit-slider-thumb { -webkit-appearance: none; width:
 .stage-btn:hover { color: var(--text); background: var(--track-bg); }
 .stage-btn.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .player-stage {
-  position: relative; height: 56px; min-height: 56px; flex: 0 0 56px;
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: stretch;
 }
 html.melo-show-playlist .player-stage,
 html.melo-show-lyrics .player-stage {
-  flex: 1 1 auto;
-  height: auto;
-  min-height: 56px;
+  align-items: stretch;
 }
 .player-stage-panel {
   position: absolute; inset: 0; overflow: auto; border-radius: 10px;
@@ -234,16 +237,24 @@ html.melo-show-lyrics .player-stage {
   color: var(--text);
   border: 1px solid var(--card-border);
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-color: color-mix(in srgb, var(--scrollbar-thumb) 55%, transparent) transparent;
 }
-.player-stage-panel::-webkit-scrollbar { width: 6px; }
-.player-stage-panel::-webkit-scrollbar-track { background: var(--scrollbar-track); border-radius: 999px; }
-.player-stage-panel::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; }
+.player-stage-panel::-webkit-scrollbar { width: 4px; }
+.player-stage-panel::-webkit-scrollbar-track { background: transparent; }
+.player-stage-panel::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 55%, transparent);
+  border-radius: 999px;
+}
+.player-stage-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
 .player-stage .embedded-lyrics-title { display: none; }
 .player-stage .lyric-line { font-size: 11px; padding: 2px 6px; transform: none !important; }
 .visualizer-bars {
   position: relative;
   height: 56px;
+  width: 100%;
+  flex: 0 0 56px;
   border-radius: 10px;
   cursor: pointer;
   user-select: none;
@@ -954,6 +965,16 @@ body.panel-window {
   background-color: var(--scrollbar-thumb-hover);
 }
 .lib-album-block { padding-bottom: 10px; }
+.lib-album-tracks {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+.lib-album-tracks.two-col {
+  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+}
+.lib-album-tracks .track-row { min-width: 0; }
 .lib-album-head {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px 6px; position: sticky; top: 38px; z-index: 2;
