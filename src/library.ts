@@ -528,7 +528,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const totalRows = Math.max(1, Math.ceil(page.total / columns));
       const totalHeight = totalRows * rowH + headerHeight;
       const colWidthPct = 100 / columns;
-      const card = libView === "tiles" && libraryMode() === "groups";
+      const card = libView === "tiles" && libraryMode() === "groups" && !librarySearch;
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
         const rowIdx = Math.floor(absoluteIndex / columns);
@@ -537,11 +537,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         const posStyle = columns > 1
           ? `position:absolute;top:${top}px;height:${rowH}px;left:calc(${col * colWidthPct}% + ${col === 0 ? 0 : GRID_GAP / 2}px);width:calc(${colWidthPct}% - ${GRID_GAP / 2}px)`
           : `position:absolute;left:0;right:0;top:${top}px;height:${rowH}px`;
-        if (libraryMode() === "groups") {
+        // IMPORTANT: while a search query is active the fetched items are
+        // flat TRACKS (fetchLibraryPage bypasses groups), but libraryMode()
+        // still reports "groups" for the Artists/Albums/Genres tabs — so
+        // the group branch below must be skipped while searching, otherwise
+        // tracks are rendered as groups and `group.name[0]` throws (which
+        // surfaced as the "Could not read the Library database." message).
+        if (libraryMode() === "groups" && !librarySearch) {
           const group = item as GroupRow;
           const cover = resolvedCover(group.artworkTrackId, artworkUrl(group.cover));
           const avatarClass = `lib-avatar ${libraryGroupKind() === "albums" ? "lib-avatar-album" : ""}`;
-          const fallback = libraryGroupKind() === "albums" ? "💿" : esc((group.name[0] || "?").toUpperCase());
+          const fallback = libraryGroupKind() === "albums" ? "💿" : esc(((group.name || "")[0] || "?").toUpperCase());
           const avatar = cover
             ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(group.artworkTrackId || "")}"></div>`
             : `<div class="${avatarClass}" data-artwork-id="${esc(group.artworkTrackId || "")}">${fallback}</div>`;

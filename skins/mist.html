@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Melo — Mist</title>
+<style>
+  /*
+    MIST (Modern) — soft glass tray player
+    A floating gradient plate with a frosted side dock, glowing accent
+    controls and refined typography. Light + Dark via [data-theme].
+  */
+  :root,
+  :root[data-theme="light"],
+  [data-theme="light"] {
+    --ms-bg-1: #fdfdff;
+    --ms-bg-2: #f1eff7;
+    --ms-sheet: rgba(255, 255, 255, 0.72);
+    --ms-ink: #3d3847;
+    --ms-soft: #787183;
+    --ms-mute: #a49daf;
+    --ms-line: rgba(90, 76, 116, 0.14);
+    --ms-well: rgba(120, 105, 150, 0.10);
+    --ms-well-strong: rgba(120, 105, 150, 0.18);
+    --ms-dock: rgba(255, 255, 255, 0.78);
+    --ms-shadow: 0 2px 4px rgba(66, 50, 98, 0.20), 0 2px 8px rgba(66, 50, 98, 0.10);
+    --accent: #7c5cf4;
+    --accent-2: #a78bfa;
+    --accent-ink: #ffffff;
+    --accent-glow: rgba(124, 92, 244, 0.32);
+    --visualizer: #a78bfa;
+    --track-bg: rgba(120, 105, 150, 0.16);
+    --danger: #e5606c;
+  }
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    --ms-bg-1: #201f27;
+    --ms-bg-2: #16151c;
+    --ms-sheet: rgba(255, 255, 255, 0.045);
+    --ms-ink: #eae6f2;
+    --ms-soft: #a49db4;
+    --ms-mute: #6e6879;
+    --ms-line: rgba(255, 255, 255, 0.09);
+    --ms-well: rgba(255, 255, 255, 0.06);
+    --ms-well-strong: rgba(255, 255, 255, 0.11);
+    --ms-dock: rgba(32, 30, 40, 0.82);
+    --ms-shadow: 0 2px 4px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+    --accent: #a78bfa;
+    --accent-2: #c4b0ff;
+    --accent-ink: #1b1626;
+    --accent-glow: rgba(167, 139, 250, 0.30);
+    --visualizer: #a78bfa;
+    --track-bg: rgba(255, 255, 255, 0.10);
+    --danger: #e5606c;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* ---------- Standalone browser preview ---------- */
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 36px;
+    display: grid; place-items: center; overflow: hidden;
+    background: radial-gradient(120% 140% at 20% 0%, #efe9fa, #e2e0ea 55%, #d8d6e2);
+  }
+  [data-theme="dark"] body:not(.tauri-main):has(#melo-player) {
+    background: radial-gradient(120% 140% at 20% 0%, #241f32, #17151e 60%, #100f15);
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 740px; height: 300px; margin: 0; padding: 0;
+    position: relative; overflow: visible;
+    color: var(--ms-ink);
+    background: transparent;
+    border: 0; border-radius: 0;
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Inter", "Avenir Next", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.tauri-main,
+  body.tauri-main .app-shell { min-width: 0 !important; }
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    padding: 0 !important; border: 0 !important; border-radius: 0 !important;
+    box-shadow: none !important; background: transparent !important;
+    overflow: visible !important; position: relative !important;
+    clip-path: none !important;
+  }
+  body.tauri-main.custom-skin-active #app,
+  body.tauri-main.custom-skin-active .app-shell,
+  html.custom-skin-active,
+  body.custom-skin-active {
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  .ms-root { position: absolute; inset: 0; }
+
+  /* ---------- Main plate ---------- */
+  .ms-card {
+    position: absolute; z-index: 1;
+    top: 4px; left: 4px; right: 60px; bottom: 8px;
+    background: linear-gradient(155deg, var(--ms-bg-1), var(--ms-bg-2));
+    border: 1px solid var(--ms-line);
+    border-radius: 20px;
+    box-shadow: var(--ms-shadow);
+    display: grid;
+    grid-template-columns: 206px minmax(0, 1fr);
+    grid-template-rows: 40px minmax(0, 1fr) 62px;
+    overflow: hidden;
+  }
+  /* soft accent aura in the plate corner */
+  .ms-card::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(52% 60% at 0% 0%, var(--accent-glow), transparent 68%),
+      radial-gradient(40% 55% at 100% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%);
+    opacity: .55;
+  }
+  .ms-card > * { position: relative; }
+
+  /* ---------- Frosted side dock ---------- */
+  .ms-tab {
+    position: absolute; z-index: 2;
+    top: 50%; right: 4px; transform: translateY(-50%);
+    width: 46px; padding: 10px 0;
+    background: var(--ms-dock);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    border: 1px solid var(--ms-line);
+    border-radius: 23px;
+    box-shadow: var(--ms-shadow);
+    display: flex; flex-direction: column; align-items: center;
+    gap: 6px; -webkit-app-region: no-drag;
+  }
+  .ms-tab button {
+    width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: var(--ms-soft); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .18s ease, color .18s ease, transform .18s ease;
+  }
+  .ms-tab button:hover {
+    color: var(--accent); background: var(--ms-well-strong);
+    transform: translateY(-1px);
+  }
+  .ms-tab button.active { color: var(--accent); background: var(--ms-well-strong); }
+  .ms-tab svg { width: 15px; height: 15px; }
+
+  /* ---------- Title bar ---------- */
+  .ms-bar {
+    grid-column: 1 / 3; grid-row: 1;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; -webkit-app-region: drag; user-select: none;
+    padding: 0 92px 0 104px;
+  }
+  .ms-tools {
+    position: absolute; left: 12px; top: 8px;
+    display: flex; gap: 4px; -webkit-app-region: no-drag;
+  }
+  .ms-tools button {
+    width: 26px; height: 24px; padding: 0; border: 0; border-radius: 7px;
+    background: transparent; color: var(--ms-soft); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .15s ease, color .15s ease;
+  }
+  .ms-tools button:hover { color: var(--accent); background: var(--ms-well-strong); }
+  .ms-tools svg { width: 13px; height: 13px; }
+
+  .ms-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 10px; font-weight: 700; letter-spacing: .34em;
+    color: var(--ms-soft); text-transform: uppercase;
+  }
+  .ms-title::before, .ms-title::after {
+    content: ""; width: 56px; height: 1px;
+    background: linear-gradient(to var(--dir, right), transparent, var(--ms-line));
+  }
+  .ms-title::before { --dir: left; }
+  .ms-title em {
+    font-style: normal; color: var(--accent);
+    text-shadow: 0 0 14px var(--accent-glow);
+  }
+
+  .ms-win {
+    position: absolute; right: 10px; top: 8px;
+    display: flex; gap: 4px; -webkit-app-region: no-drag;
+  }
+  .win-btn {
+    width: 26px; height: 24px; padding: 0;
+    border: 0 !important; border-radius: 7px !important;
+    background: transparent !important; color: var(--ms-soft) !important;
+    display: grid; place-items: center; cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+  }
+  .win-btn svg { width: 12px; height: 12px; }
+  .win-btn:hover { background: var(--ms-well-strong) !important; color: var(--ms-ink) !important; }
+  .win-btn.close:hover { background: var(--danger) !important; color: #fff !important; }
+
+  /* ---------- Cover art ---------- */
+  .ms-art {
+    grid-column: 1; grid-row: 2;
+    margin: 4px 0 0 16px;
+    background: var(--ms-well);
+    overflow: hidden; position: relative;
+    border-radius: 16px;
+    box-shadow:
+      0 10px 26px color-mix(in srgb, var(--accent) 22%, rgba(0,0,0,.22)),
+      inset 0 0 0 1px var(--ms-line);
+  }
+  .ms-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ms-fallback {
+    width: 100%; height: 100%; display: grid; place-items: center;
+    position: relative; overflow: hidden;
+    background:
+      radial-gradient(85% 75% at 28% 18%, color-mix(in srgb, var(--accent) 45%, #fff), transparent 62%),
+      radial-gradient(75% 85% at 82% 82%, color-mix(in srgb, var(--accent) 30%, #cbd4ea), transparent 64%),
+      linear-gradient(160deg, #cfd3e6, color-mix(in srgb, var(--accent) 42%, #b9aed6) 55%, #e2ddef);
+    color: rgba(255,255,255,.92);
+  }
+  .ms-fallback > svg { width: 44px; height: 44px; opacity: .9; filter: drop-shadow(0 4px 10px rgba(0,0,0,.18)); }
+  .ms-fallback span {
+    position: absolute; bottom: 12px; left: 14px;
+    font-size: 8.5px; letter-spacing: .3em; font-weight: 700; color: rgba(255,255,255,.8);
+  }
+
+  /* ---------- Info column ---------- */
+  .ms-info {
+    grid-column: 2; grid-row: 2;
+    min-width: 0; padding: 4px 16px 4px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  .ms-volrow {
+    display: grid; grid-template-columns: 18px minmax(0, 1fr) 38px;
+    gap: 8px; align-items: center; flex: 0 0 auto;
+    padding: 0 2px;
+  }
+  .ms-volico {
+    display: grid; place-items: center; color: var(--ms-soft); cursor: pointer;
+    transition: color .15s ease;
+  }
+  .ms-volico:hover, .ms-volico.muted { color: var(--accent); }
+  .ms-pct {
+    font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
+    text-align: right; color: var(--ms-soft);
+  }
+  .ms-vol {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
+    border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .ms-vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--ms-bg-1);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+    transition: transform .15s ease;
+  }
+  .ms-vol::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  .ms-vol::-moz-range-thumb {
+    width: 11px; height: 11px; border-radius: 50%; background: var(--accent);
+    border: 2px solid var(--ms-bg-1); box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  /* ---------- Glass sheet ---------- */
+  .ms-sheet {
+    flex: 1; min-height: 0;
+    background: var(--ms-sheet);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    border: 1px solid var(--ms-line);
+    padding: 12px 14px 8px;
+    border-radius: 14px;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .ms-name {
+    min-width: 0; font-size: 16px; font-weight: 700; letter-spacing: .01em;
+    color: var(--ms-ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ms-sub {
+    min-width: 0; display: flex; align-items: baseline; gap: 6px;
+    font-size: 12px; color: var(--ms-soft);
+    white-space: nowrap; overflow: hidden;
+  }
+  .ms-artist {
+    min-width: 0; font-weight: 600; color: var(--accent);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ms-album {
+    min-width: 0; color: var(--ms-soft);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ms-sub .ms-dot { color: var(--ms-mute); flex: 0 0 auto; }
+  .ms-sub .ms-dot:has(+ [data-melo="album"]:empty) { display: none; }
+
+  .ms-chips {
+    display: flex; gap: 6px; margin-top: 4px; flex: 0 0 auto;
+    overflow: hidden;
+  }
+  .ms-chip {
+    font-size: 9px; font-weight: 700; letter-spacing: .08em;
+    color: var(--ms-soft);
+    background: var(--ms-well);
+    border: 1px solid var(--ms-line);
+    padding: 2.5px 8px; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .ms-chip.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .ms-chip:empty { display: none; }
+
+  .ms-viz {
+    margin-top: auto; height: 40px; min-height: 32px;
+    overflow: hidden; cursor: pointer;
+    background: transparent;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+  }
+  .ms-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+
+  /* ---------- Transport / seek ---------- */
+  .ms-bottom {
+    grid-column: 1 / 3; grid-row: 3;
+    display: grid; grid-template-columns: auto 38px minmax(0, 1fr) 42px;
+    gap: 10px; align-items: center;
+    padding: 0 18px 4px 16px;
+  }
+  .ms-tr { display: flex; align-items: center; gap: 4px; }
+  .ms-tr button {
+    width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: var(--ms-ink); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .16s ease, color .16s ease, transform .16s ease;
+  }
+  .ms-tr button:hover { background: var(--ms-well-strong); transform: translateY(-1px); }
+  .ms-tr button:active { transform: translateY(0) scale(.95); }
+  .ms-tr button.active { color: var(--accent); background: var(--ms-well); }
+  .ms-tr svg { width: 15px; height: 15px; }
+  .ms-tr .ms-ghost { color: var(--ms-soft); }
+  .ms-tr .ms-ghost:hover { color: var(--ms-ink); }
+
+  /* primary circular play button */
+  .ms-tr .ms-play {
+    width: 42px; height: 42px; margin: 0 3px;
+    background: linear-gradient(145deg, var(--accent-2), var(--accent));
+    color: var(--accent-ink);
+    box-shadow: 0 6px 18px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .ms-tr .ms-play:hover {
+    background: linear-gradient(145deg, var(--accent-2), var(--accent));
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 8px 22px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .ms-tr .ms-play:active { transform: scale(.96); }
+  .ms-tr .ms-play svg { width: 17px; height: 17px; }
+
+  .ms-time {
+    font-size: 11px; font-weight: 600; color: var(--ms-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .ms-time.end { text-align: right; }
+
+  .ms-seek {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 5px;
+    border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(to right,
+      var(--accent-2) 0%, var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+    transition: height .15s ease;
+  }
+  .ms-seek:hover { height: 7px; }
+  .ms-seek::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); border: 2.5px solid var(--ms-bg-1);
+    box-shadow: 0 0 0 4px var(--accent-glow), 0 2px 6px rgba(0,0,0,.25);
+    transition: transform .15s ease;
+  }
+  .ms-seek::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  .ms-seek::-moz-range-thumb {
+    width: 13px; height: 13px; border-radius: 50%; background: var(--accent);
+    border: 2.5px solid var(--ms-bg-1);
+    box-shadow: 0 0 0 4px var(--accent-glow), 0 2px 6px rgba(0,0,0,.25);
+  }
+
+  .ms-hide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body data-window-width="740" data-window-height="300" data-min-width="740" data-min-height="300" data-max-width="740" data-max-height="300" data-resizable="false">
+<div id="melo-player">
+  <div class="ms-root">
+    <div class="ms-card">
+      <div class="ms-bar" data-tauri-drag-region>
+        <div class="ms-tools">
+          <button data-melo="add-files" title="Add files">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
+          </button>
+          <button data-melo="add-folder" title="Add folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
+          </button>
+          <button data-melo="theme-toggle" title="Theme">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          </button>
+        </div>
+        <div class="ms-title">MELO <em>MIST</em></div>
+        <div class="ms-win">
+          <button class="win-btn" data-melo="minimize" aria-label="minimize" title="Minimize">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+          </button>
+          <button class="win-btn close" data-melo="close" aria-label="close" title="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="ms-art">
+        <img data-melo="cover" id="coverImg" alt="cover" style="display:none" />
+        <div class="ms-fallback" data-melo="cover-fallback" id="coverFallback">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+          <span>NO ARTWORK</span>
+        </div>
+      </div>
+
+      <div class="ms-info">
+        <div class="ms-volrow">
+          <span class="ms-volico" data-melo="volume-icon" id="volIcon" title="Mute">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+          </span>
+          <input class="ms-vol" type="range" data-melo="volume" id="volBar" min="0" max="100" value="60" title="Volume" />
+          <span class="ms-pct" data-melo="volume-pct" id="volPct">60%</span>
+        </div>
+
+        <div class="ms-sheet">
+          <div class="ms-name" data-melo="title" id="trackTitle">No track loaded</div>
+          <div class="ms-sub">
+            <span class="ms-artist" data-melo="artist" id="trackArtist">Add music to begin</span>
+            <span class="ms-dot">·</span>
+            <span class="ms-album" data-melo="album" id="trackAlbum"></span>
+          </div>
+          <div class="ms-chips">
+            <span class="ms-chip accent" data-melo="codec" id="trackCodec"></span>
+            <span class="ms-chip" data-melo="specs" id="trackSpecs"></span>
+          </div>
+          <div class="ms-viz" data-melo="visualizer" id="vizBars" data-bars="48"></div>
+        </div>
+      </div>
+
+      <div class="ms-bottom">
+        <div class="ms-tr">
+          <button class="ms-ghost" data-melo="stop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
+          <button data-melo="prev" id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg></button>
+          <button class="ms-play" data-melo="play" id="btnPlay" title="Play / Pause">
+            <svg data-melo="pause-icon" id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            <svg data-melo="play-icon" id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button data-melo="next" id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg></button>
+          <button class="ms-ghost" data-melo="shuffle" id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg></button>
+          <button class="ms-ghost" data-melo="repeat" id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+        </div>
+        <span class="ms-time" data-melo="current-time" id="curTime">0:00</span>
+        <input class="ms-seek" type="range" data-melo="seek" id="seekBar" min="0" max="100" value="0" />
+        <span class="ms-time end" data-melo="duration" id="durTime">0:00</span>
+      </div>
+    </div>
+
+    <div class="ms-tab">
+      <button data-melo="toggle-eq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
+      <button data-melo="toggle-playlist" title="Playlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button>
+      <button data-melo="toggle-library" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+      <button data-melo="toggle-lyrics" title="Lyrics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></button>
+      <button data-melo="toggle-settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

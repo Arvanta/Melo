@@ -586,7 +586,11 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   function prev() {
     if (!queue.length) return;
     cancelCrossfade();
-    if (audio.currentTime > 3) {
+    // Smart Previous (default ON): if the track has played a while, the
+    // first press restarts it; press again to move to the previous track.
+    // OFF: Previous always goes straight to the previous track.
+    const smartPrev = localStorage.getItem("melo-pref-smartPrev") !== "0";
+    if (smartPrev && audio.currentTime > 3) {
       audio.currentTime = 0;
       return;
     }

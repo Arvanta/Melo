@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Koto</title>
+<style>
+  :root {
+    --ko-paper: #f6f3ee;
+    --ko-elev: #fffcf8;
+    --ko-ink: #1b1d21;
+    --ko-sumi: #5c6068;
+    --ko-faint: #8a8e96;
+    --ko-line: rgba(28, 32, 40, .09);
+    --ko-wash: rgba(28, 32, 40, .055);
+    --accent: #c24732;
+    --accent-hover: #a83c2a;
+    --accent-soft: rgba(194, 71, 50, .12);
+    --accent-glow: rgba(194, 71, 50, .28);
+    --visualizer: #c24732;
+    --track-bg: rgba(28, 32, 40, .1);
+    --ko-shadow: 0 22px 52px rgba(28, 32, 40, .14), 0 3px 10px rgba(28, 32, 40, .07);
+    --ko-play-fg: #fffaf6;
+  }
+  html[data-theme="dark"],
+  [data-theme="dark"] {
+    --ko-paper: #121417;
+    --ko-elev: #1a1d22;
+    --ko-ink: #ece8e2;
+    --ko-sumi: #a8adb6;
+    --ko-faint: #7b808a;
+    --ko-line: rgba(236, 232, 226, .09);
+    --ko-wash: rgba(236, 232, 226, .07);
+    --accent: #e06a52;
+    --accent-hover: #ec7d66;
+    --accent-soft: rgba(224, 106, 82, .16);
+    --accent-glow: rgba(224, 106, 82, .32);
+    --visualizer: #e06a52;
+    --track-bg: rgba(236, 232, 226, .1);
+    --ko-shadow: 0 24px 56px rgba(0, 0, 0, .5), 0 3px 10px rgba(0, 0, 0, .35);
+    --ko-play-fg: #1a100e;
+  }
+
+  * { box-sizing: border-box; }
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center; overflow: hidden;
+    background:
+      radial-gradient(ellipse at 80% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 42%),
+      var(--ko-paper);
+    color: var(--ko-ink);
+    font-family: "Segoe UI", Inter, system-ui, sans-serif;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(760px, 100%);
+    height: 230px;
+    min-height: 215px;
+    min-width: 700px;
+    margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    container-type: inline-size;
+    container-name: koto;
+    display: grid;
+    grid-template-rows: 36px minmax(0, 1fr);
+    grid-template-columns: 6px minmax(0, 1fr);
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0 0.45 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, color-mix(in srgb, var(--ko-elev) 70%, var(--ko-paper)) 0%, var(--ko-paper) 36px),
+      var(--ko-paper);
+    color: var(--ko-ink);
+    border: 1px solid var(--ko-line);
+    border-radius: 12px;
+    box-shadow: var(--ko-shadow);
+    font-family: "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.tauri-main, body.tauri-main .app-shell { min-width: 700px !important; }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-width: 700px !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    border-radius: 12px !important; box-shadow: none !important;
+  }
+
+  .ko-spine {
+    grid-row: 1 / -1; grid-column: 1;
+    background: linear-gradient(180deg, var(--accent-hover), var(--accent) 40%, color-mix(in srgb, var(--accent) 78%, #000));
+    box-shadow: 1px 0 10px var(--accent-glow);
+  }
+
+  .ko-bar {
+    grid-column: 2;
+    display: flex; align-items: center; gap: 10px;
+    min-width: 0;
+    height: 36px;
+    padding: 0 8px 0 14px;
+    border-bottom: 1px solid var(--ko-line);
+    background: color-mix(in srgb, var(--ko-elev) 55%, transparent);
+    -webkit-app-region: drag; user-select: none;
+  }
+  .ko-menu {
+    -webkit-app-region: no-drag;
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
+  .ko-menu > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex; align-items: center;
+    height: 100%;
+    padding: 0 6px 0 2px;
+    border-radius: 6px;
+    color: var(--ko-ink);
+    font-family: "Palatino Linotype", Palatino, "Book Antiqua", "Iowan Old Style", Georgia, serif;
+    font-size: 15px; font-weight: 600; letter-spacing: .04em;
+    line-height: 1;
+    transition: background .15s ease, color .15s ease;
+  }
+  .ko-menu > summary::-webkit-details-marker { display: none; }
+  .ko-menu > summary:hover { background: var(--ko-wash); }
+  .ko-menu[open] > summary { color: var(--accent); }
+  .ko-skin-name {
+    font-family: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    font-size: 10px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--accent); pointer-events: none; opacity: .9;
+    display: flex; align-items: center;
+    height: 100%;
+    line-height: 1;
+    transform: translateY(0.5px);
+  }
+  .ko-menu-pop {
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 40;
+    min-width: 156px;
+    padding: 6px;
+    background: color-mix(in srgb, var(--ko-elev) 92%, transparent);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--ko-line);
+    border-radius: 10px;
+    box-shadow: var(--ko-shadow);
+    animation: ko-pop .14s ease both;
+    transform-origin: top left;
+  }
+  @keyframes ko-pop {
+    from { opacity: 0; transform: translateY(-4px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .ko-menu-pop button {
+    width: 100%; height: 30px; padding: 0 10px; border: 0; border-radius: 6px;
+    display: flex; align-items: center; gap: 8px;
+    color: var(--ko-ink); background: transparent; cursor: pointer;
+    font-size: 12px;
+    transition: background .14s ease;
+  }
+  .ko-menu-pop button:hover { background: var(--ko-wash); }
+  .ko-menu-pop svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--ko-sumi); }
+
+  .ko-stage-btns, .win-controls { -webkit-app-region: no-drag; display: flex; gap: 2px; flex-shrink: 0; }
+  .ko-stage-btns { margin-left: auto; }
+  .ko-icon, .win-btn {
+    width: 28px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+    display: grid; place-items: center; cursor: pointer;
+    color: var(--ko-sumi); background: transparent;
+    transition: background .15s ease, color .15s ease;
+  }
+  .ko-icon:hover, .win-btn:hover { color: var(--ko-ink); background: var(--ko-wash); }
+  .ko-icon svg, .win-btn svg { width: 13px; height: 13px; }
+  html.melo-show-playlist [data-melo="toggle-embedded-playlist"],
+  html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] {
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) [data-melo="toggle-embedded-viz"] {
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .win-btn.close:hover { color: #fff; background: var(--accent); }
+
+  .ko-body {
+    grid-column: 2;
+    min-width: 0; min-height: 0;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(110px, 158px) minmax(180px, 1.15fr) minmax(200px, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 12px 14px;
+    padding: 12px 14px;
+    align-items: stretch;
+  }
+
+  .cover-wrap {
+    width: 100%; height: 100%;
+    min-height: 0;
+    border-radius: 10px; overflow: hidden;
+    background: var(--ko-wash);
+    box-shadow:
+      0 12px 26px color-mix(in srgb, var(--ko-ink) 16%, transparent),
+      inset 0 0 0 1px var(--ko-line);
+  }
+  .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover-fallback {
+    width: 100%; height: 100%; display: grid; place-items: center;
+    position: relative;
+    background:
+      radial-gradient(90% 80% at 78% 12%, var(--accent-soft), transparent 58%),
+      linear-gradient(165deg, var(--ko-elev), var(--ko-paper));
+    color: var(--accent);
+  }
+  .cover-fallback svg.enso {
+    width: 58%; height: auto;
+    filter: drop-shadow(0 3px 8px var(--accent-glow));
+  }
+  .cover-fallback span {
+    position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%);
+    font-size: 7.5px; letter-spacing: .3em; font-weight: 700;
+    color: var(--ko-faint); white-space: nowrap;
+  }
+
+  .ko-main {
+    min-width: 0; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .ko-meta { min-width: 0; flex-shrink: 0; }
+  .track-title {
+    font-family: Cambria, "Palatino Linotype", Palatino, "Iowan Old Style", Georgia, serif;
+    font-size: clamp(18px, 2.4vw, 24px); font-weight: 600; letter-spacing: -.025em; line-height: 1.18;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .track-artist { margin-top: 4px; font-size: 12px; color: var(--ko-sumi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-album { margin-top: 2px; font-size: 10px; color: var(--ko-faint); letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-format { margin-top: 7px; display: flex; gap: 8px; align-items: center; font-size: 9px; color: var(--ko-faint); letter-spacing: .08em; text-transform: uppercase; min-width: 0; }
+  .track-format span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* codec as a small vermilion seal (hanko) */
+  .badge-flac {
+    color: var(--accent); font-weight: 700; letter-spacing: .12em; flex-shrink: 0;
+    padding: 2px 7px; border-radius: 4px;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  .badge-flac:empty { display: none; }
+
+  .ko-seek { margin-top: auto; display: grid; grid-template-columns: 30px minmax(0,1fr) 30px; gap: 8px; align-items: center; flex-shrink: 0; }
+  .ko-time { font: 500 10px/1 ui-monospace, monospace; color: var(--ko-faint); font-variant-numeric: tabular-nums; }
+  #durTime { text-align: right; }
+  .seek, .vol {
+    -webkit-appearance: none; appearance: none; outline: none; cursor: pointer;
+    /* Taller hit area for clicking/dragging — the visible 3px line and
+       the knob are centered inside it, so nothing looks thicker. */
+    height: 20px; width: 100%; min-width: 0; margin: 0;
+    background: transparent;
+  }
+  .seek::-webkit-slider-runnable-track {
+    height: 3px; border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress,0%), var(--track-bg) var(--progress,0%), var(--track-bg) 100%);
+  }
+  .seek::-moz-range-track {
+    height: 3px; border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress,0%), var(--track-bg) var(--progress,0%), var(--track-bg) 100%);
+  }
+  .vol::-webkit-slider-runnable-track {
+    height: 3px; border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol,60%), var(--track-bg) var(--vol,60%), var(--track-bg) 100%);
+  }
+  .vol::-moz-range-track {
+    height: 3px; border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol,60%), var(--track-bg) var(--vol,60%), var(--track-bg) 100%);
+  }
+  .seek::-webkit-slider-thumb, .vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 10px; height: 10px; margin-top: -5.5px; border-radius: 50%;
+    background: var(--ko-elev); border: 2px solid var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    opacity: 0; transition: opacity .16s ease;
+  }
+  .seek::-moz-range-thumb, .vol::-moz-range-thumb {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--ko-elev); border: 2px solid var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    opacity: 0; transition: opacity .16s ease;
+  }
+  .seek:hover::-webkit-slider-thumb, .vol:hover::-webkit-slider-thumb { opacity: 1; }
+  .seek:hover::-moz-range-thumb, .vol:hover::-moz-range-thumb { opacity: 1; }
+
+  .transport { margin-top: 8px; display: flex; align-items: center; gap: 2px; flex-shrink: 0; min-width: 0; }
+  .transport button {
+    width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
+    display: grid; place-items: center; cursor: pointer; flex-shrink: 0;
+    color: var(--ko-sumi); background: transparent;
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  .transport button:hover { color: var(--ko-ink); background: var(--ko-wash); }
+  .transport button:active { transform: scale(.93); }
+  .transport button.active { color: var(--accent); background: var(--accent-soft); }
+  .transport button svg { width: 15px; height: 15px; }
+  .transport .play-btn {
+    width: 38px; height: 38px; margin: 0 5px; border-radius: 10px;
+    color: var(--ko-play-fg);
+    background: var(--accent);
+    transition: background .18s ease, transform .12s ease;
+  }
+  .transport .play-btn:hover {
+    color: var(--ko-play-fg); background: var(--accent-hover);
+  }
+  .transport .play-btn:active { transform: scale(.95); }
+  .transport .play-btn svg { width: 16px; height: 16px; }
+  #btnStop { display: none; }
+  body.show-stop-btn #btnStop { display: grid !important; }
+
+  .ko-east {
+    min-width: 0; min-height: 0; overflow: hidden;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 8px;
+    border-left: 1px solid var(--ko-line);
+    padding-left: 12px;
+  }
+  .ko-viz-slot {
+    position: relative;
+    min-width: 0;
+    width: 100%;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+  }
+  html.melo-show-playlist .ko-viz-slot,
+  html.melo-show-lyrics .ko-viz-slot { justify-content: stretch; }
+
+  .ko-viz.visualizer-bars {
+    position: relative !important;
+    height: 56px !important;
+    max-height: 56px !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: none !important;
+    flex: 0 0 56px !important;
+    align-self: stretch !important;
+    overflow: hidden !important;
+    cursor: pointer;
+    border-radius: 2px;
+    display: block !important;
+    box-sizing: border-box !important;
+  }
+  .ko-viz canvas {
+    width: 100% !important; min-width: 100% !important;
+    height: 56px !important; max-height: 56px !important;
+    display: block;
+  }
+  html.melo-show-playlist .ko-viz,
+  html.melo-show-lyrics .ko-viz { visibility: hidden; position: absolute !important; inset: 0; height: auto !important; max-height: none !important; }
+
+  .ko-embed {
+    position: absolute; inset: 0;
+    overflow: auto;
+    display: none !important;
+    background: var(--ko-paper);
+  }
+  html.melo-show-playlist [data-melo="embedded-playlist"],
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  html:not(.melo-show-playlist) [data-melo="embedded-playlist"],
+  html:not(.melo-show-lyrics) [data-melo="embedded-lyrics"] { display: none !important; }
+  .ko-embed .embedded-playlist,
+  .ko-embed .embedded-lyrics {
+    height: 100% !important;
+    min-height: 100%;
+  }
+  /* slim vermilion scrollbar for embedded panels */
+  .ko-embed, .ko-embed .embedded-playlist, .ko-embed .embedded-lyrics {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent;
+  }
+  .ko-embed::-webkit-scrollbar,
+  .ko-embed .embedded-playlist::-webkit-scrollbar,
+  .ko-embed .embedded-lyrics::-webkit-scrollbar { width: 4px; }
+  .ko-embed::-webkit-scrollbar-track,
+  .ko-embed .embedded-playlist::-webkit-scrollbar-track,
+  .ko-embed .embedded-lyrics::-webkit-scrollbar-track { background: transparent; margin: 3px 0; }
+  .ko-embed::-webkit-scrollbar-thumb,
+  .ko-embed .embedded-playlist::-webkit-scrollbar-thumb,
+  .ko-embed .embedded-lyrics::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 999px; min-height: 24px;
+  }
+  .ko-embed::-webkit-scrollbar-thumb:hover,
+  .ko-embed .embedded-playlist::-webkit-scrollbar-thumb:hover,
+  .ko-embed .embedded-lyrics::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  .ko-embed .embedded-playlist-mini .t-title { font-size: 10px !important; font-weight: 500 !important; }
+  .ko-embed .lyric-line { font-size: 11px; font-family: Georgia, serif; padding: 3px 4px; }
+
+  .ko-dock {
+    display: flex; align-items: center; gap: 2px;
+    min-width: 0; overflow: hidden;
+  }
+  .ko-dock button {
+    width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px;
+    display: grid; place-items: center; cursor: pointer; flex-shrink: 0;
+    color: var(--ko-sumi); background: transparent;
+    transition: background .15s ease, color .15s ease;
+  }
+  .ko-dock button:hover { color: var(--ko-ink); background: var(--ko-wash); }
+  .ko-dock button.active { color: var(--accent); background: var(--accent-soft); }
+  .ko-dock svg { width: 13px; height: 13px; }
+  .ko-vol {
+    margin-left: 8px;
+    display: grid; grid-template-columns: 16px minmax(48px, 1fr) 28px;
+    gap: 6px; align-items: center; min-width: 0; flex: 1 1 auto;
+  }
+  #volIcon { display: grid; place-items: center; color: var(--ko-sumi); cursor: pointer; }
+  #volIcon:hover { color: var(--accent); }
+  .vol { width: 100%; min-width: 0; background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol,60%), var(--track-bg) var(--vol,60%), var(--track-bg) 100%); }
+  #volPct { font: 500 9px/1 ui-monospace, monospace; color: var(--ko-faint); text-align: right; }
+  @container koto (max-width: 795px) {
+    #volPct { display: none; }
+    .ko-vol { grid-template-columns: 16px minmax(48px, 1fr); }
+  }
+
+</style>
+</head>
+<body data-window-width="760" data-window-height="230" data-min-width="700" data-min-height="215" data-max-width="980" data-max-height="320" data-resizable="true">
+<div id="melo-player">
+  <div class="ko-spine" aria-hidden="true"></div>
+
+  <header class="ko-bar" data-tauri-drag-region>
+    <details class="ko-menu">
+      <summary title="Melo">Melo</summary>
+      <div class="ko-menu-pop">
+        <button id="btnAddFiles" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+          Add files
+        </button>
+        <button id="btnAddFolder" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Add folder
+        </button>
+        <button id="btnThemeToggle" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/></svg>
+          Theme
+        </button>
+      </div>
+    </details>
+    <span class="ko-skin-name">Koto</span>
+    <div class="ko-stage-btns">
+      <button class="ko-icon" type="button" data-melo="toggle-embedded-viz" title="Visualizer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/></svg>
+      </button>
+      <button class="ko-icon" type="button" data-melo="toggle-embedded-playlist" title="Playlist">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3M16 6H3M12 18H3"/></svg>
+      </button>
+      <button class="ko-icon" type="button" data-melo="toggle-embedded-lyrics" title="Lyrics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
+    </div>
+    <div class="win-controls">
+      <button class="win-btn" aria-label="minimize" title="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button class="win-btn close" aria-label="close" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="ko-body">
+    <div class="cover-wrap" id="coverWrap">
+      <img id="coverImg" alt="" style="display:none" />
+      <div id="coverFallback" class="cover-fallback">
+        <svg class="enso" viewBox="0 0 64 64" fill="none">
+          <path d="M49 17.5 A 22 22 0 1 0 54.5 36" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+        </svg>
+        <span>NO ARTWORK</span>
+      </div>
+    </div>
+
+    <section class="ko-main">
+      <div class="ko-meta">
+        <div class="track-title" id="trackTitle">No track loaded</div>
+        <div class="track-artist" id="trackArtist">Choose music to begin</div>
+        <div class="track-album" id="trackAlbum"></div>
+        <div class="track-format">
+          <span class="badge-flac" id="trackCodec">—</span>
+          <span id="trackSpecs"></span>
+        </div>
+      </div>
+      <div class="ko-seek seek-row">
+        <span class="ko-time" id="curTime">0:00</span>
+        <input class="seek" id="seekBar" type="range" min="0" max="100" value="0" />
+        <span class="ko-time" id="durTime">0:00</span>
+      </div>
+      <div class="transport">
+        <button id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+        <button id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+        <button id="btnStop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+        <button class="play-btn" id="btnPlay" title="Play / Pause">
+          <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+        <button id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+      </div>
+    </section>
+
+    <aside class="ko-east">
+      <div class="ko-viz-slot">
+        <div class="ko-viz visualizer-bars" id="vizBars" data-melo="visualizer" data-bars="36"></div>
+        <div class="ko-embed" data-melo="embedded-playlist"></div>
+        <div class="ko-embed" data-melo="embedded-lyrics"></div>
+      </div>
+      <div class="ko-dock">
+        <button id="btnToggleLibrary" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+        <button id="btnTogglePlaylist" title="Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg></button>
+        <button id="btnToggleEq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/></svg></button>
+        <button id="btnToggleLyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg></button>
+        <button id="btnOpenSettings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+        <div class="ko-vol volume-row">
+          <span id="volIcon" title="Mute"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg></span>
+          <input class="vol" id="volBar" type="range" min="0" max="100" value="60" />
+          <span id="volPct">60%</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

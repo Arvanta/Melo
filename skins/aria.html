@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Melo — Aria</title>
+<style>
+  /*
+    ARIA — vertical tower player.
+    Portrait layout: art on top, a swappable stage in the middle
+    (Visualizer / embedded Queue / embedded Lyrics) and transport at
+    the bottom. Minimal ink-and-mint aesthetic, no artwork = a quiet
+    spinning vinyl. Light + Dark via [data-theme].
+  */
+  :root,
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    --ar-bg-1: #14161c;
+    --ar-bg-2: #0e1015;
+    --ar-ink: #edeef0;
+    --ar-soft: #9aa0ab;
+    --ar-mute: #5c616c;
+    --ar-line: rgba(255, 255, 255, 0.08);
+    --ar-well: rgba(255, 255, 255, 0.055);
+    --ar-well-strong: rgba(255, 255, 255, 0.10);
+    --accent: #4ad6a7;
+    --accent-ink: #0b241b;
+    --accent-glow: rgba(74, 214, 167, 0.30);
+    --visualizer: #4ad6a7;
+    --track-bg: rgba(255, 255, 255, 0.10);
+    --danger: #dd5866;
+  }
+  :root[data-theme="light"],
+  [data-theme="light"] {
+    --ar-bg-1: #fbfbfa;
+    --ar-bg-2: #f0f1ef;
+    --ar-ink: #21252a;
+    --ar-soft: #6d737d;
+    --ar-mute: #a7acb5;
+    --ar-line: rgba(33, 37, 42, 0.10);
+    --ar-well: rgba(33, 37, 42, 0.05);
+    --ar-well-strong: rgba(33, 37, 42, 0.09);
+    --accent: #0e9e6e;
+    --accent-ink: #f2fbf7;
+    --accent-glow: rgba(14, 158, 110, 0.22);
+    --visualizer: #23b381;
+    --track-bg: rgba(33, 37, 42, 0.12);
+    --danger: #d24d5b;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* ---------- Standalone browser preview ---------- */
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center; overflow: hidden;
+    background: #191b21;
+  }
+  [data-theme="light"] body:not(.tauri-main):has(#melo-player) {
+    background: #d9dad6;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 340px; height: 680px; margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    color: var(--ar-ink);
+    background: linear-gradient(180deg, var(--ar-bg-1), var(--ar-bg-2));
+    border: 1px solid var(--ar-line);
+    border-radius: 22px;
+    box-shadow: 0 28px 64px rgba(0, 0, 0, 0.45);
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.tauri-main,
+  body.tauri-main .app-shell { min-width: 0 !important; }
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    padding: 0 !important; border-radius: 22px !important;
+    box-shadow: none !important; overflow: hidden !important;
+    position: relative !important;
+  }
+
+  .ar-col {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    padding: 0 14px 12px;
+  }
+
+  /* ---------- Title bar ---------- */
+  .ar-bar {
+    flex: 0 0 38px; margin: 0 -14px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 8px 0 16px;
+    -webkit-app-region: drag; user-select: none;
+  }
+  .ar-brand {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 9.5px; font-weight: 750; letter-spacing: .3em; color: var(--ar-soft);
+  }
+  .ar-brand i {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent-glow);
+  }
+  .ar-win { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+  .ar-win button {
+    width: 26px; height: 24px; padding: 0; border: 0; border-radius: 7px;
+    background: transparent; color: var(--ar-mute); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .15s ease, color .15s ease;
+  }
+  .ar-win button:hover { color: var(--ar-ink); background: var(--ar-well-strong); }
+  .ar-win button.close:hover { color: #fff; background: var(--danger); }
+  .ar-win svg { width: 11px; height: 11px; }
+
+  /* ---------- Art ---------- */
+  .ar-art {
+    flex: 0 0 196px; margin-top: 2px;
+    position: relative; overflow: hidden; border-radius: 16px;
+    background: var(--ar-well);
+    box-shadow: inset 0 0 0 1px var(--ar-line);
+  }
+  .ar-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ar-fallback {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    background:
+      radial-gradient(90% 80% at 20% 10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+      linear-gradient(165deg, var(--ar-bg-1), var(--ar-bg-2));
+  }
+  .ar-vinyl {
+    width: 148px; height: 148px; border-radius: 50%;
+    position: relative;
+    background:
+      radial-gradient(circle, #14151a 0%, #1c1d24 28%, #101116 30%,
+        #1a1b21 31%, #101116 44%, #1a1b21 45%, #101116 58%,
+        #1a1b21 59%, #101116 72%, #191a20 100%);
+    box-shadow: 0 14px 34px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.06);
+    animation: ar-spin 14s linear infinite paused;
+  }
+  [data-theme="light"] .ar-vinyl {
+    background:
+      radial-gradient(circle, #23252b 0%, #2e3037 28%, #1d1f25 30%,
+        #2a2c33 31%, #1d1f25 44%, #2a2c33 45%, #1d1f25 58%,
+        #2a2c33 59%, #1d1f25 72%, #282a31 100%);
+  }
+  .ar-vinyl::before {
+    content: ""; position: absolute; inset: 34%; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%,
+      color-mix(in srgb, var(--accent) 88%, #fff), var(--accent) 55%,
+      color-mix(in srgb, var(--accent) 70%, #000) 100%);
+    box-shadow: 0 0 18px var(--accent-glow);
+  }
+  .ar-vinyl::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
+    background: var(--ar-bg-2);
+  }
+  .ar-fallback span {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    font-size: 8.5px; letter-spacing: .32em; font-weight: 700; color: var(--ar-mute);
+    white-space: nowrap;
+  }
+  /* spin the vinyl while playing */
+  .ar-root:has([data-melo="pause-icon"]:not([style*="display: none"])) .ar-vinyl,
+  .ar-root:has(#iconPause:not([style*="display: none"])) .ar-vinyl {
+    animation-play-state: running;
+  }
+  @keyframes ar-spin { to { transform: rotate(360deg); } }
+
+  /* ---------- Meta ---------- */
+  .ar-meta { flex: 0 0 auto; padding: 12px 2px 0; min-width: 0; }
+  .ar-title {
+    font-size: 15px; font-weight: 750; letter-spacing: -.015em; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ar-sub {
+    margin-top: 3px; min-width: 0;
+    display: flex; align-items: baseline; gap: 6px;
+    font-size: 11.5px; color: var(--ar-soft);
+    white-space: nowrap; overflow: hidden;
+  }
+  .ar-sub .a { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: color-mix(in srgb, var(--accent) 65%, var(--ar-ink)); }
+  .ar-sub .b { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ar-mute); }
+  .ar-sub .b:empty, .ar-sub .b:empty + .ar-dot { display: none; }
+  .ar-dot { color: var(--ar-mute); flex: 0 0 auto; }
+  .ar-chips { display: flex; gap: 5px; margin-top: 7px; }
+  .ar-chip {
+    font-size: 8px; font-weight: 750; letter-spacing: .1em;
+    color: var(--ar-mute); background: var(--ar-well);
+    border: 1px solid var(--ar-line);
+    padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  }
+  .ar-chip.hi { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+  .ar-chip:empty { display: none; }
+
+  /* ---------- Stage: viz / queue / lyrics ---------- */
+  .ar-stagehead {
+    flex: 0 0 auto; margin-top: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .ar-stagelabel {
+    font-size: 8.5px; font-weight: 750; letter-spacing: .26em;
+    color: var(--ar-mute); text-transform: uppercase;
+  }
+  .ar-stagelabel::after { content: "VISUALIZER"; }
+  html.melo-show-playlist .ar-stagelabel::after { content: "QUEUE"; }
+  html.melo-show-lyrics .ar-stagelabel::after { content: "LYRICS"; }
+
+  .ar-seg {
+    display: flex; gap: 2px; padding: 2px;
+    background: var(--ar-well); border: 1px solid var(--ar-line);
+    border-radius: 999px;
+  }
+  .ar-seg button {
+    width: 30px; height: 20px; padding: 0; border: 0; border-radius: 999px;
+    background: transparent; color: var(--ar-mute); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .16s ease, color .16s ease;
+  }
+  .ar-seg button:hover { color: var(--ar-ink); }
+  .ar-seg svg { width: 11px; height: 11px; }
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) .ar-seg [data-melo="toggle-embedded-viz"],
+  html.melo-show-playlist .ar-seg [data-melo="toggle-embedded-playlist"],
+  html.melo-show-lyrics .ar-seg [data-melo="toggle-embedded-lyrics"] {
+    color: var(--accent-ink); background: var(--accent);
+    box-shadow: 0 2px 8px var(--accent-glow);
+  }
+
+  .ar-stage {
+    flex: 1 1 auto; min-height: 120px; margin-top: 7px;
+    position: relative; border-radius: 12px;
+    overflow: hidden;
+  }
+  /* visualizer keeps a FIXED height and stays vertically centered,
+     no matter how tall the stage grows */
+  .ar-viz {
+    position: absolute; left: 0; right: 0; top: 50%; height: 56px;
+    transform: translateY(-50%); cursor: pointer;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  }
+  .ar-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+  /* swap the visualizer out when an embedded panel is active */
+  html.melo-show-playlist [data-melo="visualizer"],
+  html.melo-show-lyrics [data-melo="visualizer"] { display: none; }
+
+  [data-melo="embedded-playlist"],
+  [data-melo="embedded-lyrics"] {
+    position: absolute; inset: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 2px 4px 4px 0;
+  }
+  /* custom scrollbar — embedded playlist & lyrics (hook + inner panels) */
+  [data-melo="embedded-playlist"],
+  [data-melo="embedded-lyrics"],
+  [data-melo="embedded-playlist"] .embedded-playlist,
+  [data-melo="embedded-lyrics"] .embedded-lyrics {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 55%, transparent) transparent;
+  }
+  [data-melo="embedded-playlist"]::-webkit-scrollbar,
+  [data-melo="embedded-lyrics"]::-webkit-scrollbar,
+  [data-melo="embedded-playlist"] .embedded-playlist::-webkit-scrollbar,
+  [data-melo="embedded-lyrics"] .embedded-lyrics::-webkit-scrollbar {
+    width: 5px; height: 5px;
+  }
+  [data-melo="embedded-playlist"]::-webkit-scrollbar-track,
+  [data-melo="embedded-lyrics"]::-webkit-scrollbar-track,
+  [data-melo="embedded-playlist"] .embedded-playlist::-webkit-scrollbar-track,
+  [data-melo="embedded-lyrics"] .embedded-lyrics::-webkit-scrollbar-track {
+    background: transparent; margin: 4px 0;
+  }
+  [data-melo="embedded-playlist"]::-webkit-scrollbar-thumb,
+  [data-melo="embedded-lyrics"]::-webkit-scrollbar-thumb,
+  [data-melo="embedded-playlist"] .embedded-playlist::-webkit-scrollbar-thumb,
+  [data-melo="embedded-lyrics"] .embedded-lyrics::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 65%, transparent),
+      color-mix(in srgb, var(--accent) 35%, transparent));
+    border-radius: 999px;
+    min-height: 28px;
+  }
+  [data-melo="embedded-playlist"]::-webkit-scrollbar-thumb:hover,
+  [data-melo="embedded-lyrics"]::-webkit-scrollbar-thumb:hover,
+  [data-melo="embedded-playlist"] .embedded-playlist::-webkit-scrollbar-thumb:hover,
+  [data-melo="embedded-lyrics"] .embedded-lyrics::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+  }
+  [data-melo="embedded-playlist"]::-webkit-scrollbar-corner,
+  [data-melo="embedded-lyrics"]::-webkit-scrollbar-corner { background: transparent; }
+
+  /* ---------- Seek ---------- */
+  .ar-seek {
+    flex: 0 0 auto; margin-top: 8px;
+    display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px;
+    gap: 8px; align-items: center;
+  }
+  .ar-time {
+    font-size: 10px; font-weight: 650; color: var(--ar-mute);
+    font-variant-numeric: tabular-nums;
+  }
+  .ar-time.end { text-align: right; }
+  .ar-range, .ar-vol {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 14px;
+    margin: 0; background: transparent; outline: none; cursor: pointer;
+  }
+  .ar-range::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .ar-range::-moz-range-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .ar-vol::-webkit-slider-runnable-track {
+    height: 3px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--ar-soft) 0%, var(--ar-soft) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .ar-vol::-moz-range-track {
+    height: 3px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--ar-soft) 0%, var(--ar-soft) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .ar-range::-webkit-slider-thumb, .ar-vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--ar-bg-1);
+    margin-top: -3px; box-shadow: 0 0 0 3px var(--accent-glow);
+    opacity: 0; transition: opacity .18s ease;
+  }
+  .ar-vol::-webkit-slider-thumb { background: var(--ar-ink); margin-top: -3.5px; width: 9px; height: 9px; box-shadow: none; }
+  .ar-range::-moz-range-thumb, .ar-vol::-moz-range-thumb {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--ar-bg-1);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+    opacity: 0; transition: opacity .18s ease;
+  }
+  .ar-range:hover::-webkit-slider-thumb, .ar-vol:hover::-webkit-slider-thumb { opacity: 1; }
+  .ar-range:hover::-moz-range-thumb, .ar-vol:hover::-moz-range-thumb { opacity: 1; }
+
+  /* ---------- Transport ---------- */
+  .ar-tr {
+    flex: 0 0 auto; margin-top: 4px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .ar-tr button {
+    width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: var(--ar-soft); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .16s ease, color .16s ease, transform .12s ease;
+  }
+  .ar-tr button:hover { color: var(--ar-ink); background: var(--ar-well-strong); }
+  .ar-tr button:active { transform: scale(.92); }
+  .ar-tr button.active { color: var(--accent); }
+  .ar-tr svg { width: 15px; height: 15px; }
+  .ar-tr .side svg { width: 13px; height: 13px; }
+  .ar-tr .play {
+    width: 52px; height: 52px;
+    background: var(--accent); color: var(--accent-ink);
+    box-shadow: 0 8px 22px var(--accent-glow);
+  }
+  .ar-tr .play:hover {
+    background: color-mix(in srgb, var(--accent) 88%, #fff);
+    color: var(--accent-ink); transform: scale(1.05);
+  }
+  .ar-tr .play:active { transform: scale(.95); }
+  .ar-tr .play svg { width: 19px; height: 19px; }
+
+  /* ---------- Bottom: volume + dock ---------- */
+  .ar-foot {
+    flex: 0 0 auto; margin-top: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .ar-volrow {
+    display: grid; grid-template-columns: 16px minmax(0, 1fr) 28px;
+    gap: 8px; align-items: center; padding: 0 2px;
+  }
+  .ar-volico {
+    display: grid; place-items: center; color: var(--ar-mute); cursor: pointer;
+    transition: color .15s ease;
+  }
+  .ar-volico:hover, .ar-volico.muted { color: var(--accent); }
+  .ar-volico svg { width: 13px; height: 13px; }
+  .ar-pct {
+    font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
+    text-align: right; color: var(--ar-mute);
+  }
+
+  .ar-dock {
+    display: flex; align-items: center; justify-content: center; gap: 2px;
+    padding-top: 7px; border-top: 1px solid var(--ar-line);
+  }
+  .ar-dock button {
+    width: 28px; height: 26px; padding: 0; border: 0; border-radius: 8px;
+    background: transparent; color: var(--ar-mute); cursor: pointer;
+    display: grid; place-items: center; position: relative;
+    transition: color .16s ease, background .16s ease;
+  }
+  .ar-dock button:hover { color: var(--ar-ink); background: var(--ar-well-strong); }
+  /* window-open state (app toggles .active on the classic-id buttons) */
+  .ar-dock button.active {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+  }
+  .ar-dock button.active::after {
+    content: ""; position: absolute;
+    bottom: 1.5px; left: 50%; transform: translateX(-50%);
+    width: 3px; height: 3px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 5px var(--accent-glow);
+  }
+  .ar-dock svg { width: 12.5px; height: 12.5px; }
+  .ar-dock .sep { width: 1px; height: 13px; margin: 0 5px; background: var(--ar-line); }
+
+  .ar-hide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  @media (max-height: 600px) {
+    .ar-art { flex-basis: 156px; }
+    .ar-vinyl { width: 130px; height: 130px; }
+    .ar-title { font-size: 15px; }
+  }
+</style>
+</head>
+<body data-window-width="340" data-window-height="640" data-min-width="300" data-min-height="626" data-max-width="460" data-max-height="900" data-resizable="true">
+<div id="melo-player">
+  <div class="ar-root">
+    <div class="ar-col">
+
+      <div class="ar-bar" data-tauri-drag-region>
+        <div class="ar-brand" data-tauri-drag-region><i></i>ARIA</div>
+        <div class="ar-win">
+          <button data-melo="theme-toggle" title="Theme">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          </button>
+          <button data-melo="minimize" aria-label="minimize" title="Minimize">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+          </button>
+          <button class="close" data-melo="close" aria-label="close" title="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="ar-art">
+        <img data-melo="cover" id="coverImg" alt="cover" style="display:none" />
+        <div class="ar-fallback" data-melo="cover-fallback" id="coverFallback">
+          <div class="ar-vinyl"></div>
+          <span>NO ARTWORK</span>
+        </div>
+      </div>
+
+      <div class="ar-meta">
+        <div class="ar-title" data-melo="title" id="trackTitle">No track loaded</div>
+        <div class="ar-sub">
+          <span class="a" data-melo="artist" id="trackArtist">Add music to begin</span>
+          <span class="ar-dot">·</span>
+          <span class="b" data-melo="album" id="trackAlbum"></span>
+        </div>
+        <div class="ar-chips">
+          <span class="ar-chip hi" data-melo="codec" id="trackCodec"></span>
+          <span class="ar-chip" data-melo="specs" id="trackSpecs"></span>
+        </div>
+      </div>
+
+      <div class="ar-stagehead">
+        <span class="ar-stagelabel"></span>
+        <div class="ar-seg">
+          <button data-melo="toggle-embedded-viz" title="Visualizer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14v-4M7 17V7M11 20V4M15 17V7M19 14v-4"/></svg>
+          </button>
+          <button data-melo="toggle-embedded-playlist" title="Queue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>
+          </button>
+          <button data-melo="toggle-embedded-lyrics" title="Lyrics">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="ar-stage">
+        <div class="ar-viz" data-melo="visualizer" id="vizBars"></div>
+        <div data-melo="embedded-playlist"></div>
+        <div data-melo="embedded-lyrics"></div>
+      </div>
+
+      <div class="ar-seek">
+        <span class="ar-time" data-melo="current-time" id="curTime">0:00</span>
+        <input class="ar-range" type="range" data-melo="seek" id="seekBar" min="0" max="100" value="0" />
+        <span class="ar-time end" data-melo="duration" id="durTime">0:00</span>
+      </div>
+
+      <div class="ar-tr">
+        <button class="side" data-melo="shuffle" id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg></button>
+        <button data-melo="prev" id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg></button>
+        <button class="play" data-melo="play" id="btnPlay" title="Play / Pause">
+          <svg data-melo="pause-icon" id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+          <svg data-melo="play-icon" id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button data-melo="next" id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg></button>
+        <button class="side" data-melo="repeat" id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+      </div>
+
+      <div class="ar-foot">
+        <div class="ar-volrow">
+          <span class="ar-volico" data-melo="volume-icon" id="volIcon" title="Mute">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+          </span>
+          <input class="ar-vol" type="range" data-melo="volume" id="volBar" min="0" max="100" value="60" title="Volume" />
+          <span class="ar-pct" data-melo="volume-pct" id="volPct">60%</span>
+        </div>
+
+        <div class="ar-dock">
+          <button data-melo="add-files" title="Add files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg></button>
+          <button data-melo="add-folder" title="Add folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 10v6M9 13h6"/></svg></button>
+          <span class="sep"></span>
+          <button data-melo="stop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
+          <button data-melo="toggle-eq" id="btnToggleEq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
+          <button data-melo="toggle-library" id="btnToggleLibrary" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+          <button data-melo="toggle-playlist" id="btnTogglePlaylist" title="Playlist window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button>
+          <button data-melo="toggle-lyrics" id="btnToggleLyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></button>
+          <span class="sep"></span>
+          <button data-melo="toggle-settings" id="btnOpenSettings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

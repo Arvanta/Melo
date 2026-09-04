@@ -46,5 +46,7 @@
   "settings.visualizer.smoothing.label": "Smoothing",
   "settings.visualizer.smoothing.desc": "How fast the visualizer reacts — lower is snappier",
   "settings.visualizer.enabled.label": "Enabled visualizers",
-  "settings.visualizer.enabled.desc": "Uncheck modes you don't want — they disappear from the player's right-click list and the click cycle"
+  "settings.visualizer.enabled.desc": "Uncheck modes you don't want — they disappear from the player's right-click list and the click cycle",
+  "settings.playback.smartPrev.label": "Smart Previous",
+  "settings.playback.smartPrev.desc": "If the track has been playing a while, the first press of Previous restarts it and a second press goes to the previous track. Off: Previous always goes to the previous track."
 }

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Microline V</title>
+<style>
+  :root {
+    --ml-bg: #f5f6f8;
+    --ml-surface: #ffffff;
+    --ml-line: rgba(29,39,52,.09);
+    --ml-text: #202936;
+    --ml-soft: #6d7a8a;
+    --ml-muted: #9aa4b1;
+    --accent: #377fca;
+    --visualizer: #5ea0e6;
+    --track-bg: rgba(38,52,69,.075);
+  }
+  [data-theme="dark"] {
+    --ml-bg: #151b23;
+    --ml-surface: #1c2531;
+    --ml-line: rgba(255,255,255,.075);
+    --ml-text: #edf3fa;
+    --ml-soft: #9cadc1;
+    --ml-muted: #6e8198;
+    --track-bg: rgba(255,255,255,.065);
+  }
+
+  * { box-sizing: border-box; }
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 24px; display: grid; place-items: center;
+    overflow: hidden; background: #0c1118; font-family: Inter,"Segoe UI",system-ui,sans-serif;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 56px; height: 750px; min-width: 52px; min-height: 750px;
+    margin: 0; padding: 0; overflow: hidden; color: var(--ml-text); background: var(--ml-bg);
+    border: 1px solid var(--ml-line); border-radius: 14px; box-shadow: 0 14px 36px rgba(20,33,48,.2);
+    font-family: Inter,"Segoe UI",system-ui,sans-serif;
+    display: flex;
+  }
+  body.tauri-main,
+  body.tauri-main .app-shell { min-width: 0 !important; }
+  body.tauri-main .player-card {
+    width: 56px !important; max-width: 56px !important; min-width: 56px !important;
+    height: 100vh !important; min-height: 0 !important; max-height: 100vh !important;
+    padding: 0 !important; border-radius: 14px !important; box-shadow: none !important;
+  }
+
+  .ml-col {
+    width: 100%; height: 100%; min-height: 0;
+    padding: 6px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    -webkit-app-region: no-drag; user-select: none;
+  }
+  button, input, .ml-cover, .ml-meta, .ml-seek, .ml-media, .ml-viz, .ml-panels, .ml-brand-zone, .win-controls { -webkit-app-region: no-drag; }
+
+  .ml-drag-handle {
+    width: 22px; height: 8px; flex: 0 0 8px; border-radius: 4px;
+    -webkit-app-region: drag; cursor: move;
+    background: radial-gradient(circle,var(--ml-muted) 1px,transparent 1.2px) center/5px 4px;
+    opacity: .55;
+  }
+
+  .win-controls { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; }
+  .ml-panel, .win-btn {
+    width: 24px; height: 22px; min-width: 22px; padding: 0; border: 0; border-radius: 6px;
+    display: grid; place-items: center; color: var(--ml-soft); background: transparent; cursor: pointer;
+  }
+  .ml-panel:hover, .win-btn:hover { color: var(--ml-text); background: var(--track-bg); }
+  .ml-panel.active { color: white; background: var(--accent); }
+  .ml-panel svg { width: 11px; height: 11px; }
+  .win-btn.close:hover { color: white; background: #df5065; }
+
+  .ml-brand-zone { position: relative; z-index: 40; flex-shrink: 0; }
+  .ml-brand-menu { position: relative; }
+  .ml-brand-menu > summary { list-style: none; cursor: pointer; }
+  .ml-brand-menu > summary::-webkit-details-marker { display: none; }
+  .ml-brand {
+    height: 18px; padding: 0 2px; border: 0; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ml-text); background: transparent;
+    font-size: 8px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  }
+  .ml-brand:hover, .ml-brand-menu[open] .ml-brand { color: var(--accent); background: var(--track-bg); }
+  .ml-menu-items {
+    position: absolute; top: calc(100% + 4px); left: 50%;
+    transform: translateX(-50%);
+    z-index: 50; width: 46px; padding: 4px;
+    display: none; flex-direction: column; gap: 2px;
+    border: 1px solid var(--ml-line); border-radius: 8px;
+    background: var(--ml-surface);
+    box-shadow: 0 8px 18px rgba(20,31,45,.22);
+  }
+  .ml-brand-menu[open] .ml-menu-items { display: flex; }
+  .ml-menu-item {
+    width: 100%; height: 26px; padding: 0; border: 0; border-radius: 6px;
+    display: grid; place-items: center;
+    color: var(--ml-soft); background: transparent; cursor: pointer;
+  }
+  .ml-menu-item:hover { color: var(--ml-text); background: var(--track-bg); }
+  .ml-menu-item svg { width: 12px; height: 12px; }
+
+  .ml-cover {
+    width: 40px; height: 40px; flex: 0 0 40px; overflow: hidden; border-radius: 9px 15px 9px 9px;
+    background: var(--track-bg); box-shadow: 0 4px 12px rgba(25,37,51,.15);
+  }
+  .ml-cover img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .cover-fallback {
+    width: 100%; height: 100%; display: grid; place-items: center; color: white; font-size: 16px;
+    background: linear-gradient(140deg,color-mix(in srgb,var(--accent) 68%,#82b7ce),#9b82c6 56%,#e89b89);
+  }
+
+  .ml-meta {
+    width: 44px; min-height: 0; max-height: 52px; overflow: hidden; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .track-title, .track-artist {
+    width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    text-align: center; line-height: 1.15;
+  }
+  .track-title { color: var(--ml-text); font-size: 8px; font-weight: 760; }
+  .track-artist { color: color-mix(in srgb,var(--accent) 38%,var(--ml-text)); font-size: 7px; font-weight: 650; }
+  .track-album, .track-format { display: none; }
+
+  .transport { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
+  .transport button {
+    width: 26px; height: 24px; padding: 0; border: 0; border-radius: 7px;
+    display: grid; place-items: center; color: var(--ml-soft); background: transparent; cursor: pointer;
+  }
+  .transport button:hover { color: var(--ml-text); background: var(--track-bg); }
+  .transport button.active { color: var(--accent); background: color-mix(in srgb,var(--accent) 10%,transparent); }
+  .transport svg { width: 12px; height: 12px; }
+  .transport .play-btn { width: 32px; height: 32px; border-radius: 50%; color: white; background: var(--accent); }
+  .transport .play-btn:hover { color: white; background: color-mix(in srgb,var(--accent) 88%,black); }
+  .transport .play-btn svg { width: 14px; height: 14px; }
+  #btnStop { display: none; }
+  body.show-stop-btn #btnStop { display: grid !important; }
+
+  .ml-seek.seek-row {
+    flex: 0 0 auto !important;
+    width: 28px !important;
+    height: auto !important;
+    margin: 0 !important;
+    gap: 4px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .ml-time { color: var(--ml-muted); font: 500 9px/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric: tabular-nums; }
+  /* Keep the native LTR fill (--progress / --vol), then rotate so it reads bottom→top. */
+  .ml-vtrack {
+    position: relative;
+    width: 14px;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .ml-vtrack-seek { height: 92px; }
+  .ml-vtrack-vol { height: 56px; }
+  body.custom-skin-active .player-card input[type="range"].seek,
+  body.custom-skin-active .player-card input[type="range"].vol,
+  .ml-vtrack input[type="range"].seek,
+  .ml-vtrack input[type="range"].vol {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    writing-mode: horizontal-tb !important;
+    direction: ltr !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    outline: none !important;
+    cursor: pointer !important;
+    height: 4px !important;
+    min-height: 4px !important;
+    max-height: 4px !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: none !important;
+    border-radius: 999px !important;
+    transform: translate(-50%, -50%) rotate(-90deg) !important;
+    transform-origin: center center !important;
+  }
+  .ml-vtrack-seek input[type="range"].seek { width: 92px !important; }
+  .ml-vtrack-vol input[type="range"].vol { width: 56px !important; }
+  body.custom-skin-active .player-card input[type="range"].seek::-webkit-slider-thumb,
+  body.custom-skin-active .player-card input[type="range"].vol::-webkit-slider-thumb,
+  .ml-vtrack input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none !important;
+    width: 10px !important; height: 10px !important; border-radius: 50% !important;
+    background: var(--accent) !important; border: 2px solid var(--ml-bg) !important;
+    box-shadow: none !important;
+  }
+  .ml-media.volume-row {
+    flex-direction: column !important;
+    align-items: center !important;
+    width: auto !important;
+    gap: 3px !important;
+  }
+  #volPct { display: none !important; }
+
+  .ml-media {
+    display: flex; flex-direction: column; align-items: center; gap: 3px; flex-shrink: 0;
+  }
+  #volIcon { display: grid; place-items: center; color: var(--ml-soft); cursor: pointer; }
+  #volIcon:hover { color: var(--accent); }
+  #volPct { color: var(--ml-muted); font: 500 7px/1 ui-monospace,monospace; }
+
+  .mlv-viz-slot {
+    flex: 1 1 auto;
+    min-height: 80px;
+    width: 100%;
+    align-self: stretch;
+    position: relative;
+    overflow: hidden;
+    container-type: size;
+  }
+  .ml-viz.visualizer-bars {
+    position: absolute !important;
+    inset: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    max-width: none !important;
+    flex: none !important;
+    display: block !important;
+    overflow: hidden !important;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    touch-action: manipulation;
+  }
+  @media (max-width: 800px) {
+    .ml-viz.visualizer-bars { display: block !important; }
+  }
+  /* Draw as a wide strip, then stand it up so bars run along the window height. */
+  .ml-viz canvas {
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 100cqh !important;
+    height: 100cqw !important;
+    max-width: none !important;
+    max-height: none !important;
+    transform: translate(-50%, -50%) rotate(-90deg) !important;
+    display: block !important;
+    pointer-events: none;
+  }
+
+  .ml-panels { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; }
+</style>
+</head>
+<body data-window-width="56" data-window-height="750" data-min-width="56" data-min-height="750" data-max-width="56" data-max-height="1400" data-resizable="true">
+<div id="melo-player">
+  <div class="ml-col">
+    <span class="ml-drag-handle" data-tauri-drag-region title="Drag window"></span>
+
+    <div class="ml-brand-zone">
+      <details class="ml-brand-menu">
+        <summary class="ml-brand" title="Melo">Melo</summary>
+        <div class="ml-menu-items">
+          <button class="ml-menu-item" id="btnAddFiles" title="Open files">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+          </button>
+          <button class="ml-menu-item" id="btnAddFolder" title="Open folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </button>
+          <button class="ml-menu-item" id="btnThemeToggle" title="Theme">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/></svg>
+          </button>
+        </div>
+      </details>
+    </div>
+
+    <div class="ml-cover" id="coverWrap">
+      <img id="coverImg" style="display:none" alt="Album artwork" />
+      <div id="coverFallback" class="cover-fallback">♪</div>
+    </div>
+
+    <div class="ml-meta">
+      <span class="track-title" id="trackTitle">No track</span>
+      <span class="track-artist" id="trackArtist">No artist</span>
+      <span class="track-album" id="trackAlbum"></span>
+      <span class="track-format"><span id="trackCodec">—</span><span id="trackSpecs"></span></span>
+    </div>
+
+    <div class="transport">
+      <button id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+      <button id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+      <button id="btnStop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+      <button class="play-btn" id="btnPlay" title="Play / Pause"><svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg><svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg></button>
+      <button id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+      <button id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+    </div>
+
+    <div class="ml-seek seek-row">
+      <span class="ml-time" id="curTime">0:00</span>
+      <div class="ml-vtrack ml-vtrack-seek">
+        <input class="seek" id="seekBar" type="range" min="0" max="100" value="0" />
+      </div>
+      <span class="ml-time" id="durTime">0:00</span>
+    </div>
+
+    <div class="ml-media volume-row">
+      <span id="volIcon" title="Mute"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg></span>
+      <div class="ml-vtrack ml-vtrack-vol">
+        <input class="vol" id="volBar" type="range" min="0" max="100" value="60" />
+      </div>
+      <span id="volPct">60%</span>
+    </div>
+
+    <div class="mlv-viz-slot">
+      <div class="ml-viz visualizer-bars" id="vizBars" data-melo="visualizer" data-bars="40"></div>
+    </div>
+
+    <div class="ml-panels">
+      <button class="ml-panel" id="btnToggleLibrary" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+      <button class="ml-panel" id="btnTogglePlaylist" title="Playing Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg></button>
+      <button class="ml-panel" id="btnToggleEq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
+      <button class="ml-panel" id="btnToggleLyrics" title="Lyric"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+      <button class="ml-panel" id="btnOpenSettings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+    </div>
+
+    <div class="win-controls">
+      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+      <button class="win-btn close" aria-label="close" title="Close">×</button>
+    </div>
+    <span class="ml-drag-handle" data-tauri-drag-region title="Drag window"></span>
+  </div>
+</div>
+</body>
+</html>

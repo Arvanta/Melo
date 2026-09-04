@@ -1,7 +1,10 @@
 import { getAudioGraph } from "./audio-graph";
 import { busOn } from "./bus";
 
-export type VizMode = "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks" | "radial" | "lissajous" | "dots";
+export type VizMode =
+  | "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks" | "radial" | "dots"
+  | "aurora" | "aurora2" | "bubbles" | "drift" | "fireflies" | "glitch" | "lantern" | "petals"
+  | "quake" | "ripples" | "shards" | "sparks" | "tide" | "tide2";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "bars", label: "Classic Bars" },
@@ -12,8 +15,22 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "spectrumWave", label: "Spectrum Wave" },
   { id: "blocks", label: "Block Equalizer" },
   { id: "radial", label: "Radial Sunburst" },
-  { id: "lissajous", label: "Lissajous XY" },
   { id: "dots", label: "Dot Matrix" },
+  // Ambient / beat-driven family.
+  { id: "aurora", label: "Aurora" },
+  { id: "aurora2", label: "Aurora II" },
+  { id: "bubbles", label: "Bubbles" },
+  { id: "drift", label: "Drifting Lights" },
+  { id: "fireflies", label: "Fireflies" },
+  { id: "glitch", label: "Glitch" },
+  { id: "lantern", label: "Lantern" },
+  { id: "petals", label: "Petals" },
+  { id: "quake", label: "Quake" },
+  { id: "ripples", label: "Ripples" },
+  { id: "shards", label: "Shards" },
+  { id: "sparks", label: "Sparks" },
+  { id: "tide", label: "Tide" },
+  { id: "tide2", label: "Tide II" },
 ];
 
 // ---------------------------------------------------------------------
@@ -227,6 +244,16 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function cssVar(name: string, fallback: string) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
   }
+
+  // cover.ts sets BOTH --visualizer and --accent to the same cover color, so
+  // many modes collapsed to one flat tone. accentOrDarker() returns --accent
+  // when a skin defines a different one, otherwise a slightly DARKENED copy
+  // of the cover color — giving every mode a real two-tone range.
+  function accentOrDarker(c1: string): string {
+    const a = cssVar("--accent", "#0284c7");
+    if (a.replace(/\s/g, "") === c1.replace(/\s/g, "")) return mix(c1, "#000000", 0.32);
+    return a;
+  }
   function dprOf() {
     return canvas.width / Math.max(1, canvas.clientWidth) || 1;
   }
@@ -264,11 +291,756 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.globalCompositeOperation = "source-over";
   }
 
+
+  const AMBIENT_BANDS = 24;
+  const GOLDEN = 0.6180339887;
+  interface AmbientSignals { low: number; mid: number; high: number; all: number; bands: number[]; dt: number; t: number }
+  let ambLow = 0, ambMid = 0, ambHigh = 0, ambAll = 0;
+  let ambFlow = 0, ambSpeed = 0, ambLast = 0;
+  let ripplePhase = 0;
+  let driftLights: { x: number; y: number; r: number; s: number; p: number; b: number }[] = [];
+  let petals: { x: number; y: number; s: number; a: number; spin: number; ph: number; sway: number; b: number; c: number }[] = [];
+  let fireflies: { x: number; y: number; vx: number; vy: number; ph: number; rate: number; b: number; glow: number; c: number }[] = [];
+  let lanternPuffs: { x: number; y: number; r: number; life: number; max: number; drift: number }[] = [];
+  let lanternBreath = 0;
+  let bubbles: { x: number; y: number; r: number; s: number; ph: number; b: number; pop: number }[] = [];
+
+  function ambientSignals(lively: boolean): AmbientSignals {
+    const now = performance.now();
+    const dt = ambLast ? Math.min(0.1, (now - ambLast) / 1000) : 1 / 60;
+    ambLast = now;
+    const d = getLevels(AMBIENT_BANDS);
+    const silent = audio.paused && !useFake;
+    let low = 0, mid = 0, high = 0;
+    for (let i = 0; i < 6; i++) low += d[i];
+    for (let i = 6; i < 16; i++) mid += d[i];
+    for (let i = 16; i < AMBIENT_BANDS; i++) high += d[i];
+    low /= 6; mid /= 10; high /= AMBIENT_BANDS - 16;
+    let all = (low + mid + high) / 3;
+    if (silent) low = mid = high = all = 0;
+    // Asymmetric exponential smoothing (time constants in seconds).
+    const up = lively ? 0.04 : 0.22;
+    const down = lively ? 0.26 : 1.0;
+    const follow = (cur: number, target: number, u: number, dn: number) =>
+      cur + (target - cur) * (1 - Math.exp(-dt / (target > cur ? u : dn)));
+    ambLow = follow(ambLow, low, up, down);
+    ambMid = follow(ambMid, mid, up * 1.3, down * 1.2);
+    ambHigh = follow(ambHigh, high, up, down * 0.8);
+    ambAll = follow(ambAll, all, up * 1.6, down * 1.4);
+    const wantSpeed = silent ? 0 : 1;
+    ambSpeed += (wantSpeed - ambSpeed) * (1 - Math.exp(-dt / (lively ? 0.5 : 1.2)));
+    ambFlow += dt * ambSpeed * (lively ? 0.9 + 1.6 * ambAll : 0.55 + 0.7 * ambAll);
+    const bands = silent ? new Array(AMBIENT_BANDS).fill(0) : d.slice();
+    return { low: ambLow, mid: ambMid, high: ambHigh, all: ambAll, bands, dt, t: ambFlow };
+  }
+
+  // Smoothly sample the band array at a fractional position 0..1 (bass → treble).
+  function bandAt(bands: number[], u: number): number {
+    const q = Math.min(1, Math.max(0, u)) * (bands.length - 1);
+    const i = Math.floor(q), f = q - i;
+    return bands[i] * (1 - f) + bands[Math.min(bands.length - 1, i + 1)] * f;
+  }
+
+  // Resolve any CSS colour (hex / rgb() / named / dynamic-theme value) once
+  // per frame and return an alpha → "rgba(...)" painter for it.
+  function painter(color: string): (alpha: number) => string {
+    g2d.fillStyle = "#000";
+    g2d.fillStyle = color;
+    const c = g2d.fillStyle as string;
+    let r = 0, g = 0, b = 0;
+    if (c.startsWith("#")) {
+      r = parseInt(c.slice(1, 3), 16); g = parseInt(c.slice(3, 5), 16); b = parseInt(c.slice(5, 7), 16);
+    } else {
+      const m = c.match(/rgba?\(([^)]+)\)/);
+      if (m) [r, g, b] = m[1].split(",").map((x) => parseFloat(x));
+    }
+    return (alpha: number) => `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+
+  // Concentric rings expanding outward from the centre like drops on
+  // still water. The expansion speed and brightness follow the low end and
+  // the number of visible rings grows with the music's intensity; each
+  // ring also carries a faint, slowly rotating shimmer (bass → wide 2-lobe
+  // swell, mids → 4 lobes) so the water "trembles" with the music without
+  // ever losing its stillness.
+  function drawRipples(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const cx = w / 2, cy = h / 2;
+    const maxR = Math.hypot(w, h) / 2;
+    const squash = Math.max(0.35, h / w);
+    // slow: a ring needs ~6-12 s to travel from the centre to the edge
+    ripplePhase = (ripplePhase + S.dt * ambSpeed * (0.08 + 0.08 * S.low)) % 1;
+    const maxRings = 9;
+    const count = 2.5 + 6 * S.all;                          // fractional: the newest ring fades in/out
+    const k2 = 0.035 * S.low;
+    const k4 = 0.02 * S.mid;
+    const rot = S.t * 0.12;
+    const steps = 64;
+    for (let k = 0; k < maxRings; k++) {
+      const vis = Math.max(0, Math.min(1, count - k));
+      if (vis <= 0) continue;
+      const p = (ripplePhase + k * GOLDEN) % 1;               // golden-ratio offsets stay evenly spread for any count
+      const r = (0.04 + 0.96 * p) * maxR;
+      const alpha = Math.pow(1 - p, 1.6) * vis * (0.28 + 0.45 * S.all);
+      if (alpha < 0.01) continue;
+      const ph = k * 1.3;
+      g2d.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const th = (i / steps) * Math.PI * 2;
+        const bend = 1 + k2 * Math.cos(2 * th + rot + ph) + k4 * Math.cos(4 * th - rot * 1.4 + ph);
+        const x = cx + Math.cos(th) * r * bend, y = cy + Math.sin(th) * r * bend * squash;
+        if (i === 0) g2d.moveTo(x, y); else g2d.lineTo(x, y);
+      }
+      g2d.closePath();
+      g2d.strokeStyle = (k % 2 ? P1 : P2)(alpha);
+      g2d.lineWidth = (1 + 1.5 * (1 - p)) * dpr;
+      g2d.stroke();
+    }
+    // still centre dot that glows with energy
+    const gr = (12 + 30 * S.low) * dpr;
+    const g = g2d.createRadialGradient(cx, cy, 0, cx, cy, gr);
+    g.addColorStop(0, P1(0.55 + 0.4 * S.low));
+    g.addColorStop(1, P1(0));
+    g2d.fillStyle = g;
+    g2d.beginPath(); g2d.arc(cx, cy, gr, 0, Math.PI * 2); g2d.fill();
+  }
+
+  // Layered translucent curtains drifting sideways. Calm: their height
+  // follows the mids (voices / pads), not the kick. Lively: the curtains
+  // additionally take the silhouette of the spectrum and drift faster.
+  function drawAurora(w: number, h: number, lively: boolean) {
+    const S = ambientSignals(lively);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const layers = 4, steps = 64;
+    for (let L = 0; L < layers; L++) {
+      const depth = L / (layers - 1);                  // 0 back → 1 front
+      const energy = lively ? 0.35 + 1.2 * S.mid : 0.55 + 0.9 * S.mid;
+      const amp = h * (0.16 + 0.22 * depth) * energy;
+      const baseY = h * (0.62 + 0.12 * depth);
+      const speed = lively ? 0.6 + 0.5 * depth : 0.25 + 0.2 * depth;
+      const alpha = (0.10 + 0.16 * depth + 0.15 * S.all) * (lively ? 1.15 : 1);
+      const spec = lively ? h * (0.10 + 0.18 * depth) : 0;
+      g2d.beginPath();
+      g2d.moveTo(0, h);
+      for (let i = 0; i <= steps; i++) {
+        const u = i / steps;
+        let y = baseY
+          - amp * (0.55 + 0.45 * Math.sin(u * Math.PI * 2.2 + S.t * speed + L * 1.7))
+          - amp * 0.35 * Math.sin(u * Math.PI * 5.1 - S.t * speed * 1.6 + L * 0.9);
+        if (spec) y -= spec * Math.pow(bandAt(S.bands, u + 0.06 * (L - 1.5)), 1.3);
+        g2d.lineTo(u * w, y);
+      }
+      g2d.lineTo(w, h);
+      g2d.closePath();
+      const A = L % 2 ? P1 : P2, B = L % 2 ? P2 : P1;
+      const grad = g2d.createLinearGradient(0, baseY - amp * 1.4 - spec, 0, h);
+      grad.addColorStop(0, A(0));
+      grad.addColorStop(0.4, A(alpha * 0.85));
+      grad.addColorStop(1, B(0));
+      g2d.fillStyle = grad;
+      g2d.fill();
+    }
+  }
+
+  // A calm sea under a soft moon. Calm: three slow swells rise with the
+  // overall energy. Lively: each swell follows its own band (all / mid /
+  // bass), moves faster and carries spectrum "foam" on its crest.
+  function drawTide(w: number, h: number, lively: boolean) {
+    const dpr = dprOf();
+    const S = ambientSignals(lively);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const gx = w * 0.72, gy = h * 0.35;
+    const gr = Math.min(w, h) * (0.35 + (lively ? 0.45 : 0.25) * S.low);
+    const glow = g2d.createRadialGradient(gx, gy, 0, gx, gy, gr);
+    glow.addColorStop(0, P1(0.22 + (lively ? 0.4 : 0.2) * S.low));
+    glow.addColorStop(1, P1(0));
+    g2d.fillStyle = glow;
+    g2d.fillRect(0, 0, w, h);
+
+    const steps = 72;
+    const waves = [
+      { base: 0.58, amp: 0.10, k: 1.6, sp: 0.45, a: 0.30, P: P2, drive: S.all },
+      { base: 0.68, amp: 0.13, k: 2.3, sp: -0.32, a: 0.42, P: P1, drive: lively ? S.mid : S.all },
+      { base: 0.80, amp: 0.09, k: 3.1, sp: 0.26, a: 0.60, P: P2, drive: lively ? S.low : S.all },
+    ];
+    waves.forEach((wv, wi) => {
+      const amp = h * wv.amp * (lively ? 0.35 + 1.7 * wv.drive : 0.5 + 1.0 * wv.drive);
+      const sp = wv.sp * (lively ? 1.7 : 1);
+      const foam = lively ? h * 0.045 * (1 + wi) : 0;
+      const yAt = (u: number) => h * wv.base
+        - amp * Math.sin(u * Math.PI * wv.k + S.t * sp)
+        - amp * 0.3 * Math.sin(u * Math.PI * wv.k * 2.7 - S.t * sp * 1.9)
+        - (foam ? foam * bandAt(S.bands, u) : 0);
+      g2d.beginPath();
+      g2d.moveTo(0, h);
+      for (let i = 0; i <= steps; i++) g2d.lineTo((i / steps) * w, yAt(i / steps));
+      g2d.lineTo(w, h);
+      g2d.closePath();
+      g2d.fillStyle = wv.P(wv.a * (0.7 + 0.3 * S.all));
+      g2d.fill();
+      // crest highlight
+      g2d.strokeStyle = P1(0.18 + 0.2 * S.all);
+      g2d.lineWidth = 1 * dpr;
+      g2d.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const u = i / steps;
+        if (i === 0) g2d.moveTo(0, yAt(u)); else g2d.lineTo(u * w, yAt(u));
+      }
+      g2d.stroke();
+    });
+  }
+
+  // Soft bokeh lights drifting upward. Every light listens to its own slice
+  // of the spectrum and swells / brightens with it; the drift speed follows
+  // the overall energy.
+  function drawDrift(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const count = Math.max(10, Math.min(26, Math.round((w / dpr) / 30)));
+    if (driftLights.length !== count) {
+      driftLights = Array.from({ length: count }, (_, i) => ({
+        x: Math.random(), y: Math.random(),
+        r: 0.35 + Math.random() * 0.65,
+        s: 0.6 + Math.random() * 0.8,
+        p: Math.random() * Math.PI * 2,
+        b: (i * GOLDEN) % 1,                            // the slice of the spectrum this light listens to
+      }));
+    }
+    const rise = S.dt * ambSpeed * (0.03 + 0.14 * S.all);
+    const sway = S.dt * 0.012;
+    for (let i = 0; i < driftLights.length; i++) {
+      const q = driftLights[i];
+      const lv = bandAt(S.bands, q.b);
+      q.y -= rise * q.s;
+      q.x += Math.sin(S.t * 0.5 + q.p) * sway;
+      if (q.y < -0.15) { q.y = 1.15; q.x = Math.random(); }
+      if (q.x < -0.1) q.x = 1.1; else if (q.x > 1.1) q.x = -0.1;
+      const pulse = 0.5 + 0.5 * Math.sin(S.t * 0.8 * q.s + q.p);
+      const rad = (5 + 12 * q.r) * dpr * (1 + 0.9 * lv + 0.3 * S.mid);
+      const alpha = (0.14 + 0.26 * pulse) * (0.5 + 0.9 * S.all) + 0.3 * lv;
+      const P = i % 3 === 0 ? P2 : P1;
+      const g = g2d.createRadialGradient(q.x * w, q.y * h, 0, q.x * w, q.y * h, rad);
+      g.addColorStop(0, P(alpha));
+      g.addColorStop(0.6, P(alpha * 0.35));
+      g.addColorStop(1, P(0));
+      g2d.fillStyle = g;
+      g2d.beginPath(); g2d.arc(q.x * w, q.y * h, rad, 0, Math.PI * 2); g2d.fill();
+    }
+  }
+
+  // Soft petals sailing down on a warm breeze. Each petal leans into the
+  // music through its own spectrum slice (a gentle swell, a slightly quicker
+  // spin); the breeze itself follows the mids and lifts with the energy.
+  function drawPetals(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const count = Math.max(10, Math.min(26, Math.round((w / dpr) / 30)));
+    if (petals.length !== count) {
+      petals = Array.from({ length: count }, (_, i) => ({
+        x: Math.random(), y: Math.random(),
+        s: 0.55 + Math.random() * 0.8,
+        a: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 1.6,
+        ph: Math.random() * Math.PI * 2,
+        sway: 0.6 + Math.random() * 0.8,
+        b: (i * GOLDEN) % 1,
+        c: i % 4 === 0 ? 1 : 0,
+      }));
+    }
+    const breeze = 0.012 + 0.03 * S.mid;                      // sideways wind
+    const fall = 0.035 + 0.05 * S.all;
+    const size = Math.max(5, Math.min(13, h / 11)) * dpr;
+    for (const q of petals) {
+      const lv = bandAt(S.bands, q.b);
+      q.y += S.dt * ambSpeed * fall * q.s;
+      q.x += S.dt * ambSpeed * (breeze + Math.sin(S.t * q.sway + q.ph) * 0.02);
+      q.a += S.dt * ambSpeed * q.spin * (1 + 1.2 * lv);
+      if (q.y > 1.12) { q.y = -0.12; q.x = Math.random(); }
+      if (q.x > 1.1) q.x = -0.1; else if (q.x < -0.1) q.x = 1.1;
+      const px = q.x * w, py = q.y * h;
+      const sz = size * q.s * (1 + 0.35 * lv);
+      const tilt = 0.55 + 0.45 * Math.abs(Math.sin(q.a * 0.7 + q.ph));   // petal turning in the air
+      const P = q.c ? P2 : P1;
+      g2d.save();
+      g2d.translate(px, py);
+      g2d.rotate(q.a);
+      g2d.scale(1, tilt);
+      g2d.beginPath();
+      g2d.moveTo(0, -sz);
+      g2d.bezierCurveTo(sz * 0.9, -sz * 0.6, sz * 0.9, sz * 0.5, 0, sz);
+      g2d.bezierCurveTo(-sz * 0.9, sz * 0.5, -sz * 0.9, -sz * 0.6, 0, -sz);
+      g2d.closePath();
+      g2d.fillStyle = P(0.22 + 0.26 * q.s * (0.6 + 0.4 * S.all) + 0.18 * lv);
+      g2d.fill();
+      g2d.strokeStyle = P(0.4 + 0.3 * lv);
+      g2d.lineWidth = 1 * dpr;
+      g2d.stroke();
+      g2d.restore();
+    }
+  }
+
+  // A summer meadow at dusk: tiny lights wandering lazily, each blinking to
+  // its own rhythm that speeds up with its spectrum slice; a soft ground
+  // haze breathes with the low end.
+  function drawFireflies(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const count = Math.max(16, Math.min(46, Math.round((w / dpr) / 16)));
+    if (fireflies.length !== count) {
+      fireflies = Array.from({ length: count }, (_, i) => ({
+        x: Math.random(), y: 0.15 + Math.random() * 0.85,
+        vx: 0, vy: 0,
+        ph: Math.random() * Math.PI * 2,
+        rate: 0.6 + Math.random() * 1.2,
+        b: (i * GOLDEN) % 1,
+        glow: 0.6 + Math.random() * 0.8,
+        c: i % 3 === 0 ? 1 : 0,
+      }));
+    }
+    // ground haze
+    const hz = g2d.createLinearGradient(0, h * 0.55, 0, h);
+    hz.addColorStop(0, P2(0));
+    hz.addColorStop(1, P2(0.10 + 0.14 * S.low));
+    g2d.fillStyle = hz;
+    g2d.fillRect(0, 0, w, h);
+    const wander = 0.06 + 0.10 * S.all;
+    for (const q of fireflies) {
+      const lv = bandAt(S.bands, q.b);
+      // slow random-walk steering, biased to stay in frame
+      q.vx += (Math.random() - 0.5) * 0.4 * S.dt + (0.5 - q.x) * 0.02 * S.dt;
+      q.vy += (Math.random() - 0.5) * 0.4 * S.dt + (0.6 - q.y) * 0.02 * S.dt;
+      const sp = Math.hypot(q.vx, q.vy) || 1;
+      if (sp > wander) { q.vx *= wander / sp; q.vy *= wander / sp; }
+      q.x += q.vx * S.dt * ambSpeed * 60 * 0.016;
+      q.y += q.vy * S.dt * ambSpeed * 60 * 0.016;
+      if (q.x < 0) { q.x = 0; q.vx = Math.abs(q.vx); } else if (q.x > 1) { q.x = 1; q.vx = -Math.abs(q.vx); }
+      if (q.y < 0) { q.y = 0; q.vy = Math.abs(q.vy); } else if (q.y > 1) { q.y = 1; q.vy = -Math.abs(q.vy); }
+      q.ph += S.dt * ambSpeed * q.rate * (0.8 + 1.6 * lv);
+      const blink = Math.pow(0.5 + 0.5 * Math.sin(q.ph), 3);             // short bright flashes, long soft dims
+      const a = 0.10 + 0.75 * blink * q.glow * (0.6 + 0.4 * S.all) + 0.15 * lv;
+      const r = (2 + 4 * blink + 3 * lv) * dpr;
+      const P = q.c ? P2 : P1;
+      const px = q.x * w, py = q.y * h;
+      const g = g2d.createRadialGradient(px, py, 0, px, py, r * 3);
+      g.addColorStop(0, P(a));
+      g.addColorStop(0.35, P(a * 0.35));
+      g.addColorStop(1, P(0));
+      g2d.fillStyle = g;
+      g2d.beginPath(); g2d.arc(px, py, r * 3, 0, Math.PI * 2); g2d.fill();
+      g2d.fillStyle = P(Math.min(1, a + 0.25));
+      g2d.beginPath(); g2d.arc(px, py, Math.max(0.8 * dpr, r * 0.45), 0, Math.PI * 2); g2d.fill();
+    }
+  }
+
+  // A single warm lantern glowing in the dark. The flame breathes with the
+  // music (bass → bigger, mids → livelier flicker), warm light pools around
+  // it, and little embers rise from it when the music swells.
+  function drawLantern(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const cx = w / 2, cy = h * 0.56;
+    const base = Math.min(w * 0.5, h);
+    lanternBreath += ((0.4 + 0.6 * S.low) - lanternBreath) * (1 - Math.exp(-S.dt / 0.35));
+    const flicker = 1 + (0.03 + 0.08 * S.mid) * Math.sin(S.t * 7.3) * Math.sin(S.t * 3.1 + 1) + 0.03 * Math.sin(S.t * 11.7);
+    // warm pool of light filling the frame
+    const pool = base * (0.9 + 0.5 * lanternBreath) * flicker;
+    const g0 = g2d.createRadialGradient(cx, cy, 0, cx, cy, pool);
+    g0.addColorStop(0, P2(0.28 + 0.18 * lanternBreath));
+    g0.addColorStop(0.5, P2(0.10 + 0.08 * lanternBreath));
+    g0.addColorStop(1, P2(0));
+    g2d.fillStyle = g0;
+    g2d.fillRect(0, 0, w, h);
+    // faint ground reflection
+    const rg = g2d.createLinearGradient(0, h * 0.8, 0, h);
+    rg.addColorStop(0, P1(0));
+    rg.addColorStop(1, P1(0.08 + 0.1 * lanternBreath));
+    g2d.fillStyle = rg;
+    g2d.fillRect(0, h * 0.8, w, h * 0.2);
+    // embers
+    const want = S.all > 0.35 && Math.random() < 0.05 + 0.35 * S.all ? 1 : 0;
+    if (want && lanternPuffs.length < 30) {
+      lanternPuffs.push({ x: cx + (Math.random() - 0.5) * base * 0.2, y: cy - base * 0.05, r: (1 + Math.random() * 1.8) * dpr,
+        life: 0, max: 2 + Math.random() * 2.5, drift: (Math.random() - 0.5) * 0.3 });
+    }
+    const alive: typeof lanternPuffs = [];
+    for (const q of lanternPuffs) {
+      q.life += S.dt * ambSpeed;
+      if (q.life >= q.max) continue;
+      alive.push(q);
+      const f = q.life / q.max;
+      q.y -= S.dt * ambSpeed * h * (0.12 + 0.1 * S.all);
+      q.x += Math.sin(q.life * 2 + q.drift * 10) * 0.35 * dpr + q.drift * dpr;
+      g2d.fillStyle = (Math.random() < 0.6 ? P1 : P2)(0.9 * (1 - f) * (0.6 + 0.4 * Math.sin(q.life * 6)));
+      g2d.beginPath(); g2d.arc(q.x, q.y, q.r * (1 - 0.5 * f), 0, Math.PI * 2); g2d.fill();
+    }
+    lanternPuffs = alive;
+    // the flame: outer halo, soft body, bright core
+    const fh = base * (0.30 + 0.18 * lanternBreath) * flicker;
+    const fw = fh * 0.55;
+    const halo = g2d.createRadialGradient(cx, cy - fh * 0.2, 0, cx, cy - fh * 0.2, fh * 1.6);
+    halo.addColorStop(0, P1(0.45 + 0.25 * lanternBreath));
+    halo.addColorStop(0.4, P2(0.25));
+    halo.addColorStop(1, P2(0));
+    g2d.fillStyle = halo;
+    g2d.beginPath(); g2d.arc(cx, cy - fh * 0.2, fh * 1.6, 0, Math.PI * 2); g2d.fill();
+    const lean = (0.08 + 0.15 * S.mid) * Math.sin(S.t * 2.6) * fw;
+    const flame = (scale: number, alpha: number, P: (a: number) => string) => {
+      const hh = fh * scale, ww = fw * scale;
+      g2d.beginPath();
+      g2d.moveTo(cx, cy + hh * 0.35);
+      g2d.bezierCurveTo(cx + ww, cy + hh * 0.2, cx + ww * 0.7 + lean, cy - hh * 0.45, cx + lean * 1.3, cy - hh);
+      g2d.bezierCurveTo(cx - ww * 0.7 + lean, cy - hh * 0.45, cx - ww, cy + hh * 0.2, cx, cy + hh * 0.35);
+      g2d.closePath();
+      g2d.fillStyle = P(alpha);
+      g2d.fill();
+    };
+    flame(1, 0.55, P2);
+    flame(0.66, 0.75, P1);
+    flame(0.36, 0.95, P1);
+  }
+
+  // Soap bubbles rising slowly through the frame: thin iridescent rings
+  // with a highlight, each wobbling and swelling with its own spectrum
+  // slice; when its band peaks a bubble may pop into a fading ring.
+  function drawBubbles(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const count = Math.max(10, Math.min(24, Math.round((w / dpr) / 34)));
+    if (bubbles.length !== count) {
+      bubbles = Array.from({ length: count }, (_, i) => ({
+        x: Math.random(), y: Math.random(),
+        r: 0.35 + Math.random() * 0.65,
+        s: 0.6 + Math.random() * 0.8,
+        ph: Math.random() * Math.PI * 2,
+        b: (i * GOLDEN) % 1,
+        pop: 0,
+      }));
+    }
+    const rise = 0.04 + 0.08 * S.all;
+    const size = Math.max(6, Math.min(18, h / 7)) * dpr;
+    g2d.lineCap = "round";
+    for (const q of bubbles) {
+      const lv = bandAt(S.bands, q.b);
+      const rad = size * q.r * (1 + 0.25 * lv);
+      const px = q.x * w, py = q.y * h;
+      if (q.pop > 0) {
+        q.pop += S.dt * 3.5;
+        if (q.pop >= 1) { q.pop = 0; q.y = 1.15; q.x = Math.random(); continue; }
+        g2d.beginPath(); g2d.arc(px, py, rad * (1 + 1.2 * q.pop), 0, Math.PI * 2);
+        g2d.strokeStyle = P1(0.7 * (1 - q.pop)); g2d.lineWidth = 1 * dpr; g2d.stroke();
+        continue;
+      }
+      q.y -= S.dt * ambSpeed * rise * q.s;
+      q.x += Math.sin(S.t * 0.9 * q.s + q.ph) * S.dt * 0.03;
+      if (q.y < -0.15) { q.y = 1.15; q.x = Math.random(); }
+      if (q.x < -0.05) q.x = 1.05; else if (q.x > 1.05) q.x = -0.05;
+      if (lv > 0.85 && q.y < 0.5 && Math.random() < 0.02) q.pop = 0.01;
+      const wob = 1 + 0.08 * Math.sin(S.t * 3 * q.s + q.ph) * (0.5 + lv);
+      g2d.save();
+      g2d.translate(px, py);
+      g2d.scale(wob, 1 / wob);
+      const g = g2d.createRadialGradient(0, 0, rad * 0.55, 0, 0, rad);
+      g.addColorStop(0, P1(0.02));
+      g.addColorStop(1, P1(0.14 + 0.16 * lv));
+      g2d.fillStyle = g;
+      g2d.beginPath(); g2d.arc(0, 0, rad, 0, Math.PI * 2); g2d.fill();
+      g2d.strokeStyle = P1(0.4 + 0.35 * lv); g2d.lineWidth = 1.2 * dpr; g2d.stroke();
+      g2d.beginPath(); g2d.arc(0, 0, rad * 0.72, Math.PI * 1.15, Math.PI * 1.45);
+      g2d.strokeStyle = P2(0.85); g2d.lineWidth = 1.6 * dpr; g2d.stroke();
+      g2d.restore();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+
+  // Beat-driven renderers — Glitch / Quake / Shards / Sparks
+  // They share punchSignals(): fast-attack band groups from getLevels(), a
+  // short-release energy envelope and a simple bass-onset detector (`hit`
+  // is true on the frame a beat lands, `beat` then decays 1 → 0 in about a
+  // fifth of a second). Everything is painted with the theme's --accent /
+  // --visualizer colours so dynamic album themes keep working.
+  // ---------------------------------------------------------------------
+  interface PunchSignals { d: number[]; low: number; mid: number; high: number; all: number; beat: number; hit: boolean; dt: number; t: number }
+  let pLowAvg = 0, pBeat = 0, pLast = 0, pLastHit = 0, pFlow = 0, pEnergy = 0;
+  let sparks: { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; c: number }[] = [];
+  let cracks: { pts: number[]; life: number }[] = [];
+  let glitchBuf: HTMLCanvasElement | null = null;
+  let quakeShake = 0;
+
+  function punchSignals(n: number): PunchSignals {
+    const now = performance.now();
+    const dt = pLast ? Math.min(0.1, (now - pLast) / 1000) : 1 / 60;
+    pLast = now;
+    const d = getLevels(n);
+    const silent = audio.paused && !useFake;
+    const q = Math.max(1, Math.floor(n / 4));
+    let low = 0, mid = 0, high = 0;
+    for (let i = 0; i < n; i++) {
+      if (i < q) low += d[i]; else if (i >= n - q) high += d[i]; else mid += d[i];
+    }
+    low /= q; high /= q; mid /= Math.max(1, n - 2 * q);
+    let all = (low + mid + high) / 3;
+    if (silent) low = mid = high = all = 0;
+    // bass-onset detector: the fast low band against its own ~0.7 s average
+    const onset = low - pLowAvg;
+    pLowAvg += (low - pLowAvg) * (1 - Math.exp(-dt / 0.7));
+    let hit = false;
+    if (!silent && onset > 0.08 && low > 0.25 && now - pLastHit > 170) { hit = true; pLastHit = now; pBeat = 1; }
+    else pBeat *= Math.exp(-dt / 0.16);
+    pEnergy += (all - pEnergy) * (1 - Math.exp(-dt / (all > pEnergy ? 0.05 : 0.3)));
+    pFlow += dt * (0.6 + 1.4 * pEnergy);
+    return { d, low, mid, high, all: pEnergy, beat: pBeat, hit, dt, t: pFlow };
+  }
+
+  // A smooth spectrum floor that throws glowing sparks into the
+  // air; loud bands spit more of them and every beat fires a burst.
+  function drawSparks(w: number, h: number) {
+    const dpr = dprOf();
+    const n = 32;
+    const S = punchSignals(n);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const cap = Math.round(Math.max(90, Math.min(280, (w / dpr) * 0.4)));
+    const floorH = h * 0.42;
+    const slot = w / n;
+    const top = (i: number) => h - Math.max(1.5 * dpr, S.d[Math.max(0, Math.min(n - 1, i))] * floorH);
+    g2d.beginPath();
+    g2d.moveTo(0, h); g2d.lineTo(0, top(0));
+    for (let i = 0; i < n - 1; i++) {
+      const x0 = (i + 0.5) * slot, x1 = (i + 1.5) * slot;
+      g2d.quadraticCurveTo(x0, top(i), (x0 + x1) / 2, (top(i) + top(i + 1)) / 2);
+    }
+    g2d.lineTo(w, top(n - 1)); g2d.lineTo(w, h); g2d.closePath();
+    const fg = g2d.createLinearGradient(0, h - floorH, 0, h);
+    fg.addColorStop(0, P2(0.6)); fg.addColorStop(1, P2(0.12));
+    g2d.fillStyle = fg; g2d.fill();
+    g2d.lineJoin = "round";
+    g2d.strokeStyle = P1(0.6 + 0.4 * S.beat); g2d.lineWidth = 1.5 * dpr; g2d.stroke();
+    const want = Math.round(1 + 10 * S.all + (S.hit ? 26 : 0));
+    for (let k = 0; k < want && sparks.length < cap; k++) {
+      let j = Math.floor(Math.random() * n);
+      if (Math.random() > S.d[j] && !S.hit) continue;            // loud bands spit more sparks
+      const lv = S.d[j];
+      const sp = (0.9 + 1.8 * Math.random()) * h * (0.4 + 0.6 * lv) * (S.hit ? 1.3 : 1);
+      sparks.push({
+        x: (j + Math.random()) * slot, y: top(j),
+        vx: (Math.random() - 0.5) * 0.6 * h, vy: -sp,
+        life: 0, max: 0.45 + 0.75 * Math.random(),
+        size: (1 + 2 * Math.random() + 1.5 * S.beat) * dpr,
+        c: Math.random() < 0.35 ? 1 : 0,
+      });
+    }
+    const grav = 2.4 * h;
+    const alive: typeof sparks = [];
+    for (const q of sparks) {
+      q.life += S.dt;
+      if (q.life >= q.max) continue;
+      q.vy += grav * S.dt; q.x += q.vx * S.dt; q.y += q.vy * S.dt;
+      if (q.y > h + 4 * dpr) continue;
+      alive.push(q);
+      const f = 1 - q.life / q.max;
+      g2d.fillStyle = (q.c ? P2 : P1)(0.25 + 0.75 * f);
+      g2d.beginPath(); g2d.arc(q.x, q.y, q.size * (0.5 + 0.5 * f), 0, Math.PI * 2); g2d.fill();
+    }
+    sparks = alive;
+  }
+
+  // Hard-edged bars with colour-split ghosts, dropouts, scanlines
+  // and horizontal tears that shove slices of the image sideways on beats.
+  function drawGlitch(w: number, h: number) {
+    const dpr = dprOf();
+    const n = 48;
+    const S = punchSignals(n);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    if (!glitchBuf) glitchBuf = document.createElement("canvas");
+    if (glitchBuf.width !== w || glitchBuf.height !== h) { glitchBuf.width = w; glitchBuf.height = h; }
+    const b = glitchBuf.getContext("2d")!;
+    b.clearRect(0, 0, w, h);
+    const slot = w / n, bw = Math.max(1, slot * 0.7);
+    const split = (1 + 3 * S.high + 5 * S.beat) * dpr;
+    for (let i = 0; i < n; i++) {
+      if (Math.random() < 0.015 + 0.06 * S.high) continue;        // dropouts
+      const v = S.d[i];
+      const bh = Math.max(1.5 * dpr, v * (h - 2 * dpr) * (1 + 0.1 * S.beat));
+      const x = i * slot + (slot - bw) / 2, y = h - bh;
+      b.fillStyle = P1(0.45); b.fillRect(x - split, y, bw, bh);
+      b.fillStyle = P2(0.45); b.fillRect(x + split, y, bw, bh);
+      b.fillStyle = P2(0.95); b.fillRect(x, y, bw, bh);
+      b.fillStyle = P1(1); b.fillRect(x, y, bw, Math.max(1, 2 * dpr));
+    }
+    b.fillStyle = P2(0.10);
+    for (let y = 0; y < h; y += 4 * dpr) b.fillRect(0, y, w, 1 * dpr);
+    if (S.beat > 0.3) {
+      for (let k = 0; k < 2; k++) {
+        b.fillStyle = P1(0.5 * S.beat);
+        b.fillRect(0, Math.random() * h, w, (1 + Math.random() * 4) * dpr);
+      }
+    }
+    const slices = 8, sh = h / slices;
+    const tearChance = 0.08 + 0.55 * S.beat + 0.15 * S.high;
+    for (let k = 0; k < slices; k++) {
+      const y = k * sh;
+      const off = Math.random() < tearChance ? (Math.random() - 0.5) * 2 * (3 + 30 * S.beat + 8 * S.high) * dpr : 0;
+      g2d.drawImage(glitchBuf, 0, y, w, sh, off, y, w, sh);
+    }
+  }
+
+  // A jagged seismograph trace of the waveform; beats shake the
+  // whole picture, flash it and split cracks off the trace.
+  function drawQuake(w: number, h: number) {
+    const dpr = dprOf();
+    const S = punchSignals(24);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    let td: Uint8Array;
+    if (useFake || !analyser || !timeData) {
+      if (!fakeWaveData) fakeWaveData = new Uint8Array(1024);
+      fakeWave(fakeWaveData);
+      td = fakeWaveData;
+    } else {
+      analyser.getByteTimeDomainData(timeData as any);
+      td = timeData;
+    }
+    quakeShake = S.hit ? 1 : quakeShake * Math.exp(-S.dt / 0.12);
+    const shake = quakeShake * 7 * dpr;
+    const cy = h / 2;
+    g2d.save();
+    g2d.translate((Math.random() - 0.5) * 2 * shake, (Math.random() - 0.5) * 2 * shake);
+    if (S.beat > 0.05) { g2d.fillStyle = P2(0.10 * S.beat); g2d.fillRect(-shake, -shake, w + 2 * shake, h + 2 * shake); }
+    const amp = h * 0.45 * (1 + 0.15 * S.beat);
+    const jitter = (0.5 + 6 * S.high) * dpr;
+    const step = Math.max(2 * dpr, w / 220);
+    const trace = () => {
+      g2d.beginPath();
+      for (let x = -shake; x <= w + shake; x += step) {
+        const idx = Math.min(td.length - 1, Math.max(0, Math.floor((x / w) * td.length)));
+        const y = cy + ((td[idx] - 128) / 128) * amp + (Math.random() - 0.5) * jitter;
+        if (x === -shake) g2d.moveTo(x, y); else g2d.lineTo(x, y);
+      }
+    };
+    g2d.lineJoin = "miter"; g2d.lineCap = "butt";
+    if (quakeShake > 0.05) {                                 // motion-blur ghost while the picture shakes
+      g2d.save(); g2d.translate(-shake * 1.5, shake * 0.8);
+      trace(); g2d.strokeStyle = P1(0.35 * quakeShake); g2d.lineWidth = 2 * dpr; g2d.stroke();
+      g2d.restore();
+    }
+    trace(); g2d.strokeStyle = P1(0.22); g2d.lineWidth = 7 * dpr; g2d.stroke();
+    trace(); g2d.strokeStyle = P2(0.95); g2d.lineWidth = 2 * dpr; g2d.stroke();
+    if (S.hit) {
+      const count = 3 + Math.floor(Math.random() * 3);
+      for (let k = 0; k < count && cracks.length < 16; k++) {
+        const pts: number[] = [];
+        let x = Math.random() * w, y = cy + (Math.random() - 0.5) * amp * 0.6;
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        pts.push(x, y);
+        const segs = 4 + Math.floor(Math.random() * 4);
+        for (let m = 0; m < segs; m++) {
+          x += (Math.random() - 0.5) * w * 0.07;
+          y += dir * (h * 0.06 + Math.random() * h * 0.12);
+          pts.push(x, y);
+          if (m === 1 && Math.random() < 0.6) {              // side fork
+            let fx = x, fy = y;
+            const fp: number[] = [fx, fy];
+            for (let f = 0; f < 3; f++) {
+              fx += (Math.random() < 0.5 ? -1 : 1) * (w * 0.02 + Math.random() * w * 0.04);
+              fy += dir * (h * 0.04 + Math.random() * h * 0.08);
+              fp.push(fx, fy);
+            }
+            cracks.push({ pts: fp, life: 0.08 });
+          }
+        }
+        cracks.push({ pts, life: 0 });
+      }
+    }
+    const aliveCracks: typeof cracks = [];
+    const crackLife = 0.4;
+    for (const c of cracks) {
+      c.life += S.dt;
+      if (c.life > crackLife) continue;
+      aliveCracks.push(c);
+      const a = 1 - c.life / crackLife;
+      g2d.beginPath();
+      for (let i = 0; i < c.pts.length; i += 2) {
+        if (i === 0) g2d.moveTo(c.pts[0], c.pts[1]); else g2d.lineTo(c.pts[i], c.pts[i + 1]);
+      }
+      g2d.strokeStyle = P1(0.35 * a); g2d.lineWidth = 5 * dpr; g2d.stroke();
+      g2d.strokeStyle = P1(0.95 * a); g2d.lineWidth = 1.6 * dpr; g2d.stroke();
+    }
+    cracks = aliveCracks;
+    g2d.restore();
+  }
+
+  // Two interlocking jaws of razor-sharp spikes (spectrum from the
+  // bottom edge, mirrored spectrum from the top) with instant attack,
+  // nervous tip jitter and a snap flash between the jaws on each beat.
+  function drawShards(w: number, h: number) {
+    const dpr = dprOf();
+    const custom = parseInt(container?.dataset.bars || "", 10);
+    const n = Number.isFinite(custom) && custom > 0 ? custom : 36;
+    const S = punchSignals(n);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const slot = w / n;
+    const H = h * 0.5 * (1 + 0.12 * S.beat);
+    const jit = (0.5 + 5 * S.high) * dpr;
+    const kick = S.beat > 0.5 ? (Math.random() - 0.5) * 6 * dpr : 0;
+    g2d.lineJoin = "miter"; g2d.miterLimit = 20;
+    const jaw = (fromTop: boolean) => {
+      const edge = fromTop ? 0 : h;
+      const sign = fromTop ? 1 : -1;
+      const shift = fromTop ? 0 : kick;
+      g2d.beginPath();
+      g2d.moveTo(shift - slot, edge);
+      for (let i = 0; i < n; i++) {
+        const j = fromTop ? n - 1 - i : i;                  // bass on opposite sides so the jaws interlock
+        const tipX = (i + (fromTop ? 1 : 0.5)) * slot + shift; // half-slot offset so the teeth interleave
+        const tipY = edge + sign * Math.max(2 * dpr, S.d[j] * H + (Math.random() - 0.5) * jit);
+        g2d.lineTo(tipX, tipY);
+        g2d.lineTo(tipX + slot / 2, edge);
+      }
+      g2d.lineTo(w + slot, edge);
+      g2d.closePath();
+      const g = g2d.createLinearGradient(0, edge, 0, edge + sign * H);
+      g.addColorStop(0, P2(0.95)); g.addColorStop(0.55, P2(0.8)); g.addColorStop(1, P1(0.5));
+      g2d.fillStyle = g; g2d.fill();
+      g2d.strokeStyle = P1(0.85); g2d.lineWidth = 1 * dpr; g2d.stroke();
+    };
+    jaw(false);
+    jaw(true);
+    if (S.beat > 0.02) {
+      g2d.fillStyle = P1(0.75 * S.beat);
+      g2d.fillRect(0, h / 2 - 1 * dpr, w, 2 * dpr);
+    }
+  }
+
+
   function drawPeaks(data: number[], h: number, bw: number, slot: number) {
     if (!fx.peak) return;
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    g2d.fillStyle = mix(c1, "#ffffff", 0.35);
+    const c2 = accentOrDarker(c1);
+    // Cover-derived sweep: darker accent on the bass side, lighter toward the
+    // treble side — peak caps are no longer one flat color.
+    const pg = g2d.createLinearGradient(0, 0, data.length * slot, 0);
+    pg.addColorStop(0, mix(c2, "#ffffff", 0.3));
+    pg.addColorStop(1, mix(c1, "#ffffff", 0.62));
+    g2d.fillStyle = pg;
     g2d.beginPath();
     for (let i = 0; i < data.length; i++) {
       const x = i * slot + (slot - bw) / 2;
@@ -281,13 +1053,13 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function drawBars(data: number[], w: number, h: number, gapFrac: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
+    const c2 = accentOrDarker(c1);
     const n = data.length, slot = w / n;
     const bw = Math.max(1.2 * dpr, slot * (1 - gapFrac));
     // Mirror fade reserves a thin zone at the bottom for the reflection.
     const mirH = fx.mirrorFade ? Math.max(6 * dpr, Math.min(h * 0.22, 12 * dpr)) : 0;
     const base = h - mirH - 1 * dpr;
-    const topC = fx.pale ? mix(c2, "#ffffff", 0.35) : c2;
+    const topC = fx.pale ? mix(c1, "#ffffff", 0.5) : c1;
     if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
     for (let i = 0; i < n; i++) {
       const v = data[i];
@@ -319,10 +1091,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function drawMirror(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
+    const c2 = accentOrDarker(c1);
     const n = data.length, slot = w / n, mid = h / 2;
     const bw = Math.max(1.5 * dpr, slot * 0.62);
-    const topC = fx.pale ? mix(c2, "#ffffff", 0.35) : c2;
+    const topC = fx.pale ? mix(c1, "#ffffff", 0.5) : c1;
     if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 5 * dpr; }
     for (let i = 0; i < n; i++) {
       const bh = Math.max(1.5 * dpr, data[i] * (h / 2 - 3 * dpr));
@@ -345,7 +1117,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function drawLine(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
+    const c2 = accentOrDarker(c1);
     const n = data.length;
     const px: number[] = [], py: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -391,7 +1163,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function drawSpectrumWave(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
+    const c2 = accentOrDarker(c1);
     const mid = h / 2;
     const n = data.length;
     const amp = data.map((v, i) => {
@@ -423,9 +1195,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     }
     g2d.closePath();
     const fill = g2d.createLinearGradient(0, 0, 0, h);
-    fill.addColorStop(0, fx.pale ? mix(c2, "#ffffff", 0.35) : c2);
+    fill.addColorStop(0, fx.pale ? mix(c1, "#ffffff", 0.4) : c1);
     fill.addColorStop(0.5, c1);
-    fill.addColorStop(1, fx.pale ? mix(c2, "#ffffff", 0.35) : c2);
+    fill.addColorStop(1, fx.pale ? mix(c1, "#ffffff", 0.4) : c1);
     g2d.fillStyle = fill;
     g2d.globalAlpha = 0.3;
     g2d.fill();
@@ -452,7 +1224,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function drawBlocks(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
+    const c2 = accentOrDarker(c1);
     const cols = data.length;
     const rows = 8;
     const colGap = Math.max(1 * dpr, w * 0.0035);
@@ -460,7 +1232,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const cellW = Math.max(1, (w - colGap * (cols - 1)) / cols);
     const cellH = Math.max(1, (h - rowGap * (rows - 1)) / rows);
     const grad = g2d.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, fx.pale ? mix(c2, "#ffffff", 0.35) : c2);
+    grad.addColorStop(0, fx.pale ? mix(c1, "#ffffff", 0.4) : c1);
     grad.addColorStop(1, c1);
     g2d.fillStyle = grad;
     if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 4 * dpr; }
@@ -482,7 +1254,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function drawWave() {
     const w = canvas.width, h = canvas.height;
     const dpr = dprOf();
-    const c2 = cssVar("--accent", "#0284c7");
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = accentOrDarker(c1);
     let td: Uint8Array;
     if (useFake || !analyser || !timeData) {
       if (!fakeWaveData) fakeWaveData = new Uint8Array(1024);
@@ -519,7 +1292,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function drawRadial(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
+    const c2 = accentOrDarker(c1);
     const cx = w / 2, cy = h - 2 * dpr;
     const R = h - 8 * dpr;
     const n = data.length;
@@ -534,7 +1307,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       const y0 = cy + Math.sin(theta) * 2.5 * dpr;
       const x1 = cx + Math.cos(theta) * len;
       const y1 = cy + Math.sin(theta) * len;
-      g2d.strokeStyle = mix(c1, c2, v);
+      g2d.strokeStyle = mix(c2, c1, v);
       g2d.globalAlpha = fx.pale && v > 0.72 ? 1 - (v - 0.72) * 0.8 : 1;
       g2d.lineWidth = Math.max(2 * dpr, (Math.PI * R * slot) * 0.62);
       g2d.beginPath();
@@ -547,57 +1320,11 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.lineCap = "butt";
   }
 
-  // Lissajous XY — closed loop drawn from the waveform with a delay:
-  // x = wave(t), y = wave(t - delay). With Afterglow on it turns into a
-  // phosphor-style trace.
-  function drawLissajous() {
-    const w = canvas.width, h = canvas.height;
-    const dpr = dprOf();
-    const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
-    let td: Uint8Array;
-    if (useFake || !analyser || !timeData) {
-      if (!fakeWaveData) fakeWaveData = new Uint8Array(1024);
-      fakeWave(fakeWaveData);
-      td = fakeWaveData;
-    } else {
-      analyser.getByteTimeDomainData(timeData as any);
-      td = timeData;
-    }
-    const N = td.length;
-    const delay = Math.max(16, Math.floor(N * 0.07));
-    const pad = 6 * dpr;
-    const path = () => {
-      g2d.beginPath();
-      for (let i = 0; i < N; i += 2) {
-        const xS = td[i] / 255;
-        const yS = td[(i + delay) % N] / 255;
-        const x = pad + xS * (w - pad * 2);
-        const y = pad + yS * (h - pad * 2);
-        if (i === 0) g2d.moveTo(x, y);
-        else g2d.lineTo(x, y);
-      }
-    };
-    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
-    path();
-    g2d.strokeStyle = c1;
-    g2d.globalAlpha = 0.35;
-    g2d.lineWidth = 3.5 * dpr;
-    g2d.lineJoin = "round";
-    g2d.stroke();
-    path();
-    g2d.strokeStyle = c2;
-    g2d.globalAlpha = 1;
-    g2d.lineWidth = 1.6 * dpr;
-    g2d.stroke();
-    g2d.shadowBlur = 0;
-  }
-
   // Dot Matrix — grid of dots lit by spectrum energy.
   function drawDots(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
-    const c2 = cssVar("--accent", "#0284c7");
+    const c2 = accentOrDarker(c1);
     const cols = data.length;
     const rows = 7;
     const cellW = w / cols;
@@ -609,7 +1336,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       const x = i * cellW + cellW / 2;
       for (let r = 0; r < lit; r++) {
         const y = h - (r + 0.5) * cellH;
-        g2d.fillStyle = mix(c1, c2, (r + 1) / rows);
+        g2d.fillStyle = mix(c2, c1, (r + 1) / rows);
         g2d.globalAlpha = 0.5 + 0.5 * ((r + 1) / rows);
         g2d.beginPath();
         g2d.arc(x, y, rad, 0, Math.PI * 2);
@@ -628,10 +1355,19 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       drawWave();
       return;
     }
-    if (mode === "lissajous") {
-      drawLissajous();
-      return;
-    }
+    // Ambient & beat-driven scenes (they manage their own signals/particles).
+    if (mode === "aurora" || mode === "aurora2") return drawAurora(w, h, mode === "aurora2");
+    if (mode === "tide" || mode === "tide2") return drawTide(w, h, mode === "tide2");
+    if (mode === "ripples") return drawRipples(w, h);
+    if (mode === "drift") return drawDrift(w, h);
+    if (mode === "petals") return drawPetals(w, h);
+    if (mode === "fireflies") return drawFireflies(w, h);
+    if (mode === "lantern") return drawLantern(w, h);
+    if (mode === "bubbles") return drawBubbles(w, h);
+    if (mode === "sparks") return drawSparks(w, h);
+    if (mode === "glitch") return drawGlitch(w, h);
+    if (mode === "quake") return drawQuake(w, h);
+    if (mode === "shards") return drawShards(w, h);
     // A skin can override the number of bars/columns via data-bars="N" on the
     // visualizer element; otherwise each mode uses its own sensible default.
     const defaultN = mode === "bars" ? 16

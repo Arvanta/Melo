@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Hira</title>
+<style>
+  :root {
+    --bg: #f2f1ec;
+    --ink: #141414;
+    --mute: #6b6b66;
+    --faint: #9a9a94;
+    --line: #d8d7d0;
+    --fill: #e4e3dc;
+    --accent: #141414;
+    --accent-hover: #2a2a2a;
+    --visualizer: #141414;
+    --track-bg: #d8d7d0;
+    --play-fg: #f2f1ec;
+    --danger: #c43c28;
+  }
+  html[data-theme="dark"],
+  [data-theme="dark"] {
+    --bg: #101010;
+    --ink: #efeee8;
+    --mute: #9a9a94;
+    --faint: #6a6a66;
+    --line: #2a2a28;
+    --fill: #1c1c1a;
+    --accent: #d6ff3d;
+    --accent-hover: #e6ff6a;
+    --visualizer: #d6ff3d;
+    --track-bg: #2a2a28;
+    --play-fg: #101010;
+    --danger: #e05645;
+  }
+
+  * { box-sizing: border-box; }
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 32px;
+    display: grid; place-items: center; overflow: hidden;
+    background: #cfcabe;
+    color: var(--ink);
+    font-family: "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(720px, 100%);
+    height: 188px;
+    min-width: 640px;
+    min-height: 170px;
+    margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    display: grid;
+    grid-template-columns: 168px minmax(0, 1fr) 40px;
+    grid-template-rows: minmax(0, 1fr) 28px;
+    background: var(--bg);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: none;
+    font-family: "Segoe UI", Inter, "Helvetica Neue", Arial, sans-serif;
+    container-type: inline-size;
+    container-name: hira;
+  }
+  body.tauri-main, body.tauri-main .app-shell { min-width: 640px !important; }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-width: 640px !important;
+    min-height: 170px !important; max-height: 100vh !important;
+    border-radius: 0 !important; box-shadow: none !important;
+  }
+
+  .hi-cover {
+    grid-row: 1 / -1;
+    grid-column: 1;
+    width: 100%; height: 100%;
+    min-width: 0; min-height: 0;
+    overflow: hidden;
+    background: var(--fill);
+    border-right: 1px solid var(--line);
+  }
+  .hi-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover-fallback {
+    width: 100%; height: 100%;
+    display: grid; place-items: center;
+    background: var(--ink);
+    color: var(--bg);
+    font-size: 42px; font-weight: 200; letter-spacing: -.04em;
+  }
+
+  .hi-main {
+    grid-column: 2; grid-row: 1;
+    min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+    padding: 8px 14px 8px;
+    -webkit-app-region: drag; user-select: none;
+  }
+
+  .hi-stage-slot {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex; flex-direction: column;
+    -webkit-app-region: no-drag;
+  }
+
+  .hi-top {
+    display: flex; align-items: center; gap: 4px;
+    -webkit-app-region: no-drag;
+    flex-shrink: 0;
+    height: 22px;
+    position: relative;
+    z-index: 20;
+  }
+  .hi-menu {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .hi-menu > summary {
+    list-style: none; cursor: pointer;
+    height: 22px; padding: 0 2px 0 0;
+    display: flex; align-items: center;
+    font-size: 9px; font-weight: 700; letter-spacing: .28em;
+    text-transform: uppercase; color: var(--ink);
+    border: 0; background: transparent;
+  }
+  .hi-menu > summary::-webkit-details-marker { display: none; }
+  .hi-menu > summary:hover,
+  .hi-menu[open] > summary { color: var(--mute); }
+  .hi-skin {
+    font-size: 9px; font-weight: 700; letter-spacing: .28em;
+    text-transform: uppercase; color: var(--faint);
+    pointer-events: none;
+  }
+  .hi-pop {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+    min-width: 132px; padding: 4px;
+    background: var(--bg); border: 1px solid var(--line);
+  }
+  .hi-pop button {
+    width: 100%; height: 28px; padding: 0 8px; border: 0;
+    display: flex; align-items: center; gap: 8px;
+    background: transparent; color: var(--ink); cursor: pointer; font-size: 12px;
+  }
+  .hi-pop button:hover { background: var(--fill); }
+  .hi-pop svg { width: 12px; height: 12px; color: var(--mute); }
+
+  .hi-embed-btns {
+    margin-left: auto;
+    display: flex; gap: 0;
+  }
+  .hi-embed-btns button {
+    width: 24px; height: 22px; padding: 0; border: 0;
+    display: grid; place-items: center; cursor: pointer;
+    color: var(--mute); background: transparent;
+  }
+  .hi-embed-btns button:hover { color: var(--ink); background: var(--fill); }
+  .hi-embed-btns svg { width: 12px; height: 12px; }
+  html.melo-show-playlist [data-melo="toggle-embedded-playlist"],
+  html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] {
+    color: var(--ink); background: var(--fill);
+  }
+
+  .hi-meta { min-width: 0; margin-top: 6px; padding-right: 0; }
+  .track-title {
+    font-size: 18px; font-weight: 600; letter-spacing: -.03em; line-height: 1.35;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .track-artist {
+    margin-top: 3px; font-size: 11px; color: var(--mute);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .track-album, .track-format { display: none; }
+  html.melo-show-playlist .hi-meta,
+  html.melo-show-lyrics .hi-meta {
+    visibility: visible;
+    max-width: 50%;
+    padding-right: 10px;
+  }
+
+  .hi-embed {
+    position: absolute;
+    top: 22px; right: 0; bottom: 0; left: auto;
+    width: 50%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    display: none !important;
+    background: var(--bg);
+    border-left: 1px solid var(--line);
+    z-index: 8;
+    -webkit-app-region: no-drag;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--faint) transparent;
+  }
+  html.melo-show-playlist [data-melo="embedded-playlist"],
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  html:not(.melo-show-playlist) [data-melo="embedded-playlist"],
+  html:not(.melo-show-lyrics) [data-melo="embedded-lyrics"] { display: none !important; }
+  .hi-embed .embedded-playlist,
+  .hi-embed .embedded-lyrics {
+    height: auto !important;
+    min-height: 100%;
+    overflow: visible !important;
+  }
+  .hi-embed::-webkit-scrollbar { width: 6px; }
+  .hi-embed::-webkit-scrollbar-track { background: transparent; }
+  .hi-embed::-webkit-scrollbar-thumb { background: var(--faint); }
+
+  .hi-seek {
+    margin-top: 6px;
+    display: grid; grid-template-columns: 28px minmax(0,1fr) 28px;
+    gap: 8px; align-items: center;
+    -webkit-app-region: no-drag;
+    flex-shrink: 0;
+  }
+  .hi-time {
+    font: 500 9px/1 ui-monospace, "Cascadia Mono", monospace;
+    color: var(--faint); font-variant-numeric: tabular-nums;
+  }
+  #durTime { text-align: right; }
+  .seek, .vol {
+    -webkit-appearance: none; appearance: none; outline: none; cursor: pointer;
+    height: 2px; width: 100%; min-width: 0; border-radius: 0;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress,0%), var(--track-bg) var(--progress,0%), var(--track-bg) 100%);
+  }
+  .seek::-webkit-slider-thumb, .vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 8px; height: 8px; border-radius: 0;
+    background: var(--accent); border: 0;
+  }
+
+  .transport {
+    margin-top: 11px;
+    display: flex; align-items: center; gap: 0;
+    -webkit-app-region: no-drag;
+    flex-shrink: 0;
+  }
+  .transport button {
+    width: 30px; height: 30px; padding: 0; border: 0;
+    display: grid; place-items: center; cursor: pointer; flex-shrink: 0;
+    color: var(--mute); background: transparent;
+  }
+  .transport button:hover { color: var(--ink); background: var(--fill); }
+  .transport button.active { color: var(--accent); }
+  .transport button svg { width: 14px; height: 14px; }
+  .transport .play-btn {
+    width: 30px; height: 30px; margin: 0 6px;
+    color: var(--play-fg); background: var(--accent);
+  }
+  .transport .play-btn:hover { color: var(--play-fg); background: var(--accent-hover); }
+  .transport .play-btn svg { width: 14px; height: 14px; }
+  #btnStop { display: none; }
+  body.show-stop-btn #btnStop { display: grid !important; }
+
+  .hi-vol {
+    margin-left: auto;
+    display: grid; grid-template-columns: 14px 72px 26px;
+    gap: 6px; align-items: center; min-width: 0;
+  }
+  #volIcon { display: grid; place-items: center; color: var(--mute); cursor: pointer; }
+  #volIcon:hover { color: var(--ink); }
+  .vol { background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol,60%), var(--track-bg) var(--vol,60%), var(--track-bg) 100%); }
+  #volPct { font: 500 8px/1 ui-monospace, monospace; color: var(--faint); text-align: right; }
+  @container hira (max-width: 700px) {
+    #volPct { display: none; }
+    .hi-vol { grid-template-columns: 14px 64px; }
+  }
+
+  .hi-rail {
+    grid-column: 3; grid-row: 1 / -1;
+    border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 4px 0;
+    -webkit-app-region: no-drag;
+    background: var(--bg);
+  }
+  .hi-rail button {
+    width: 28px; height: 22px; padding: 0; border: 0;
+    display: grid; place-items: center; cursor: pointer;
+    color: var(--mute); background: transparent;
+  }
+  .hi-rail button:hover { color: var(--ink); background: var(--fill); }
+  .hi-rail button.active { color: var(--accent); }
+  .hi-rail svg { width: 12px; height: 12px; }
+  .hi-rail .win-btn { font-size: 13px; line-height: 1; color: var(--faint); height: 20px; }
+  .hi-rail .win-btn.close { height: 22px; font-size: 15px; }
+  .hi-rail .win-btn.close:hover { color: #fff; background: var(--danger); }
+  .hi-spacer { flex: 1; min-height: 4px; -webkit-app-region: drag; width: 100%; }
+
+  .hi-viz-row {
+    grid-column: 2; grid-row: 2;
+    min-width: 0; min-height: 0;
+    border-top: 1px solid var(--line);
+  }
+  .hi-viz.visualizer-bars {
+    height: 27px !important; max-height: 27px !important;
+    width: 100% !important; min-width: 0;
+    overflow: hidden; cursor: pointer; display: block !important;
+  }
+  .hi-viz canvas { width: 100% !important; height: 27px !important; display: block; }
+
+  @container hira (max-height: 179px) {
+    .hi-viz-row { display: none !important; }
+  }
+  @media (max-height: 179px) {
+    #melo-player,
+    body.tauri-main .player-card,
+    body.custom-skin-active .player-card {
+      grid-template-rows: minmax(0, 1fr) !important;
+    }
+    .hi-viz-row { display: none !important; }
+  }
+</style>
+</head>
+<body data-window-width="720" data-window-height="188" data-min-width="640" data-min-height="170" data-max-width="920" data-max-height="240" data-resizable="true">
+<div id="melo-player">
+  <div class="hi-cover" id="coverWrap">
+    <img id="coverImg" alt="" style="display:none" />
+    <div id="coverFallback" class="cover-fallback">H</div>
+  </div>
+
+  <div class="hi-main" data-tauri-drag-region>
+    <div class="hi-stage-slot">
+      <div class="hi-top">
+        <details class="hi-menu">
+          <summary title="Melo">Melo</summary>
+          <div class="hi-pop">
+            <button id="btnAddFiles" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+              Add files
+            </button>
+            <button id="btnAddFolder" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Add folder
+            </button>
+            <button id="btnThemeToggle" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/></svg>
+              Theme
+            </button>
+          </div>
+        </details>
+        <span class="hi-skin">· Hira</span>
+        <div class="hi-embed-btns">
+          <button type="button" data-melo="toggle-embedded-playlist" title="Playlist">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3M16 6H3M12 18H3"/></svg>
+          </button>
+          <button type="button" data-melo="toggle-embedded-lyrics" title="Lyrics">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="hi-meta">
+        <div class="track-title" id="trackTitle">No track loaded</div>
+        <div class="track-artist" id="trackArtist">Choose music to begin</div>
+        <div class="track-album" id="trackAlbum"></div>
+        <div class="track-format"><span id="trackCodec">—</span><span id="trackSpecs"></span></div>
+      </div>
+      <div class="hi-embed" data-melo="embedded-playlist"></div>
+      <div class="hi-embed" data-melo="embedded-lyrics"></div>
+    </div>
+
+    <div class="hi-seek seek-row">
+      <span class="hi-time" id="curTime">0:00</span>
+      <input class="seek" id="seekBar" type="range" min="0" max="100" value="0" />
+      <span class="hi-time" id="durTime">0:00</span>
+    </div>
+
+    <div class="transport">
+      <button id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+      <button id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+      <button id="btnStop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="0"/></svg></button>
+      <button class="play-btn" id="btnPlay" title="Play / Pause">
+        <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <button id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+      <button id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+      <div class="hi-vol volume-row">
+        <span id="volIcon" title="Mute"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg></span>
+        <input class="vol" id="volBar" type="range" min="0" max="100" value="60" />
+        <span id="volPct">60%</span>
+      </div>
+    </div>
+  </div>
+
+  <aside class="hi-rail">
+    <button class="win-btn close" aria-label="close" title="Close">×</button>
+    <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+    <div class="hi-spacer" data-tauri-drag-region></div>
+    <button id="btnToggleLibrary" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+    <button id="btnTogglePlaylist" title="Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg></button>
+    <button id="btnToggleLyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg></button>
+    <button id="btnToggleEq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/></svg></button>
+    <button id="btnOpenSettings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+  </aside>
+
+  <div class="hi-viz-row">
+    <div class="hi-viz visualizer-bars" id="vizBars" data-melo="visualizer" data-bars="48"></div>
+  </div>
+</div>
+</body>
+</html>

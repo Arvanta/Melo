@@ -47,6 +47,15 @@ const DEFAULT_SKIN_SLATE: &str = include_str!("../../skins/slate.html");
 const DEFAULT_SKIN_SILK_ORBIT: &str = include_str!("../../skins/silk-orbit.html");
 const DEFAULT_SKIN_IVORY: &str = include_str!("../../skins/ivory.html");
 const DEFAULT_SKIN_MICROLINE: &str = include_str!("../../skins/microline.html");
+// Bundled community skins
+const DEFAULT_SKIN_ARIA: &str = include_str!("../../skins/aria.html");
+const DEFAULT_SKIN_GRAPHITE: &str = include_str!("../../skins/graphite.html");
+const DEFAULT_SKIN_HAVEN: &str = include_str!("../../skins/haven.html");
+const DEFAULT_SKIN_HIRA: &str = include_str!("../../skins/hira.html");
+const DEFAULT_SKIN_KOTO: &str = include_str!("../../skins/koto.html");
+const DEFAULT_SKIN_LUMEN: &str = include_str!("../../skins/lumen.html");
+const DEFAULT_SKIN_MICROLINE_V: &str = include_str!("../../skins/microline-v.html");
+const DEFAULT_SKIN_MIST: &str = include_str!("../../skins/mist.html");
 
 // ---- Helpers ----
 
@@ -231,6 +240,23 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
     if !f8.exists() {
         let _ = std::fs::write(f8, DEFAULT_SKIN_MICROLINE);
     }
+    // Bundled community skins (written only when missing, so a newer
+    // local edit by the user is never overwritten)
+    for (fname, content) in [
+        ("aria.html", DEFAULT_SKIN_ARIA),
+        ("graphite.html", DEFAULT_SKIN_GRAPHITE),
+        ("haven.html", DEFAULT_SKIN_HAVEN),
+        ("hira.html", DEFAULT_SKIN_HIRA),
+        ("koto.html", DEFAULT_SKIN_KOTO),
+        ("lumen.html", DEFAULT_SKIN_LUMEN),
+        ("microline-v.html", DEFAULT_SKIN_MICROLINE_V),
+        ("mist.html", DEFAULT_SKIN_MIST),
+    ] {
+        let f = skins_dir.join(fname);
+        if !f.exists() {
+            let _ = std::fs::write(f, content);
+        }
+    }
 }
 
 // ---- Tauri Commands ----
@@ -324,6 +350,15 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
         "silk-orbit.html" | "silk-orbit" => Ok(DEFAULT_SKIN_SILK_ORBIT.to_string()),
         "ivory.html" | "ivory" => Ok(DEFAULT_SKIN_IVORY.to_string()),
         "microline.html" | "microline" => Ok(DEFAULT_SKIN_MICROLINE.to_string()),
+        // Bundled community skins
+        "aria.html" | "aria" => Ok(DEFAULT_SKIN_ARIA.to_string()),
+        "graphite.html" | "graphite" => Ok(DEFAULT_SKIN_GRAPHITE.to_string()),
+        "haven.html" | "haven" => Ok(DEFAULT_SKIN_HAVEN.to_string()),
+        "hira.html" | "hira" => Ok(DEFAULT_SKIN_HIRA.to_string()),
+        "koto.html" | "koto" => Ok(DEFAULT_SKIN_KOTO.to_string()),
+        "lumen.html" | "lumen" => Ok(DEFAULT_SKIN_LUMEN.to_string()),
+        "microline-v.html" | "microline-v" => Ok(DEFAULT_SKIN_MICROLINE_V.to_string()),
+        "mist.html" | "mist" => Ok(DEFAULT_SKIN_MIST.to_string()),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }
 }

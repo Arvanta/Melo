@@ -461,6 +461,15 @@ const WEB_SKINS_LIST: SkinItem[] = [
   { id: "silk-orbit", name: "Silk Orbit", filename: "silk-orbit.html" },
   { id: "ivory", name: "Ivory", filename: "ivory.html" },
   { id: "microline", name: "Microline", filename: "microline.html" },
+  // Community skins (bundled)
+  { id: "aria", name: "Aria", filename: "aria.html" },
+  { id: "graphite", name: "Graphite", filename: "graphite.html" },
+  { id: "haven", name: "Haven", filename: "haven.html" },
+  { id: "hira", name: "Hira", filename: "hira.html" },
+  { id: "koto", name: "Koto", filename: "koto.html" },
+  { id: "lumen", name: "Lumen", filename: "lumen.html" },
+  { id: "microline-v", name: "Microline V (Vertical)", filename: "microline-v.html" },
+  { id: "mist", name: "Mist", filename: "mist.html" },
 ];
 
 export function isFullHtmlSkin(htmlText: string): boolean {

@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Haven</title>
+<style>
+  /* ------------------------------------------------------------------
+     HAVEN — a quiet place to listen.
+     Soft mesh-gradient surface, frosted-glass panels, pill controls and
+     one slow breathing halo behind the artwork (only while playing).
+     ------------------------------------------------------------------ */
+  :root {
+    --hv-bg: #e6e2da;
+    --hv-card: #f7f5f0;
+    --hv-tint: #efdcc6;
+    --hv-ink: #262c2a;
+    --hv-soft: #626d69;
+    --hv-mute: #97a19c;
+    --hv-line: rgba(38, 44, 42, .08);
+    --hv-wash: rgba(38, 44, 42, .055);
+    --hv-glass: rgba(255, 255, 255, .5);
+    --hv-glass-line: rgba(255, 255, 255, .7);
+    --hv-glass-hi: rgba(255, 255, 255, .85);
+    --hv-glass-shadow: 0 12px 32px -14px rgba(38, 44, 42, .22);
+    --hv-edge: rgba(255, 255, 255, .6);
+    --accent: #5e958a;
+    --accent-hover: color-mix(in srgb, var(--accent) 84%, #1c2b28);
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 32%, transparent);
+    --visualizer: #7fb1a6;
+    --track-bg: rgba(38, 44, 42, .11);
+    --hv-play-fg: #f7fbf9;
+    --hv-shadow: 0 30px 70px rgba(38, 44, 42, .16), 0 3px 10px rgba(38, 44, 42, .06);
+    --hv-radius: 22px;
+  }
+  html[data-theme="dark"],
+  [data-theme="dark"] {
+    --hv-bg: #0c1010;
+    --hv-card: #151b1a;
+    --hv-tint: #2b3148;
+    --hv-ink: #e8e6df;
+    --hv-soft: #a4ada9;
+    --hv-mute: #6c7672;
+    --hv-line: rgba(232, 230, 223, .08);
+    --hv-wash: rgba(232, 230, 223, .06);
+    --hv-glass: rgba(255, 255, 255, .045);
+    --hv-glass-line: rgba(255, 255, 255, .08);
+    --hv-glass-hi: rgba(255, 255, 255, .07);
+    --hv-glass-shadow: 0 12px 32px -14px rgba(0, 0, 0, .7);
+    --hv-edge: rgba(255, 255, 255, .08);
+    --accent: #86bfb1;
+    --accent-hover: color-mix(in srgb, var(--accent) 86%, #ffffff);
+    --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 36%, transparent);
+    --visualizer: #86bfb1;
+    --track-bg: rgba(232, 230, 223, .12);
+    --hv-play-fg: #0f1817;
+    --hv-shadow: 0 30px 70px rgba(0, 0, 0, .55), 0 3px 10px rgba(0, 0, 0, .35);
+  }
+
+  * { box-sizing: border-box; }
+
+  /* preview backdrop (outside the app only) */
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center; overflow: hidden;
+    background:
+      radial-gradient(70% 60% at 20% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+      var(--hv-bg);
+    color: var(--hv-ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+  }
+
+  /* ---------------- card ---------------- */
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(760px, 100%);
+    height: 300px;
+    min-width: 700px;
+    min-height: 280px;
+    margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    container-type: size;
+    container-name: haven;
+    display: grid;
+    grid-template-rows: 40px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    background:
+      radial-gradient(55% 65% at 4% 6%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%),
+      radial-gradient(48% 60% at 98% 104%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%),
+      radial-gradient(42% 48% at 70% 2%, color-mix(in srgb, var(--hv-tint) 70%, transparent), transparent 72%),
+      var(--hv-card);
+    color: var(--hv-ink);
+    border: 1px solid var(--hv-edge);
+    border-radius: var(--hv-radius);
+    box-shadow: var(--hv-shadow);
+    font-family: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    border-radius: var(--hv-radius) !important; box-shadow: none !important;
+  }
+
+  /* shared frosted-glass surface */
+  .hv-glass {
+    background: var(--hv-glass);
+    border: 1px solid var(--hv-glass-line);
+    box-shadow: inset 0 1px 0 var(--hv-glass-hi), var(--hv-glass-shadow);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+
+  /* ---------------- title bar ---------------- */
+  .hv-bar {
+    position: relative;
+    display: flex; align-items: center; gap: 8px;
+    height: 40px; min-width: 0;
+    padding: 0 12px 0 14px;
+    -webkit-app-region: drag;
+  }
+  .hv-menu {
+    -webkit-app-region: no-drag;
+    position: relative; flex-shrink: 0;
+    display: flex; align-items: center; height: 100%;
+  }
+  .hv-menu > summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    height: 28px; padding: 0 10px 0 8px; border-radius: 999px;
+    font-size: 12.5px; font-weight: 600; letter-spacing: .03em;
+    color: var(--hv-ink);
+    transition: background .15s ease;
+  }
+  .hv-menu > summary::-webkit-details-marker { display: none; }
+  .hv-menu > summary:hover, .hv-menu[open] > summary { background: var(--hv-wash); }
+  .hv-mark {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .hv-menu-pop {
+    position: absolute; top: calc(100% + 2px); left: 0; z-index: 30;
+    min-width: 168px; padding: 6px;
+    display: flex; flex-direction: column; gap: 1px;
+    background: color-mix(in srgb, var(--hv-card) 88%, transparent);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    border: 1px solid var(--hv-glass-line); border-radius: 14px;
+    box-shadow: inset 0 1px 0 var(--hv-glass-hi), 0 18px 44px rgba(38, 44, 42, .18), 0 2px 6px rgba(38, 44, 42, .06);
+    transform-origin: top left;
+    animation: hv-pop .16s ease-out;
+  }
+  [data-theme="dark"] .hv-menu-pop { box-shadow: inset 0 1px 0 var(--hv-glass-hi), 0 18px 44px rgba(0, 0, 0, .55); }
+  .hv-menu-pop button {
+    display: flex; align-items: center; gap: 10px;
+    height: 32px; padding: 0 10px; border: 0; border-radius: 9px;
+    background: transparent; color: var(--hv-ink); cursor: pointer;
+    font: 500 11.5px/1 "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif; text-align: left;
+    transition: background .15s ease;
+  }
+  .hv-menu-pop button:hover { background: var(--hv-wash); }
+  .hv-menu-pop svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--hv-soft); }
+
+  /* segmented control */
+  .hv-seg {
+    -webkit-app-region: no-drag;
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    display: flex; align-items: center; gap: 2px;
+    padding: 3px; border-radius: 999px;
+    background: var(--hv-glass);
+    border: 1px solid var(--hv-glass-line);
+    box-shadow: inset 0 1px 0 var(--hv-glass-hi), var(--hv-glass-shadow);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+  .hv-tab {
+    height: 22px; padding: 0 12px; border: 0; border-radius: 999px;
+    background: transparent; color: var(--hv-mute); cursor: pointer;
+    font: 600 9.5px/1 "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+    letter-spacing: .14em; text-transform: uppercase;
+    transition: color .15s ease, background .15s ease, box-shadow .15s ease;
+  }
+  .hv-tab:hover { color: var(--hv-ink); }
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) [data-melo="toggle-embedded-viz"],
+  html.melo-show-playlist [data-melo="toggle-embedded-playlist"],
+  html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] {
+    color: var(--accent);
+    background: var(--hv-card);
+    box-shadow: 0 2px 6px -1px rgba(38, 44, 42, .18), 0 0 0 1px var(--hv-line);
+  }
+  [data-theme="dark"] html:not(.melo-show-playlist):not(.melo-show-lyrics) [data-melo="toggle-embedded-viz"],
+  html[data-theme="dark"].melo-show-playlist [data-melo="toggle-embedded-playlist"],
+  html[data-theme="dark"].melo-show-lyrics [data-melo="toggle-embedded-lyrics"] {
+    background: color-mix(in srgb, var(--hv-ink) 12%, var(--hv-card));
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .08);
+  }
+
+  .hv-win { -webkit-app-region: no-drag; margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
+  .hv-win button {
+    width: 28px; height: 26px; padding: 0; border: 0; border-radius: 8px;
+    display: grid; place-items: center; cursor: pointer;
+    color: var(--hv-soft); background: transparent;
+    transition: background .15s ease, color .15s ease;
+  }
+  .hv-win button:hover { color: var(--hv-ink); background: var(--hv-wash); }
+  .hv-win button.close:hover { color: var(--hv-play-fg); background: var(--accent); }
+  .hv-win svg { width: 12px; height: 12px; }
+
+  /* ---------------- body ---------------- */
+  .hv-body {
+    --cover: clamp(150px, calc(100cqh - 112px), 250px);
+    min-width: 0; min-height: 0; overflow: hidden;
+    display: grid;
+    grid-template-columns: var(--cover) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 22px;
+    padding: 10px 20px 18px 20px;
+  }
+
+  /* artwork + dock */
+  .hv-side {
+    min-width: 0; min-height: 0;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 10px;
+  }
+  .hv-art { position: relative; width: var(--cover); height: var(--cover); flex: 0 0 auto; }
+  .hv-halo {
+    position: absolute; inset: -9%; border-radius: 50%; z-index: 0; pointer-events: none;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
+    filter: blur(18px);
+    opacity: .34; transform: translateY(4%) scale(.96);
+  }
+  /* breathe only while playing (the app flips the pause-icon to display:block) */
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .hv-halo,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .hv-halo {
+    animation: hv-breathe 7.5s ease-in-out infinite;
+  }
+  .hv-cover {
+    position: relative; z-index: 1;
+    width: 100%; height: 100%;
+    border-radius: 20px; overflow: hidden;
+    background: var(--hv-wash);
+    box-shadow:
+      inset 0 0 0 1px var(--hv-glass-line),
+      0 22px 44px -16px color-mix(in srgb, var(--hv-ink) 45%, transparent),
+      0 2px 6px color-mix(in srgb, var(--hv-ink) 8%, transparent);
+  }
+  .hv-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hv-fallback {
+    position: relative;
+    width: 100%; height: 100%; display: grid; place-items: center;
+    background:
+      radial-gradient(70% 70% at 30% 20%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%),
+      linear-gradient(160deg, var(--hv-card), color-mix(in srgb, var(--hv-card) 88%, var(--hv-ink)));
+    color: var(--accent);
+  }
+  .hv-fallback svg { width: 54%; height: auto; }
+  .hv-fallback span {
+    position: absolute; bottom: 11px; left: 50%; transform: translateX(-50%);
+    font-size: 7.5px; font-weight: 700; letter-spacing: .3em; white-space: nowrap;
+    color: var(--hv-mute);
+  }
+
+  .hv-dock {
+    width: var(--cover);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px; border-radius: 999px;
+  }
+  .hv-dock button {
+    width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%;
+    display: grid; place-items: center; cursor: pointer; flex-shrink: 0;
+    color: var(--hv-soft); background: transparent;
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  .hv-dock button:hover { color: var(--hv-ink); background: var(--hv-wash); }
+  .hv-dock button:active { transform: scale(.92); }
+  .hv-dock button.active { color: var(--accent); background: var(--accent-soft); }
+  .hv-dock svg { width: 14px; height: 14px; }
+
+  /* ---------------- main column ---------------- */
+  .hv-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 9px; }
+  .hv-meta { min-width: 0; flex-shrink: 0; padding-top: 4px; }
+  .hv-title {
+    font-size: clamp(20px, 2.7vw, 24px); font-weight: 600; letter-spacing: -.022em; line-height: 1.15;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .hv-sub {
+    margin-top: 4px; min-width: 0;
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; font-weight: 500; color: var(--hv-soft);
+  }
+  .hv-sub > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hv-artist { flex: 0 1 auto; }
+  .hv-album { flex: 0 1 auto; font-weight: 400; color: var(--hv-mute); }
+  .hv-dot { flex: 0 0 auto; width: 3px; height: 3px; border-radius: 50%; background: var(--hv-mute); }
+  .hv-sub:has(.hv-album:empty) .hv-dot { display: none; }
+  .hv-format { margin-top: 7px; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--hv-mute); }
+  .hv-format > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hv-chip {
+    flex-shrink: 0; padding: 2px 8px; border-radius: 999px;
+    color: var(--accent); background: var(--accent-soft); font-weight: 700;
+  }
+  .hv-chip:empty { display: none; }
+  /* tiny "now playing" bars — only while playing */
+  .hv-live { display: none; align-items: flex-end; gap: 2px; height: 10px; flex-shrink: 0; margin-right: 1px; }
+  .hv-live i { display: block; width: 3px; height: 30%; border-radius: 2px; background: var(--accent); animation: hv-eq 1.1s ease-in-out infinite; }
+  .hv-live i:nth-child(2) { animation-delay: -.36s; }
+  .hv-live i:nth-child(3) { animation-delay: -.72s; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .hv-live,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .hv-live { display: flex; }
+
+  /* stage: visualizer / queue / lyrics share one frosted panel */
+  .hv-stage {
+    position: relative; flex: 1 1 auto; min-height: 40px; min-width: 0;
+    border-radius: 14px; overflow: hidden;
+  }
+  .hv-viz { position: absolute; inset: 0; padding: 8px 10px; cursor: pointer; }
+  .hv-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+  html.melo-show-playlist .hv-viz,
+  html.melo-show-lyrics .hv-viz { display: none !important; }
+
+  .hv-embed { position: absolute; inset: 0; overflow: auto; padding: 6px 7px; display: none !important; font-size: 12px; }
+  html.melo-show-playlist [data-melo="embedded-playlist"],
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  html:not(.melo-show-playlist) [data-melo="embedded-playlist"],
+  html:not(.melo-show-lyrics) [data-melo="embedded-lyrics"] { display: none !important; }
+  .hv-embed .embedded-playlist, .hv-embed .embedded-lyrics { height: 100% !important; min-height: 100%; }
+  .hv-embed .embedded-playlist-row { border-radius: 9px; padding: 3px 8px; gap: 8px; color: var(--hv-ink); }
+  .hv-embed .embedded-playlist-row:hover { background: var(--hv-wash); }
+  .hv-embed .embedded-playlist-row.active { background: var(--accent-soft); color: var(--accent); }
+  .hv-embed .embedded-playlist-row.active .t-title { color: var(--accent); font-weight: 600; }
+  .hv-embed .embedded-playlist-mini .t-title { color: var(--hv-ink); }
+  .hv-embed .track-cover-mini { border-radius: 5px; }
+  .hv-embed .embedded-playlist-empty { color: var(--hv-mute); padding: 18px 8px; }
+  .hv-embed .embedded-lyrics-title { display: none; }
+  .hv-embed .lyric-line {
+    font-size: 11.5px; font-weight: 500; line-height: 1.5; padding: 3px 9px; border-radius: 9px;
+    color: var(--hv-mute); transform: none !important; text-shadow: none;
+  }
+  .hv-embed .lyric-line:hover { color: var(--hv-soft); background: var(--hv-wash); }
+  .hv-embed .lyric-line.passed { color: var(--hv-soft); opacity: .6; }
+  .hv-embed .lyric-line.active { font-size: 12.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
+  .hv-embed .embedded-lyrics:empty::after {
+    content: "No synced lyrics for this track";
+    display: block; padding: 18px 8px; text-align: center;
+    font-size: 11px; color: var(--hv-mute);
+  }
+  /* slim sage scrollbar */
+  .hv-embed, .hv-embed .embedded-playlist, .hv-embed .embedded-lyrics {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent;
+  }
+  .hv-embed::-webkit-scrollbar,
+  .hv-embed .embedded-playlist::-webkit-scrollbar,
+  .hv-embed .embedded-lyrics::-webkit-scrollbar { width: 4px; }
+  .hv-embed::-webkit-scrollbar-track,
+  .hv-embed .embedded-playlist::-webkit-scrollbar-track,
+  .hv-embed .embedded-lyrics::-webkit-scrollbar-track { background: transparent; margin: 5px 0; }
+  .hv-embed::-webkit-scrollbar-thumb,
+  .hv-embed .embedded-playlist::-webkit-scrollbar-thumb,
+  .hv-embed .embedded-lyrics::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 999px; min-height: 24px;
+  }
+  .hv-embed::-webkit-scrollbar-thumb:hover,
+  .hv-embed .embedded-playlist::-webkit-scrollbar-thumb:hover,
+  .hv-embed .embedded-lyrics::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  /* seek */
+  .hv-seek { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; gap: 10px; align-items: center; flex-shrink: 0; }
+  .hv-time { font-size: 10.5px; font-weight: 500; color: var(--hv-mute); font-variant-numeric: tabular-nums; }
+  .hv-time.end { text-align: right; }
+  .hv-range {
+    -webkit-appearance: none; appearance: none; outline: none; cursor: pointer;
+    height: 16px; width: 100%; min-width: 0; margin: 0; background: transparent;
+  }
+  .hv-range.is-seek::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right, color-mix(in srgb, var(--accent) 70%, #fff) 0%, var(--accent) var(--progress, 0%), var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .hv-range.is-seek::-moz-range-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right, color-mix(in srgb, var(--accent) 70%, #fff) 0%, var(--accent) var(--progress, 0%), var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .hv-range.is-vol::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol, 60%), var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .hv-range.is-vol::-moz-range-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol, 60%), var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .hv-range::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4px; border-radius: 50%;
+    background: #fff; border: 0;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--hv-ink) 12%, transparent), 0 2px 6px rgba(0, 0, 0, .18);
+    opacity: 0; transform: scale(.6); transition: opacity .16s ease, transform .16s ease;
+  }
+  .hv-range::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #fff; border: 0;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--hv-ink) 12%, transparent), 0 2px 6px rgba(0, 0, 0, .18);
+    opacity: 0; transform: scale(.6); transition: opacity .16s ease, transform .16s ease;
+  }
+  .hv-range:hover::-webkit-slider-thumb, .hv-range:active::-webkit-slider-thumb { opacity: 1; transform: scale(1); }
+  .hv-range:hover::-moz-range-thumb, .hv-range:active::-moz-range-thumb { opacity: 1; transform: scale(1); }
+
+  /* transport + volume */
+  .hv-ctl { display: flex; align-items: center; gap: 2px; flex-shrink: 0; min-width: 0; }
+  .hv-btn {
+    width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+    color: var(--hv-soft); background: transparent;
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  .hv-btn:hover { color: var(--hv-ink); background: var(--hv-wash); }
+  .hv-btn:active { transform: scale(.92); }
+  .hv-btn.active { color: var(--accent); background: var(--accent-soft); }
+  .hv-btn svg { width: 15px; height: 15px; }
+  .hv-play {
+    width: 62px; height: 40px; margin: 0 8px; border-radius: 999px;
+    color: var(--hv-play-fg); background: var(--accent);
+    transition: background .18s ease, transform .12s ease;
+  }
+  .hv-play:hover { color: var(--hv-play-fg); background: var(--accent-hover); }
+  .hv-play:active { transform: scale(.96); }
+  .hv-play svg { width: 18px; height: 18px; }
+
+  .hv-vol { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .hv-vol-ico {
+    width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+    display: grid; place-items: center; color: var(--hv-soft);
+    transition: background .15s ease, color .15s ease, opacity .15s ease;
+  }
+  .hv-vol-ico:hover { color: var(--hv-ink); background: var(--hv-wash); }
+  .hv-vol-ico.muted { opacity: .45; }
+  .hv-vol-ico svg { width: 14px; height: 14px; }
+  .hv-vol .hv-range { width: 92px; }
+  .hv-pct { width: 30px; text-align: right; font-size: 10.5px; font-weight: 500; color: var(--hv-mute); font-variant-numeric: tabular-nums; }
+
+  /* roomier windows: let the type breathe a little more */
+  @container haven (min-width: 860px) {
+    .hv-body { gap: 28px; padding: 12px 24px 20px 24px; }
+    .hv-title { font-size: 26px; }
+    .hv-vol .hv-range { width: 120px; }
+  }
+
+  @keyframes hv-breathe {
+    0%, 100% { opacity: .34; transform: translateY(4%) scale(.96); }
+    50%      { opacity: .72; transform: translateY(3%) scale(1.08); }
+  }
+  @keyframes hv-eq {
+    0%, 100% { height: 30%; }
+    50%      { height: 100%; }
+  }
+  @keyframes hv-pop {
+    from { opacity: 0; transform: translateY(-4px) scale(.98); }
+    to   { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hv-halo, .hv-menu-pop, .hv-live i { animation: none !important; }
+  }
+</style>
+</head>
+<body data-window-width="760" data-window-height="300" data-min-width="700" data-min-height="280" data-max-width="960" data-max-height="380" data-resizable="true">
+<div id="melo-player">
+
+  <header class="hv-bar" data-tauri-drag-region>
+    <details class="hv-menu">
+      <summary title="Melo">
+        <span class="hv-mark" aria-hidden="true"></span>
+        <span>Haven</span>
+      </summary>
+      <div class="hv-menu-pop">
+        <button type="button" data-melo="add-files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+          Add files
+        </button>
+        <button type="button" data-melo="add-folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Add folder
+        </button>
+        <button type="button" data-melo="theme-toggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          Theme
+        </button>
+      </div>
+    </details>
+
+    <div class="hv-seg">
+      <button class="hv-tab" type="button" data-melo="toggle-embedded-viz" title="Visualizer">Sound</button>
+      <button class="hv-tab" type="button" data-melo="toggle-embedded-playlist" title="Queue">Queue</button>
+      <button class="hv-tab" type="button" data-melo="toggle-embedded-lyrics" title="Lyrics">Lyrics</button>
+    </div>
+
+    <div class="hv-win">
+      <button type="button" data-melo="minimize" title="Minimize" aria-label="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button type="button" class="close" data-melo="close" title="Close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="hv-body">
+    <aside class="hv-side">
+      <div class="hv-art">
+        <div class="hv-halo" aria-hidden="true"></div>
+        <div class="hv-cover">
+          <img data-melo="cover" alt="" style="display:none" />
+          <div class="hv-fallback" data-melo="cover-fallback">
+            <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-linecap="round">
+              <circle cx="32" cy="32" r="3" fill="currentColor" stroke="none"/>
+              <circle cx="32" cy="32" r="11" stroke-width="1.6" opacity=".85"/>
+              <circle cx="32" cy="32" r="19" stroke-width="1.4" opacity=".55"/>
+              <circle cx="32" cy="32" r="27" stroke-width="1.2" opacity=".28"/>
+            </svg>
+            <span>NO ARTWORK</span>
+          </div>
+        </div>
+      </div>
+      <nav class="hv-dock hv-glass">
+        <button id="btnToggleLibrary" type="button" data-melo="toggle-library" title="Library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
+        </button>
+        <button id="btnTogglePlaylist" type="button" data-melo="toggle-playlist" title="Queue window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg>
+        </button>
+        <button id="btnToggleEq" type="button" data-melo="toggle-eq" title="Equalizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/></svg>
+        </button>
+        <button id="btnToggleLyrics" type="button" data-melo="toggle-lyrics" title="Lyrics window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg>
+        </button>
+        <button id="btnOpenSettings" type="button" data-melo="toggle-settings" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        </button>
+      </nav>
+    </aside>
+
+    <section class="hv-main">
+      <div class="hv-meta">
+        <div class="hv-title" data-melo="title">Nothing playing</div>
+        <div class="hv-sub">
+          <span class="hv-artist" data-melo="artist">Add some music and settle in</span>
+          <span class="hv-dot" aria-hidden="true"></span>
+          <span class="hv-album" data-melo="album"></span>
+        </div>
+        <div class="hv-format">
+          <span class="hv-live" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="hv-chip" data-melo="codec"></span>
+          <span data-melo="specs"></span>
+        </div>
+      </div>
+
+      <div class="hv-stage hv-glass">
+        <div class="hv-viz" data-melo="visualizer" data-bars="32"></div>
+        <div class="hv-embed" data-melo="embedded-playlist"></div>
+        <div class="hv-embed" data-melo="embedded-lyrics"></div>
+      </div>
+
+      <div class="hv-seek">
+        <span class="hv-time" data-melo="current-time">0:00</span>
+        <input class="hv-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
+        <span class="hv-time end" data-melo="duration">0:00</span>
+      </div>
+
+      <div class="hv-ctl">
+        <button class="hv-btn" type="button" data-melo="shuffle" title="Shuffle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg>
+        </button>
+        <button class="hv-btn" type="button" data-melo="prev" title="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button class="hv-btn" type="button" data-melo="stop" title="Stop">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+        <button class="hv-btn hv-play" type="button" data-melo="play" title="Play / Pause">
+          <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button class="hv-btn" type="button" data-melo="next" title="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <button class="hv-btn" type="button" data-melo="repeat" title="Repeat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
+
+        <div class="hv-vol">
+          <span class="hv-vol-ico" data-melo="volume-icon" title="Mute">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+          </span>
+          <input class="hv-range is-vol" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" />
+          <span class="hv-pct" data-melo="volume-pct">60%</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+</div>
+</body>
+</html>

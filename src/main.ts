@@ -243,7 +243,7 @@ app.innerHTML = `
     </div>
 
     <!-- SETTINGS WINDOW -->
-    <div class="float-win hidden" id="win-settings" style="left:50%; top:50%; width:600px; height:540px; transform:translate(-50%,-50%); z-index:10;">
+    <div class="float-win hidden" id="win-settings" style="left:50%; top:50%; width:650px; height:540px; transform:translate(-50%,-50%); z-index:10;">
       <div class="float-header" data-drag="win-settings" style="cursor:move;">
         <div class="float-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -302,6 +302,10 @@ app.innerHTML = `
               <span class="stepper-value" id="crossfadeDurationValue">4s</span>
               <button type="button" class="btn small stepper-btn" id="btnCrossfadeUp" aria-label="Increase crossfade duration">+</button>
             </div>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.playback.smartPrev.label")}</div><div class="desc">${t("settings.playback.smartPrev.desc")}</div></div>
+            <div class="switch on" id="swSmartPrev" data-key="smartPrev"></div>
           </div>
         </div>
 
@@ -1031,6 +1035,28 @@ if (!urlPanel) {
       if (id === "win-settings") setVisible(id, false);
       else setVisible(id, true);
     }
+  });
+  // Restore the user's own resizes / drags (if any) — otherwise the
+  // DEFAULT sizes (e.g. 650px for Settings) apply. Written by the
+  // drag/resize handlers below.
+  winIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    try {
+      const sz = JSON.parse(localStorage.getItem("melo-win-size-" + id) || "null");
+      if (sz && typeof sz.width === "string" && typeof sz.height === "string") {
+        el.style.width = sz.width;
+        el.style.height = sz.height;
+      }
+      const pos = JSON.parse(localStorage.getItem("melo-win-pos-" + id) || "null");
+      if (pos && typeof pos.left === "string" && typeof pos.top === "string") {
+        el.style.left = pos.left;
+        el.style.top = pos.top;
+        el.style.right = "auto";
+        el.style.bottom = "auto";
+        el.style.transform = "none";
+      }
+    } catch { /* corrupted saved geometry — keep the default */ }
   });
 }
 
