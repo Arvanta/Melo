@@ -3,21 +3,21 @@
     "code": "en",
     "name": "English",
     "nativeName": "English",
-    "authors": ["Melo Team"]
+    "authors": [
+      "Melo Team"
+    ]
   },
   "settings.tabs.general": "General",
   "settings.tabs.playback": "Playback",
   "settings.tabs.appearance": "Appearance & Skin",
   "settings.tabs.shortcuts": "Shortcuts",
   "settings.tabs.about": "About",
-
   "settings.general.language.label": "Language",
   "settings.general.language.desc": "Interface language — more languages coming via community translation",
   "settings.general.tray.label": "Close to system tray",
   "settings.general.tray.desc": "Minimize to system tray on window close",
   "settings.general.resume.label": "Resume playback on reopen",
   "settings.general.resume.desc": "Continue playback of the previous track where you left off",
-
   "settings.playback.replaygain.label": "ReplayGain normalization",
   "settings.playback.replaygain.desc": "Equalize track volume levels automatically",
   "settings.playback.fadepause.label": "Fade out on pause",
@@ -30,7 +30,21 @@
   "settings.appearance.embeddedPlaylist.desc": "If the active skin includes a playlist slot, these control how it looks. Skins without this slot are unaffected.",
   "settings.appearance.embeddedPlaylistCover.label": "Show track cover art",
   "settings.appearance.embeddedPlaylistFontScale.label": "Text size",
-
   "settings.appearance.showstop.label": "Show Stop button",
-  "settings.appearance.showstop.desc": "Display a Stop control next to Play/Pause in the player"
+  "settings.appearance.showstop.desc": "Display a Stop control next to Play/Pause in the player",
+  "settings.tabs.visualizer": "Visualizer",
+  "settings.visualizer.peak.label": "Peak hold",
+  "settings.visualizer.peak.desc": "Thin line above each column that falls slowly (classic EQ cap)",
+  "settings.visualizer.afterglow.label": "Afterglow / trail",
+  "settings.visualizer.afterglow.desc": "Fade the previous frame slightly — trace modes (e.g. Lissajous) come alive",
+  "settings.visualizer.bloom.label": "Soft bloom",
+  "settings.visualizer.bloom.desc": "Very slight glow on bar peaks",
+  "settings.visualizer.mirror.label": "Mirror fade",
+  "settings.visualizer.mirror.desc": "Very subtle reflection below the baseline",
+  "settings.visualizer.pale.label": "Pale tops",
+  "settings.visualizer.pale.desc": "Tall bars shift slightly to a paler color near the top",
+  "settings.visualizer.smoothing.label": "Smoothing",
+  "settings.visualizer.smoothing.desc": "How fast the visualizer reacts — lower is snappier",
+  "settings.visualizer.enabled.label": "Enabled visualizers",
+  "settings.visualizer.enabled.desc": "Uncheck modes you don't want — they disappear from the player's right-click list and the click cycle"
 }

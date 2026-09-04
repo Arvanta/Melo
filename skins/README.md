@@ -210,7 +210,7 @@ hook.
 | `add-files` | Open the "add files" dialog |
 | `add-folder` | Open the "add folder" dialog |
 | `theme-toggle` | Toggle light/dark theme |
-| `about` | Show the About popup |
+| `about` | Deprecated — the About popup was removed; use Settings → About |
 | `toggle-library` | Open/close the Library window |
 | `toggle-playlist` | Open/close the Playlist window |
 | `toggle-eq` | Open/close the Equalizer window |

@@ -2,7 +2,7 @@ import "./app.css";
 import { setupPlayer } from "./player";
 import { setupLibrary } from "./library";
 import { setupEqualizer } from "./equalizer";
-import { setupVisualizer } from "./visualizer";
+import { setupVisualizer, VIZ_MODES } from "./visualizer";
 import { setupLyrics } from "./lyrics";
 import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
@@ -259,6 +259,7 @@ app.innerHTML = `
           <button class="settings-tab active" data-stab="general"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>${t("settings.tabs.general")}</button>
           <button class="settings-tab" data-stab="playback"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z"/></svg>${t("settings.tabs.playback")}</button>
           <button class="settings-tab" data-stab="appearance"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>${t("settings.tabs.appearance")}</button>
+          <button class="settings-tab" data-stab="visualizer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/></svg>${t("settings.tabs.visualizer")}</button>
           <button class="settings-tab" data-stab="shortcuts"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>${t("settings.tabs.shortcuts")}</button>
           <button class="settings-tab" data-stab="about"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>${t("settings.tabs.about")}</button>
         </div>
@@ -368,6 +369,44 @@ app.innerHTML = `
                 <button type="button" class="btn small stepper-btn" id="btnEmbeddedFontUp" aria-label="Increase font size">+</button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- VISUALIZER TAB -->
+        <div class="settings-section" data-panel="visualizer">
+          <div class="settings-row">
+            <div><div class="label">${t("settings.visualizer.peak.label")}</div><div class="desc">${t("settings.visualizer.peak.desc")}</div></div>
+            <div class="switch" id="swVizPeak"></div>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.visualizer.afterglow.label")}</div><div class="desc">${t("settings.visualizer.afterglow.desc")}</div></div>
+            <div class="switch" id="swVizAfterglow"></div>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.visualizer.bloom.label")}</div><div class="desc">${t("settings.visualizer.bloom.desc")}</div></div>
+            <div class="switch" id="swVizBloom"></div>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.visualizer.mirror.label")}</div><div class="desc">${t("settings.visualizer.mirror.desc")}</div></div>
+            <div class="switch" id="swVizMirror"></div>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.visualizer.pale.label")}</div><div class="desc">${t("settings.visualizer.pale.desc")}</div></div>
+            <div class="switch" id="swVizPale"></div>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.visualizer.smoothing.label")}</div><div class="desc">${t("settings.visualizer.smoothing.desc")}</div></div>
+            <div class="stepper-control">
+              <button type="button" class="btn small stepper-btn" id="btnVizSmoothDown" aria-label="Decrease smoothing">−</button>
+              <input type="range" class="crossfade-range" id="vizSmoothingRange" min="0" max="100" step="5" value="50" />
+              <span class="stepper-value" id="vizSmoothingValue">50</span>
+              <button type="button" class="btn small stepper-btn" id="btnVizSmoothUp" aria-label="Increase smoothing">+</button>
+            </div>
+          </div>
+          <div class="settings-row" style="flex-direction:column; align-items:stretch;">
+            <div class="label" style="margin-bottom:4px;">${t("settings.visualizer.enabled.label")}</div>
+            <div style="font-size:11px; color:var(--text-soft); line-height:1.6; margin-bottom:8px;">${t("settings.visualizer.enabled.desc")}</div>
+            <div id="vizEnabledList" class="viz-enabled-list"></div>
           </div>
         </div>
 
@@ -1097,7 +1136,7 @@ async function addFilesViaDialog() {
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff"] }] });
+      const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff", "mka"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
       const list: any[] = await lib?.importPaths(paths, "replace") || [];
@@ -1109,7 +1148,7 @@ async function addFilesViaDialog() {
     return;
   }
   const input = document.createElement("input");
-  input.type = "file"; input.multiple = true; input.accept = "audio/*,.mp3,.flac,.wav,.aac,.ogg,.m4a,.alac,.opus,.wma,.aiff";
+  input.type = "file"; input.multiple = true; input.accept = "audio/*,.mp3,.flac,.wav,.aac,.ogg,.m4a,.alac,.opus,.wma,.aiff,.mka";
   input.onchange = async () => {
     const files = Array.from(input.files || []);
     if (!files.length) return;
@@ -1150,7 +1189,7 @@ async function addFolderViaDialog() {
   const input = document.createElement("input");
   input.type = "file"; (input as any).webkitdirectory = true; input.multiple = true; input.accept = "audio/*";
   input.onchange = async () => {
-    const files = Array.from(input.files || []).filter(f => /\.(mp3|flac|wav|aac|ogg|m4a|alac|opus|wma|aiff)$/i.test(f.name));
+    const files = Array.from(input.files || []).filter(f => /\.(mp3|flac|wav|aac|ogg|m4a|alac|opus|wma|aiff|mka)$/i.test(f.name));
     if (!files.length) return;
     const list: any[] = [];
     for (const f of files) {
@@ -1300,6 +1339,81 @@ function setupSettings(toast: ToastFn) {
   if (embeddedFontRange) embeddedFontRange.oninput = () => setEmbeddedFontScale(parseInt(embeddedFontRange.value, 10));
   btnEmbeddedFontDown?.addEventListener("click", () => setEmbeddedFontScale(parseInt(embeddedFontRange?.value || "100", 10) - 10));
   btnEmbeddedFontUp?.addEventListener("click", () => setEmbeddedFontScale(parseInt(embeddedFontRange?.value || "100", 10) + 10));
+
+  // ---------------------------------------------------------------------
+  // Visualizer effects + enabled-modes list. These are written straight to
+  // localStorage ("melo-viz-*") and broadcast as "melo:viz-pref-changed"
+  // so the running visualizer picks them up live without a restart.
+  // ---------------------------------------------------------------------
+  function vizSet(key: string, on: boolean) {
+    localStorage.setItem("melo-viz-" + key, on ? "1" : "0");
+    busEmit("melo:viz-pref-changed", {});
+  }
+  function vizToggleSwitch(sw: HTMLElement | null, key: string) {
+    if (!sw) return;
+    sw.classList.toggle("on", localStorage.getItem("melo-viz-" + key) === "1");
+    sw.onclick = () => {
+      const on = !sw.classList.contains("on");
+      sw.classList.toggle("on", on);
+      vizSet(key, on);
+    };
+  }
+  vizToggleSwitch(document.getElementById("swVizPeak"), "peak");
+  vizToggleSwitch(document.getElementById("swVizAfterglow"), "afterglow");
+  vizToggleSwitch(document.getElementById("swVizBloom"), "bloom");
+  vizToggleSwitch(document.getElementById("swVizMirror"), "mirror");
+  vizToggleSwitch(document.getElementById("swVizPale"), "pale");
+
+  const vizSmoothRange = document.getElementById("vizSmoothingRange") as HTMLInputElement | null;
+  const vizSmoothValue = document.getElementById("vizSmoothingValue");
+  const btnVizSmoothDown = document.getElementById("btnVizSmoothDown");
+  const btnVizSmoothUp = document.getElementById("btnVizSmoothUp");
+  function updateVizSmoothBackground(v: number) {
+    if (!vizSmoothRange) return;
+    vizSmoothRange.style.setProperty("--progress", v + "%");
+  }
+  function setVizSmoothing(v: number) {
+    const clamped = Math.min(100, Math.max(0, Math.round(v / 5) * 5));
+    localStorage.setItem("melo-viz-smoothing", String(clamped));
+    if (vizSmoothRange) vizSmoothRange.value = String(clamped);
+    if (vizSmoothValue) vizSmoothValue.textContent = String(clamped);
+    updateVizSmoothBackground(clamped);
+    busEmit("melo:viz-pref-changed", {});
+  }
+  {
+    const saved = Math.min(100, Math.max(0, parseInt(localStorage.getItem("melo-viz-smoothing") || "50", 10) || 50));
+    if (vizSmoothRange) vizSmoothRange.value = String(saved);
+    if (vizSmoothValue) vizSmoothValue.textContent = String(saved);
+    updateVizSmoothBackground(saved);
+  }
+  if (vizSmoothRange) vizSmoothRange.oninput = () => setVizSmoothing(parseInt(vizSmoothRange.value, 10));
+  btnVizSmoothDown?.addEventListener("click", () => setVizSmoothing(parseInt(vizSmoothRange?.value || "50", 10) - 5));
+  btnVizSmoothUp?.addEventListener("click", () => setVizSmoothing(parseInt(vizSmoothRange?.value || "50", 10) + 5));
+
+  // Scrollable enable/disable list of visualizer modes.
+  const vizList = document.getElementById("vizEnabledList");
+  function renderVizEnabledList() {
+    if (!vizList) return;
+    const raw: string[] = [];
+    try { raw.push(...(JSON.parse(localStorage.getItem("melo-viz-disabled") || "[]") as string[])); } catch {}
+    const disabledSet = new Set(raw.filter((x) => typeof x === "string"));
+    vizList.innerHTML = VIZ_MODES.map((m) => {
+      const on = !disabledSet.has(m.id);
+      return `<label class="viz-enabled-item"><input type="checkbox" data-vizid="${m.id}" ${on ? "checked" : ""} /><span>${m.label}</span></label>`;
+    }).join("");
+    vizList.querySelectorAll<HTMLInputElement>("input[data-vizid]").forEach((cb) => {
+      cb.onchange = () => {
+        const s: string[] = [];
+        try { s.push(...(JSON.parse(localStorage.getItem("melo-viz-disabled") || "[]") as string[])); } catch {}
+        const set = new Set(s.filter((x) => typeof x === "string"));
+        if (cb.checked) set.delete(cb.dataset.vizid!);
+        else set.add(cb.dataset.vizid!);
+        localStorage.setItem("melo-viz-disabled", JSON.stringify([...set]));
+        busEmit("melo:viz-pref-changed", {});
+      };
+    });
+  }
+  renderVizEnabledList();
 
   const langSelect = document.getElementById("setLanguage") as HTMLSelectElement | null;
   if (langSelect) {
@@ -1503,9 +1617,20 @@ function attachEmbeddedPanels() {
 
   const lyricsHook = findHook<HTMLElement>("embedded-lyrics", "embedded-lyrics");
   if (lyricsHook) {
-    if (embeddedLyricsContainer.parentElement !== lyricsHook) {
-      lyricsHook.appendChild(embeddedLyricsTitle);
-      lyricsHook.appendChild(embeddedLyricsContainer);
+    // Same guard as the playlist: a skin swap can leave a serialized static
+    // copy of the lyric nodes inside the hook (e.g. returning to the default
+    // skin after another skin was active) — strip every copy that isn't the
+    // live node, then place the live ones exactly once, in the right order.
+    [...lyricsHook.querySelectorAll(".embedded-lyrics, .embedded-lyrics-title")].forEach((el) => {
+      if (el !== embeddedLyricsContainer && el !== embeddedLyricsTitle) el.remove();
+    });
+    const placedOk =
+      embeddedLyricsTitle.parentElement === lyricsHook &&
+      embeddedLyricsContainer.parentElement === lyricsHook &&
+      embeddedLyricsContainer.previousElementSibling === embeddedLyricsTitle &&
+      embeddedLyricsTitle.nextElementSibling === embeddedLyricsContainer;
+    if (!placedOk) {
+      lyricsHook.replaceChildren(embeddedLyricsTitle, embeddedLyricsContainer);
     }
     if (!embeddedLyricsInitialized) {
       embeddedLyricsInitialized = true;
@@ -1529,44 +1654,23 @@ function attachEmbeddedPanels() {
 
   const toggleViz = findHook<HTMLElement>("toggle-embedded-viz", "toggle-embedded-viz");
   if (toggleViz) toggleViz.onclick = () => setStageMode("viz");
+  // The playlist / lyrics stage buttons behave as TOGGLES: clicking the
+  // active one hides the panel and returns to the visualizer; clicking the
+  // other one switches the panel; clicking viz always returns to viz.
   const toggleP = findHook<HTMLElement>("toggle-embedded-playlist", "toggle-embedded-playlist");
-  if (toggleP) toggleP.onclick = () => setStageMode("playlist");
+  if (toggleP) toggleP.onclick = () => {
+    const isOn = document.documentElement.classList.contains("melo-show-playlist");
+    setStageMode(isOn ? "viz" : "playlist");
+  };
   const toggleL = findHook<HTMLElement>("toggle-embedded-lyrics", "toggle-embedded-lyrics");
-  if (toggleL) toggleL.onclick = () => setStageMode("lyrics");
+  if (toggleL) toggleL.onclick = () => {
+    const isOn = document.documentElement.classList.contains("melo-show-lyrics");
+    setStageMode(isOn ? "viz" : "lyrics");
+  };
   if (document.documentElement.classList.contains("melo-show-playlist")) setStageMode("playlist");
   else if (document.documentElement.classList.contains("melo-show-lyrics")) setStageMode("lyrics");
   else setStageMode("viz");
 }
-
-// About popup
-const aboutPop = document.createElement("div");
-aboutPop.id = "aboutPop";
-aboutPop.style.display = "none";
-document.body.appendChild(aboutPop);
-document.addEventListener("click", (e) => {
-  if (!(e.target as HTMLElement)?.closest('#btnAbout, [data-melo="about"]')) return;
-  e.stopPropagation();
-  aboutPop.innerHTML = `
-    <div class="about-head">Melo <b>0.7.0 Beta</b></div>
-    <div style="font-size:11.5px; color:var(--text-soft); margin:6px 0 10px;">
-      Modern Windows Music Player<br/>
-      Tauri 2 + TypeScript + Rust
-    </div>
-    <a class="about-link" id="aboutLink" href="https://github.com/Arvanta/Melo" rel="noopener">github.com/Arvanta/Melo ↗</a>`;
-  aboutPop.style.display = aboutPop.style.display === "none" ? "block" : "none";
-  document.getElementById("aboutLink")?.addEventListener("click", (ev) => {
-    ev.preventDefault();
-    const url = "https://github.com/Arvanta/Melo";
-    if (isTauri) {
-      import("@tauri-apps/api/core").then((m: any) => m.invoke("open_url", { url })).catch(() => window.open(url, "_blank"));
-    } else {
-      window.open(url, "_blank");
-    }
-  });
-});
-document.addEventListener("click", (e) => {
-  if (!(e.target as HTMLElement).closest("#aboutPop") && !(e.target as HTMLElement).closest('#btnAbout, [data-melo="about"]')) aboutPop.style.display = "none";
-});
 
 // App Initialization
 if (isTauri && urlPanel) {

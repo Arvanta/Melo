@@ -444,7 +444,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   async function fetchLibraryPage(offset: number, limit: number): Promise<Page<GroupRow | Track>> {
     if (!invoke) return { items: [], total: 0, limit, offset };
-    if (libraryMode() === "groups") {
+    // While a search query is active the browser switches to a flat TRACK
+    // list (title / artist / album all match) — the group headers are
+    // useless when the user is looking for a specific song.
+    if (libraryMode() === "groups" && !librarySearch) {
       return invoke<Page<GroupRow>>("library_groups", {
         kind: libraryGroupKind(),
         search: librarySearch || null,
@@ -455,9 +458,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
     const page = await invoke<Page<Track>>("library_tracks", {
       search: librarySearch || null,
-      artist: selectedArtist,
-      album: selectedAlbum,
-      genre: selectedGenre,
+      artist: librarySearch ? null : selectedArtist,
+      album: librarySearch ? null : selectedAlbum,
+      genre: librarySearch ? null : selectedGenre,
       sort: "title-asc",
       limit,
       offset,
@@ -476,7 +479,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!trackList) return 1;
     const width = trackList.clientWidth || 0;
     if (libView === "compact") return 1;
-    const trackLike = libraryMode() === "tracks" || (libTab === "artists" && !!selectedArtist);
+    const trackLike = libraryMode() === "tracks" || !!librarySearch || (libTab === "artists" && !!selectedArtist);
     if (trackLike) return width >= 400 ? 2 : 1;
     if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
     return width >= GRID_MIN_COLUMN_WIDTH * 2 + GRID_GAP ? 2 : 1;
@@ -495,7 +498,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       if (reset) trackList.scrollTop = 0;
       return renderRecentlyPlayed();
     }
-    if (libTab === "artists" && selectedArtist) {
+    // Searching while an artist is open: show the flat matching-track
+    // result list instead of the discography (which doesn't filter).
+    if (libTab === "artists" && selectedArtist && !librarySearch) {
       return renderArtistDiscography(reset);
     }
     if (reset) trackList.scrollTop = 0;
@@ -545,9 +550,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
             return `<div class="lib-item lib-card virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title">${esc(group.name)}</div><div class="t-artist">${sub}</div></div>`;
           }
           if (libView === "compact") {
-            return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title" style="flex:1;min-width:0">${esc(group.name)}</div><div class="t-artist" style="flex-shrink:0">${sub}</div><span class="chev-r">›</span></div>`;
+            return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title" style="flex:1;min-width:0">${esc(group.name)}</div><div class="t-artist lib-count" style="flex-shrink:0">${sub}</div><span class="chev-r">›</span></div>`;
           }
-          return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist">${sub}</div></div><span class="chev-r">›</span></div>`;
+          return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist lib-count">${sub}</div></div><span class="chev-r">›</span></div>`;
         }
         const track = item as Track;
         const tCover = resolvedCover(track.id, track.cover);

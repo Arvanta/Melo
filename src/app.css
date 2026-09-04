@@ -271,9 +271,13 @@ html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: b
 .visualizer-bars canvas { width: 100%; height: 100%; display: block; }
 .viz-menu {
   position: fixed; z-index: 3000; min-width: 180px;
+  max-height: min(62vh, 420px); overflow-y: auto; overscroll-behavior: contain;
   background: var(--card); border: 1px solid var(--card-border);
   border-radius: 10px; box-shadow: var(--shadow-lg); padding: 5px;
 }
+.viz-menu::-webkit-scrollbar { width: 4px; }
+.viz-menu::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 4px; }
+.viz-menu::-webkit-scrollbar-track { background: transparent; }
 .viz-menu-label { font-size: 10px; font-weight: 700; color: var(--text-muted); padding: 5px 9px 3px; }
 .viz-menu-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
@@ -282,6 +286,24 @@ html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: b
 }
 .viz-menu-item:hover { background: var(--track-bg); }
 .viz-menu-item.active { color: var(--accent); font-weight: 600; }
+.viz-menu-hint { font-size: 9.5px; color: var(--text-muted); padding: 6px 9px 4px; border-top: 1px solid var(--card-border); margin-top: 4px; }
+
+/* Settings → Visualizer: enabled-modes list (scrollable box) */
+.viz-enabled-list {
+  max-height: 190px; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--track-bg); border: 1px solid var(--card-border);
+  border-radius: 10px; padding: 6px 8px;
+}
+.viz-enabled-list::-webkit-scrollbar { width: 4px; }
+.viz-enabled-list::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 4px; }
+.viz-enabled-list::-webkit-scrollbar-track { background: transparent; }
+.viz-enabled-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  font-size: 12px; color: var(--text); cursor: pointer; border-radius: 7px;
+}
+.viz-enabled-item:hover { background: var(--card); }
+.viz-enabled-item input { accent-color: var(--accent); }
 
 .side-actions {
   display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0;
@@ -532,13 +554,20 @@ body.tauri-main.custom-skin-active .app-shell { min-width: 0 !important; }
 [data-theme="dark"] .lib-item { border-color: rgba(255,255,255,0.04); }
 .lib-item:hover { background: var(--track-bg); }
 .lib-avatar {
-  width: 36px; height: 36px; border-radius: 50%;
+  width: 36px; height: 36px; border-radius: 8px;
   background: linear-gradient(135deg, #8fb9e8, #d6b8e0);
   color: white; display: grid; place-items: center;
   font-weight: 700; font-size: 14px; flex-shrink: 0;
   background-size: cover; background-position: center;
 }
 .lib-avatar.lib-avatar-album { border-radius: 8px; }
+
+/* Group row counts (artists/genres/albums subtitles) — smaller & dimmer */
+.lib-item .lib-count {
+  font-size: 10px; font-weight: 400;
+  color: var(--text-muted); opacity: 0.72;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .chip-thumb {
   width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
   background: var(--track-bg); background-size: cover; background-position: center;
@@ -584,19 +613,6 @@ body.show-stop-btn #btnStop { display: inline-flex; }
 .bulk-count { font-size: 12px; color: var(--text-soft); padding: 0 4px; white-space: nowrap; }
 .bulk-action-bar .btn.danger { color: #e5484d; border-color: rgba(229,72,77,0.35); }
 .bulk-action-bar .btn.danger:hover { background: rgba(229,72,77,0.12); }
-
-/* about popup */
-#aboutPop {
-  position: fixed; top: 40px; left: 12px; z-index: 5000; width: 280px;
-  background: var(--card); border: 1px solid var(--card-border);
-  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 12px;
-}
-.about-head { font-size: 13px; margin-bottom: 6px; color: var(--text); }
-.about-link { display: block; font-size: 11.5px; color: var(--accent); text-decoration: none; margin-bottom: 8px; word-break: break-all; }
-.about-link:hover { text-decoration: underline; }
-.about-diag { border-top: 1px solid var(--card-border); padding-top: 8px; display: flex; flex-direction: column; gap: 3px; }
-.about-diag div { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-muted); }
-.about-diag b { color: var(--text-soft); font-weight: 600; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 
 /* Synced Lyrics */
 .lyrics-scroll-container {

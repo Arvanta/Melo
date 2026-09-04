@@ -100,7 +100,7 @@ fn supported_ext(path: &Path) -> bool {
         .map(|e| {
             matches!(
                 e.to_ascii_lowercase().as_str(),
-                "mp3" | "flac" | "wav" | "ogg" | "aac" | "m4a" | "alac" | "opus" | "wma" | "aiff"
+                "mp3" | "flac" | "wav" | "ogg" | "aac" | "m4a" | "alac" | "opus" | "wma" | "aiff" | "mka"
             )
         })
         .unwrap_or(false)
@@ -119,6 +119,7 @@ fn codec_from_ext(path: &Path) -> String {
         "ogg" => "OGG".into(),
         "aac" => "AAC".into(),
         "m4a" | "alac" => "ALAC".into(),
+        "mka" => "MKA".into(),
         _ => ext.to_ascii_uppercase(),
     }
 }
@@ -223,24 +224,40 @@ fn cache_artwork(data: &[u8], artwork_dir: &Path) -> Option<String> {
         return None;
     }
     let hash = format!("{:x}", Sha256::digest(data));
-    let target = artwork_dir.join(format!("{}.png", hash));
+    // JPEG q80 instead of PNG: much smaller on disk for photo-style album
+    // art at a visually identical quality (lists only ever show ≤256px).
+    // Transparent PNG art is flattened onto a white background (JPEG has
+    // no alpha channel).
+    let target = artwork_dir.join(format!("{}.jpg", hash));
     if !target.exists() {
         let img = image::load_from_memory(data).ok()?;
         let thumb = img.thumbnail(256, 256);
-        let tmp = artwork_dir.join(format!("{}.tmp.png", hash));
-        if thumb
-            .save_with_format(&tmp, image::ImageFormat::Png)
-            .is_err()
-        {
-            let _ = std::fs::remove_file(tmp);
+        let rgb = thumb.to_rgb8();
+        let tmp = artwork_dir.join(format!("{}.tmp.jpg", hash));
+        let saved = std::fs::File::create(&tmp)
+            .and_then(|f| {
+                let mut enc =
+                    image::codecs::jpeg::JpegEncoder::new_with_quality(std::io::BufWriter::new(f), 80);
+                enc.encode_image(&rgb).map_err(std::io::Error::other)
+            })
+            .is_ok();
+        if !saved {
+            let _ = std::fs::remove_file(&tmp);
             return None;
         }
         if std::fs::rename(&tmp, &target).is_err() && !target.exists() {
-            let _ = std::fs::remove_file(tmp);
+            let _ = std::fs::remove_file(&tmp);
             return None;
         }
     }
     Some(target.to_string_lossy().to_string())
+}
+
+fn is_mka(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("mka"))
+        .unwrap_or(false)
 }
 
 fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) -> Option<(DbTrack, u64, i64)> {
@@ -252,6 +269,32 @@ fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) ->
         .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    // Matroska audio (.mka) is not supported by Lofty's tag reader; import
+    // it anyway with filename-based metadata so it CAN be played. Duration
+    // is filled in by the player once the media element loads it.
+    if is_mka(path) {
+        let title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let p = path.to_string_lossy().to_string();
+        let track = DbTrack {
+            id: p.clone(),
+            path: p,
+            title,
+            artist: "Unknown Artist".into(),
+            album: "Unknown Album".into(),
+            genre: "Unknown".into(),
+            year: 0,
+            duration: 0.0,
+            cover: None,
+            codec: "MKA".into(),
+            specs: "Matroska Audio".into(),
+            replay_gain: None,
+        };
+        return Some((track, file_size, modified_at));
+    }
     let tagged = lofty::probe::Probe::open(path).ok()?.read().ok()?;
     let tag = tagged.primary_tag().or(tagged.first_tag());
     let title = tag
@@ -866,8 +909,74 @@ pub async fn ensure_track_artwork(id:String,state:State<'_,LibraryState>)->Resul
     }).await.map_err(|e|e.to_string())?
 }
 
+/// Full-resolution artwork (the embedded picture exactly as stored in the
+/// file's tags) for a track — used by the player UI so skins with large
+/// cover art aren't limited to the 256×256 list thumbnail.
+/// The original bytes are cached on disk in the same artwork cache folder as
+/// `<hash>.png` (content-hash keyed: `full-<hash>.<ext>`), so repeated
+/// requests and identical art across tracks hit the cache. The extension is
+/// sniffed from magic bytes (jpeg/png/webp/gif, else fall back to `.png`),
+/// so the original encoding is never re-encoded — zero quality loss, no
+/// extra decode cost; the webview sniffs the actual content regardless.
+#[tauri::command]
+pub async fn get_track_artwork_full(id: String, state: State<'_, LibraryState>) -> Result<Option<String>, String> {
+    let db_path = state.db_path.clone();
+    let artwork_dir = state.artwork_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = open_db(&db_path)?;
+        let path: String = conn
+            .query_row("SELECT path FROM tracks WHERE id=?1", params![id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let tagged = lofty::probe::Probe::open(&path)
+            .map_err(|e| e.to_string())?
+            .read()
+            .map_err(|e| e.to_string())?;
+        let tag = tagged.primary_tag().or(tagged.first_tag());
+        let Some(picture) = tag.and_then(|t| t.pictures().first()) else {
+            return Ok(None);
+        };
+        Ok(cache_full_artwork(picture.data(), &artwork_dir))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn art_ext(data: &[u8]) -> &'static str {
+    if data.len() >= 8 && &data[..8] == b"\x89PNG\r\n\x1a\n" {
+        "png"
+    } else if data.len() >= 3 && &data[..3] == b"\xff\xd8\xff" {
+        "jpg"
+    } else if data.len() >= 12 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        "webp"
+    } else if data.len() >= 6 && (&data[..6] == b"GIF87a" || &data[..6] == b"GIF89a") {
+        "gif"
+    } else {
+        "png"
+    }
+}
+
+fn cache_full_artwork(data: &[u8], artwork_dir: &Path) -> Option<String> {
+    if data.is_empty() {
+        return None;
+    }
+    let hash = format!("{:x}", Sha256::digest(data));
+    let ext = art_ext(data);
+    let target = artwork_dir.join(format!("full-{}.{}", hash, ext));
+    if !target.exists() {
+        let tmp = artwork_dir.join(format!("full-{}.{}.tmp", hash, ext));
+        if std::fs::write(&tmp, data).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+            return None;
+        }
+        if std::fs::rename(&tmp, &target).is_err() && !target.exists() {
+            let _ = std::fs::remove_file(&tmp);
+            return None;
+        }
+    }
+    Some(target.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub async fn get_track_by_id(id:String,state:State<'_,LibraryState>)->Result<Option<DbTrack>,String>{let conn=open_db(&state.db_path)?;let sql=format!("{} WHERE id=?1",TRACK_SELECT);conn.query_row(&sql,params![id],row_track).optional().map_err(|e|e.to_string())}
-
 #[tauri::command]
 pub async fn delete_tracks(ids:Vec<String>,state:State<'_,LibraryState>)->Result<(),String>{let mut conn=open_db(&state.db_path)?;let tx=conn.transaction().map_err(|e|e.to_string())?;for id in ids{tx.execute("DELETE FROM tracks WHERE id=?1",params![id]).map_err(|e|e.to_string())?;}tx.commit().map_err(|e|e.to_string())?;Ok(())}

@@ -23,6 +23,11 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   let audio: HTMLAudioElement = primaryAudio;
   let secondaryAudio: HTMLAudioElement | null = null;
 
+  // User volume (percent) as tracked by the slider. Kept separately from
+  // `audio.volume` (which goes to 0 during fade-out-on-pause) so a skin
+  // swap can restore the slider to the real value, not 0 or the template's 60.
+  let userVolumePct = 60;
+
   let queue: Track[] = [];
   let currentIndex = 0;
   let isShuffle = false;
@@ -93,6 +98,52 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       } catch {}
     }
     return p;
+  }
+
+  // ---------------------------------------------------------------------
+  // Full-resolution cover art upgrade
+  // ---------------------------------------------------------------------
+  // The Library caches a 256×256 thumbnail per track (fast for lists), but
+  // skins with large cover art render it blurry. For the playing track we
+  // ALSO fetch the ORIGINAL embedded artwork (Rust `get_track_artwork_full`
+  // reads the full bytes straight from the file's tags, cached on disk by
+  // content hash) and swap it in when it arrives. The thumb is shown
+  // instantly first, so there is no blank/fallback flash. Only one image
+  // (the playing track's) is ever held; results are cached per track id for
+  // the session, so a skin swap re-applies the full art instantly.
+  const fullArtCache = new Map<string, string>();
+  const fullArtPending = new Set<string>();
+
+  async function upgradeCoverToFull(t: Track) {
+    if (!isTauri || !t || !t.id || !coverImg) return;
+    const cached = fullArtCache.get(t.id);
+    if (cached) {
+      if (coverImg.getAttribute("src") !== cached) {
+        coverImg.src = cached;
+        coverImg.style.display = "block";
+        if (coverFallback) coverFallback.style.display = "none";
+      }
+      return;
+    }
+    if (fullArtPending.has(t.id)) return;
+    fullArtPending.add(t.id);
+    try {
+      const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
+      const fullPath = await invoke<string | null>("get_track_artwork_full", { id: t.id });
+      if (fullPath) {
+        const url = convertFileSrc(fullPath);
+        fullArtCache.set(t.id, url);
+        // Touch the DOM only if this track is STILL current — the user may
+        // have switched tracks while the fetch was in flight.
+        const cur = queue[currentIndex];
+        if (cur && cur.id === t.id && coverImg) {
+          coverImg.src = url;
+          coverImg.style.display = "block";
+          if (coverFallback) coverFallback.style.display = "none";
+        }
+      }
+    } catch { /* keep the 256px thumb — no functional impact */ }
+    finally { fullArtPending.delete(t.id); }
   }
 
   // ---------------------------------------------------------------------
@@ -325,6 +376,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       if (coverImg) coverImg.style.display = "none";
       if (coverFallback) coverFallback.style.display = "grid";
     }
+    // Show the thumb instantly, then swap in the original full-resolution
+    // artwork for skins that render the cover larger than 256px.
+    upgradeCoverToFull(t);
 
     if (seekBar) {
       seekBar.max = String(t.duration || 240);
@@ -625,6 +679,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
 
     if (volBar) {
       volBar.oninput = () => {
+        userVolumePct = parseInt(volBar.value, 10) || 0;
         updateVolBackground();
         if (volPct) volPct.textContent = volBar.value + "%";
         applyReplayGain();
@@ -633,6 +688,17 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
 
     updateSeekBackground();
     updateVolBackground();
+
+    // A skin swap replaces every control node with the skin template's
+    // placeholder values — including the volume bar's default "60". Restore
+    // the slider from the user-volume tracker (NOT audio.volume, which can
+    // be 0 mid fade-out-on-pause) so the volume never jumps back to 60%
+    // when the skin changes.
+    if (volBar) {
+      volBar.value = String(userVolumePct);
+      if (volPct) volPct.textContent = volBar.value + "%";
+      updateVolBackground();
+    }
 
     if (queue[currentIndex]) {
       const t = queue[currentIndex];
@@ -649,6 +715,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
         if (coverImg) coverImg.style.display = "none";
         if (coverFallback) coverFallback.style.display = "grid";
       }
+      // A skin swap recreated the <img> — restore full-res art from cache
+      // (or fetch it) if this track already had it.
+      upgradeCoverToFull(t);
 
       // Re-sync the full transport UI from live playback state. A skin swap
       // replaces every control node, so without this the seek bar / time

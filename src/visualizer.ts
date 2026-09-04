@@ -1,6 +1,7 @@
 import { getAudioGraph } from "./audio-graph";
+import { busOn } from "./bus";
 
-type VizMode = "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks";
+export type VizMode = "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks" | "radial" | "lissajous" | "dots";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "bars", label: "Classic Bars" },
@@ -10,7 +11,53 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "wave", label: "Oscilloscope" },
   { id: "spectrumWave", label: "Spectrum Wave" },
   { id: "blocks", label: "Block Equalizer" },
+  { id: "radial", label: "Radial Sunburst" },
+  { id: "lissajous", label: "Lissajous XY" },
+  { id: "dots", label: "Dot Matrix" },
 ];
+
+// ---------------------------------------------------------------------
+// Settings (persisted in localStorage; the Settings → Visualizer tab
+// writes these and broadcasts "melo:viz-pref-changed" so a live player
+// picks them up instantly).
+// ---------------------------------------------------------------------
+export interface VizFx {
+  peak: boolean;      // Peak hold — thin line above each column, falls slowly
+  afterglow: boolean; // Trail — previous frame stays slightly faded
+  bloom: boolean;     // Soft bloom — small shadowBlur on peaks/bars
+  mirrorFade: boolean;// Mirror fade — very subtle reflection below the baseline
+  pale: boolean;      // Tall bars get slightly different, paler colors at the top
+  smoothing: number;  // 0..100 — attack/decay speed of the level follower
+}
+
+function fxFromStorage(): VizFx {
+  const g = (k: string) => localStorage.getItem(k);
+  return {
+    peak: g("melo-viz-peak") === "1",
+    afterglow: g("melo-viz-afterglow") === "1",
+    bloom: g("melo-viz-bloom") === "1",
+    mirrorFade: g("melo-viz-mirror") === "1",
+    pale: g("melo-viz-pale") === "1",
+    smoothing: Math.min(100, Math.max(0, parseInt(g("melo-viz-smoothing") || "50", 10) || 50)),
+  };
+}
+
+export function getDisabledVizModes(): VizMode[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem("melo-viz-disabled") || "[]");
+    if (Array.isArray(raw)) {
+      return raw.filter((x) => typeof x === "string" && VIZ_MODES.some((m) => m.id === x));
+    }
+  } catch { /* corrupted → treat as none */ }
+  return [];
+}
+
+export function getEnabledVizModes(): VizMode[] {
+  const disabled = new Set(getDisabledVizModes());
+  const all = VIZ_MODES.map((m) => m.id);
+  const enabled = all.filter((id) => !disabled.has(id));
+  return enabled.length ? enabled : all; // never leave the player mode-less
+}
 
 function getContainer(): HTMLElement | null {
   return (
@@ -18,6 +65,18 @@ function getContainer(): HTMLElement | null {
     document.querySelector<HTMLElement>('[data-melo="visualizer"]') ||
     document.querySelector<HTMLElement>(".visualizer-bars")
   );
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return [56, 189, 248];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function mix(hexA: string, hexB: string, t: number): string {
+  const a = hexToRgb(hexA), b = hexToRgb(hexB);
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 export function setupVisualizer(audio: HTMLAudioElement) {
@@ -34,10 +93,14 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   let useFake = false;
 
   let mode: VizMode = (localStorage.getItem("melo-viz-mode") as VizMode) || "bars";
-  if (!VIZ_MODES.some((m) => m.id === mode)) mode = "bars";
+  // If the saved mode was disabled in Settings, fall back to the first enabled one.
+  if (!getEnabledVizModes().includes(mode)) mode = getEnabledVizModes()[0];
+
+  let fx: VizFx = fxFromStorage();
 
   let raf = 0;
   let levels: number[] = [];
+  let peakHold: number[] = [];
   let slowMax = 0.45;
   let menuEl: HTMLElement | null = null;
   // Set true when a skin's toggle button is showing the embedded
@@ -131,10 +194,17 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     if (curMax > slowMax) slowMax = curMax;
     else slowMax = Math.max(0.35, slowMax * 0.985);
     if (levels.length !== n) levels = new Array(n).fill(0);
+    if (peakHold.length !== n) peakHold = new Array(n).fill(0);
+    // Smoothing slider: attack/decay of the level follower (0..100).
+    const s = fx.smoothing / 100;
+    const attack = 0.18 + 0.7 * s;
+    const decay = 0.05 + 0.25 * s;
     for (let i = 0; i < n; i++) {
       const target = Math.min(1, raw[i] / slowMax);
-      const a = target > levels[i] ? 0.55 : 0.16;
+      const a = target > levels[i] ? attack : decay;
       levels[i] += (target - levels[i]) * a;
+      // Peak hold: follows instantly, falls slowly (classic EQ cap).
+      peakHold[i] = Math.max(levels[i], peakHold[i] - (0.004 + 0.008 * s));
     }
     return levels;
   }
@@ -165,24 +235,70 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   new ResizeObserver(resize).observe(canvas);
   resize();
 
+  function clearFrame() {
+    if (!fx.afterglow) {
+      g2d.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    // Trail effect: instead of a hard clear, fade what's already there out
+    // with destination-out. Modes like Spectrogram/oscilloscope-style
+    // traces and Lissajous get natural phosphor trails from this.
+    g2d.globalCompositeOperation = "destination-out";
+    g2d.fillStyle = "rgba(0,0,0,0.14)";
+    g2d.fillRect(0, 0, canvas.width, canvas.height);
+    g2d.globalCompositeOperation = "source-over";
+  }
+
+  function drawPeaks(data: number[], h: number, bw: number, slot: number) {
+    if (!fx.peak) return;
+    const dpr = dprOf();
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    g2d.fillStyle = mix(c1, "#ffffff", 0.35);
+    g2d.beginPath();
+    for (let i = 0; i < data.length; i++) {
+      const x = i * slot + (slot - bw) / 2;
+      const y = h - 1.5 * dpr - peakHold[i] * (h - 6 * dpr);
+      g2d.rect(x, y, bw, Math.max(1.2 * dpr, 1.5 * dpr));
+    }
+    g2d.fill();
+  }
+
   function drawBars(data: number[], w: number, h: number, gapFrac: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
     const c2 = cssVar("--accent", "#0284c7");
     const n = data.length, slot = w / n;
     const bw = Math.max(1.2 * dpr, slot * (1 - gapFrac));
+    // Mirror fade reserves a thin zone at the bottom for the reflection.
+    const mirH = fx.mirrorFade ? Math.max(6 * dpr, Math.min(h * 0.22, 12 * dpr)) : 0;
+    const base = h - mirH - 1 * dpr;
+    const topC = fx.pale ? mix(c2, "#ffffff", 0.35) : c2;
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
     for (let i = 0; i < n; i++) {
       const v = data[i];
-      const bh = Math.max(2 * dpr, v * (h - 4 * dpr));
-      const x = i * slot + (slot - bw) / 2, y = h - bh - 1 * dpr;
-      const grad = g2d.createLinearGradient(0, y, 0, h);
-      grad.addColorStop(0, c2);
+      const bh = Math.max(2 * dpr, v * (base - 2 * dpr));
+      const x = i * slot + (slot - bw) / 2, y = base - bh;
+      const grad = g2d.createLinearGradient(0, y, 0, base);
+      grad.addColorStop(0, topC);
       grad.addColorStop(1, c1);
       g2d.fillStyle = grad;
+      // Pale tops: bars that reach high fade slightly + shift color.
+      if (fx.pale && v > 0.72) g2d.globalAlpha = 1 - (v - 0.72) * 0.8;
       g2d.beginPath();
       rr(x, y, bw, bh, Math.min(bw / 2, 3.5 * dpr));
       g2d.fill();
+      if (mirH > 0) {
+        // Very subtle inverted reflection below the baseline.
+        g2d.globalAlpha = 0.14;
+        g2d.beginPath();
+        rr(x, base + 1 * dpr, bw, Math.max(1.5 * dpr, bh * 0.24), Math.min(bw / 2, 2 * dpr));
+        g2d.fill();
+        g2d.globalAlpha = 1;
+      }
+      g2d.globalAlpha = 1;
     }
+    g2d.shadowBlur = 0;
+    drawPeaks(data, base, bw, slot);
   }
 
   function drawMirror(data: number[], w: number, h: number) {
@@ -191,18 +307,24 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const c2 = cssVar("--accent", "#0284c7");
     const n = data.length, slot = w / n, mid = h / 2;
     const bw = Math.max(1.5 * dpr, slot * 0.62);
+    const topC = fx.pale ? mix(c2, "#ffffff", 0.35) : c2;
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 5 * dpr; }
     for (let i = 0; i < n; i++) {
       const bh = Math.max(1.5 * dpr, data[i] * (h / 2 - 3 * dpr));
       const x = i * slot + (slot - bw) / 2;
       const grad = g2d.createLinearGradient(0, mid - bh, 0, mid + bh);
-      grad.addColorStop(0, c2);
+      grad.addColorStop(0, topC);
       grad.addColorStop(0.5, c1);
-      grad.addColorStop(1, c2);
+      grad.addColorStop(1, topC);
       g2d.fillStyle = grad;
+      if (fx.pale && data[i] > 0.72) g2d.globalAlpha = 1 - (data[i] - 0.72) * 0.8;
       g2d.beginPath();
       rr(x, mid - bh, bw, bh * 2, Math.min(bw / 2, 3 * dpr));
       g2d.fill();
+      g2d.globalAlpha = 1;
     }
+    g2d.shadowBlur = 0;
+    drawPeaks(data, mid, bw, slot);
   }
 
   function drawLine(data: number[], w: number, h: number) {
@@ -226,13 +348,14 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.lineTo(px[n - 1], h);
     g2d.closePath();
     const fill = g2d.createLinearGradient(0, 0, 0, h);
-    fill.addColorStop(0, c1);
+    fill.addColorStop(0, fx.pale ? mix(c1, "#ffffff", 0.4) : c1);
     fill.addColorStop(1, "transparent");
     g2d.globalAlpha = 0.18;
     g2d.fillStyle = fill;
     g2d.fill();
     g2d.globalAlpha = 1;
 
+    if (fx.bloom) { g2d.shadowColor = c2; g2d.shadowBlur = 6 * dpr; }
     g2d.beginPath();
     g2d.moveTo(px[0], py[0]);
     for (let i = 1; i < n; i++) {
@@ -244,6 +367,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.lineWidth = 2 * dpr;
     g2d.lineJoin = "round";
     g2d.stroke();
+    g2d.shadowBlur = 0;
   }
 
   // Mirrored, connected spectrum around a horizontal centre line.
@@ -284,9 +408,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     }
     g2d.closePath();
     const fill = g2d.createLinearGradient(0, 0, 0, h);
-    fill.addColorStop(0, c2);
+    fill.addColorStop(0, fx.pale ? mix(c2, "#ffffff", 0.35) : c2);
     fill.addColorStop(0.5, c1);
-    fill.addColorStop(1, c2);
+    fill.addColorStop(1, fx.pale ? mix(c2, "#ffffff", 0.35) : c2);
     g2d.fillStyle = fill;
     g2d.globalAlpha = 0.3;
     g2d.fill();
@@ -321,9 +445,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const cellW = Math.max(1, (w - colGap * (cols - 1)) / cols);
     const cellH = Math.max(1, (h - rowGap * (rows - 1)) / rows);
     const grad = g2d.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, c2);
+    grad.addColorStop(0, fx.pale ? mix(c2, "#ffffff", 0.35) : c2);
     grad.addColorStop(1, c1);
     g2d.fillStyle = grad;
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 4 * dpr; }
 
     for (let i = 0; i < cols; i++) {
       const lit = Math.max(1, Math.min(rows, Math.round(data[i] * rows)));
@@ -335,6 +460,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       }
     }
     g2d.globalAlpha = 1;
+    g2d.shadowBlur = 0;
+    drawPeaks(data, h, cellW, cellW + colGap);
   }
 
   function drawWave() {
@@ -359,6 +486,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
         else g2d.lineTo(x, y);
       }
     };
+    if (fx.bloom) { g2d.shadowColor = c2; g2d.shadowBlur = 6 * dpr; }
     path();
     g2d.strokeStyle = c2;
     g2d.globalAlpha = 0.16;
@@ -369,14 +497,124 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.globalAlpha = 1;
     g2d.lineWidth = 1.8 * dpr;
     g2d.stroke();
+    g2d.shadowBlur = 0;
+  }
+
+  // Radial Sunburst — semicircle of rays rising from the bottom centre.
+  function drawRadial(data: number[], w: number, h: number) {
+    const dpr = dprOf();
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = cssVar("--accent", "#0284c7");
+    const cx = w / 2, cy = h - 2 * dpr;
+    const R = h - 8 * dpr;
+    const n = data.length;
+    const slot = Math.PI / n;
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 5 * dpr; }
+    g2d.lineCap = "round";
+    for (let i = 0; i < n; i++) {
+      const v = data[i];
+      const theta = Math.PI + slot * (i + 0.5);
+      const len = Math.max(3 * dpr, v * R);
+      const x0 = cx + Math.cos(theta) * 2.5 * dpr;
+      const y0 = cy + Math.sin(theta) * 2.5 * dpr;
+      const x1 = cx + Math.cos(theta) * len;
+      const y1 = cy + Math.sin(theta) * len;
+      g2d.strokeStyle = mix(c1, c2, v);
+      g2d.globalAlpha = fx.pale && v > 0.72 ? 1 - (v - 0.72) * 0.8 : 1;
+      g2d.lineWidth = Math.max(2 * dpr, (Math.PI * R * slot) * 0.62);
+      g2d.beginPath();
+      g2d.moveTo(x0, y0);
+      g2d.lineTo(x1, y1);
+      g2d.stroke();
+    }
+    g2d.globalAlpha = 1;
+    g2d.shadowBlur = 0;
+    g2d.lineCap = "butt";
+  }
+
+  // Lissajous XY — closed loop drawn from the waveform with a delay:
+  // x = wave(t), y = wave(t - delay). With Afterglow on it turns into a
+  // phosphor-style trace.
+  function drawLissajous() {
+    const w = canvas.width, h = canvas.height;
+    const dpr = dprOf();
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = cssVar("--accent", "#0284c7");
+    let td: Uint8Array;
+    if (useFake || !analyser || !timeData) {
+      if (!fakeWaveData) fakeWaveData = new Uint8Array(1024);
+      fakeWave(fakeWaveData);
+      td = fakeWaveData;
+    } else {
+      analyser.getByteTimeDomainData(timeData as any);
+      td = timeData;
+    }
+    const N = td.length;
+    const delay = Math.max(16, Math.floor(N * 0.07));
+    const pad = 6 * dpr;
+    const path = () => {
+      g2d.beginPath();
+      for (let i = 0; i < N; i += 2) {
+        const xS = td[i] / 255;
+        const yS = td[(i + delay) % N] / 255;
+        const x = pad + xS * (w - pad * 2);
+        const y = pad + yS * (h - pad * 2);
+        if (i === 0) g2d.moveTo(x, y);
+        else g2d.lineTo(x, y);
+      }
+    };
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
+    path();
+    g2d.strokeStyle = c1;
+    g2d.globalAlpha = 0.35;
+    g2d.lineWidth = 3.5 * dpr;
+    g2d.lineJoin = "round";
+    g2d.stroke();
+    path();
+    g2d.strokeStyle = c2;
+    g2d.globalAlpha = 1;
+    g2d.lineWidth = 1.6 * dpr;
+    g2d.stroke();
+    g2d.shadowBlur = 0;
+  }
+
+  // Dot Matrix — grid of dots lit by spectrum energy.
+  function drawDots(data: number[], w: number, h: number) {
+    const dpr = dprOf();
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = cssVar("--accent", "#0284c7");
+    const cols = data.length;
+    const rows = 7;
+    const cellW = w / cols;
+    const cellH = h / rows;
+    const rad = Math.max(1.2 * dpr, Math.min(cellW * 0.3, cellH * 0.3));
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 4 * dpr; }
+    for (let i = 0; i < cols; i++) {
+      const lit = Math.max(1, Math.min(rows, Math.round(data[i] * rows)));
+      const x = i * cellW + cellW / 2;
+      for (let r = 0; r < lit; r++) {
+        const y = h - (r + 0.5) * cellH;
+        g2d.fillStyle = mix(c1, c2, (r + 1) / rows);
+        g2d.globalAlpha = 0.5 + 0.5 * ((r + 1) / rows);
+        g2d.beginPath();
+        g2d.arc(x, y, rad, 0, Math.PI * 2);
+        g2d.fill();
+      }
+    }
+    g2d.globalAlpha = 1;
+    g2d.shadowBlur = 0;
   }
 
   function draw() {
     const w = canvas.width, h = canvas.height;
     if (!w || !h) return;
-    g2d.clearRect(0, 0, w, h);
+    clearFrame();
     if (mode === "wave") {
       drawWave();
+      return;
+    }
+    if (mode === "lissajous") {
+      drawLissajous();
       return;
     }
     // A skin can override the number of bars/columns via data-bars="N" on the
@@ -386,6 +624,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       : mode === "line" ? 64
       : mode === "spectrumWave" ? 72
       : mode === "blocks" ? 22
+      : mode === "radial" ? 30
+      : mode === "dots" ? 36
       : 24;
     const custom = parseInt(container?.dataset.bars || "", 10);
     const n = Number.isFinite(custom) && custom > 0 ? custom : defaultN;
@@ -396,6 +636,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     else if (mode === "mirror") drawMirror(data, w, h);
     else if (mode === "spectrumWave") drawSpectrumWave(data, w, h);
     else if (mode === "blocks") drawBlocks(data, w, h);
+    else if (mode === "radial") drawRadial(data, w, h);
+    else if (mode === "dots") drawDots(data, w, h);
   }
 
   function loop() {
@@ -410,9 +652,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function setMode(m: VizMode, silent = false) {
     mode = m;
     levels = [];
+    peakHold = [];
     localStorage.setItem("melo-viz-mode", m);
-    // Mode changes are intentionally silent; the selected item is already
-    // indicated in the visualizer menu.
   }
 
   function buildMenu() {
@@ -425,12 +666,15 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
   function renderMenu() {
     const m = buildMenu();
+    const enabled = getEnabledVizModes();
+    const items = VIZ_MODES.filter((x) => enabled.includes(x.id));
     m.innerHTML =
       `<div class="viz-menu-label">Visualizer type</div>` +
-      VIZ_MODES.map(
+      items.map(
         (x) =>
           `<button class="viz-menu-item ${x.id === mode ? "active" : ""}" data-mode="${x.id}">${x.id === mode ? "✓" : ""}<span>${x.label}</span></button>`
-      ).join("");
+      ).join("") +
+      `<div class="viz-menu-hint">Disabled ones can be re-enabled in Settings → Visualizer</div>`;
     m.querySelectorAll("[data-mode]").forEach((b) => {
       (b as HTMLElement).addEventListener("click", (e) => {
         e.stopPropagation();
@@ -456,8 +700,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     container.title = "Click: next mode • Right-click: choose mode";
     container.addEventListener("click", () => {
       hideMenu();
-      const idx = VIZ_MODES.findIndex((m) => m.id === mode);
-      setMode(VIZ_MODES[(idx + 1) % VIZ_MODES.length].id);
+      const enabled = getEnabledVizModes();
+      const idx = enabled.findIndex((m) => m === mode);
+      setMode(enabled[(idx + 1) % enabled.length]);
     });
     container.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -512,4 +757,14 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     }
   }
   (window as any).__MELO_VISUALIZER_SET_PAUSED__ = setExternallyPaused;
+
+  // Live-update from the Settings → Visualizer tab.
+  busOn("melo:viz-pref-changed", () => {
+    fx = fxFromStorage();
+    const enabled = getEnabledVizModes();
+    if (!enabled.includes(mode)) {
+      setMode(enabled[0], true);
+      if (!getContainer()?.contains(canvas)) return;
+    }
+  });
 }

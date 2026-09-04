@@ -59,6 +59,7 @@ fn codec_from_ext(path: &Path) -> String {
             "ogg" => "OGG".to_string(),
             "aac" => "AAC".to_string(),
             "m4a" | "alac" => "ALAC".to_string(),
+            "mka" => "MKA".to_string(),
             _ => ext.to_uppercase(),
         },
         None => "Unknown".to_string(),
@@ -69,7 +70,7 @@ fn supported_ext(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         matches!(
             ext.to_lowercase().as_str(),
-            "mp3" | "flac" | "wav" | "ogg" | "aac" | "m4a" | "alac" | "opus" | "wma" | "aiff"
+            "mp3" | "flac" | "wav" | "ogg" | "aac" | "m4a" | "alac" | "opus" | "wma" | "aiff" | "mka"
         )
     } else {
         false
@@ -77,6 +78,35 @@ fn supported_ext(path: &Path) -> bool {
 }
 
 fn parse_track(p: &Path) -> Option<Track> {
+    // Matroska audio (.mka) is not supported by Lofty's tag reader; fall
+    // back to filename-based metadata so the file can still be queued and
+    // played (duration is filled in by the player once metadata loads).
+    if p.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("mka"))
+        .unwrap_or(false)
+    {
+        let title = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let path = p.to_string_lossy().to_string();
+        return Some(Track {
+            id: path.clone(),
+            title,
+            artist: "Unknown Artist".to_string(),
+            album: "Unknown Album".to_string(),
+            genre: "Unknown".to_string(),
+            year: 0,
+            duration: 0.0,
+            path,
+            cover: None,
+            codec: "MKA".to_string(),
+            specs: "Matroska Audio".to_string(),
+            replay_gain: None,
+        });
+    }
     let tagged = lofty::probe::Probe::open(p).ok()?.read().ok()?;
     let tag = tagged.primary_tag().or(tagged.first_tag());
 
@@ -496,6 +526,7 @@ fn main() {
             library_db::clear_library_database,
             library_db::import_audio_files,
             library_db::ensure_track_artwork,
+            library_db::get_track_artwork_full,
             library_db::get_track_by_id,
             library_db::delete_tracks,
             get_cli_tracks,
