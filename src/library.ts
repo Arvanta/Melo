@@ -862,6 +862,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const hydrated = list.map(normalizeTrack);
     await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(), renderPlaylistVirtual()]);
     busEmit("melo:library-changed", { imported: hydrated.length });
+    // Also announce the playlist change so the embedded (skin) playlist
+    // and the standalone Playlist window re-render with the new contents —
+    // otherwise an import at boot (Explorer "Open With") left the embedded
+    // list showing the previous session's tracks.
+    if (mode !== "none") busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
     return hydrated;
   }
 

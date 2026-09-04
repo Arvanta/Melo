@@ -6,6 +6,7 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::tag::{Accessor, TagExt};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Track {
@@ -337,19 +338,38 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// CLI / "open with" file paths collected for the frontend. The primary
+/// instance's own command-line arguments are pushed at startup by `main()`;
+/// paths forwarded from companion instances (Windows Explorer launches one
+/// process per selected file unless MultiSelectModel=Player is registered)
+/// are pushed by the single-instance callback. The frontend drains this
+/// buffer by calling `get_cli_tracks` (which clears it) several times during
+/// boot, so paths that arrived before the webview finished loading are not
+/// lost even if the `melo:open-files` event was emitted while no JS listener
+/// existed yet (Tauri drops events with no listener).
+static PENDING_CLI_PATHS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn push_cli_path(path: &str) {
+    let p = Path::new(path);
+    if path.starts_with('-') || !p.exists() || !p.is_file() || !supported_ext(p) {
+        return;
+    }
+    let mut buf = PENDING_CLI_PATHS.lock().unwrap_or_else(|e| e.into_inner());
+    if buf.len() < 512 && !buf.iter().any(|x| x == path) {
+        buf.push(path.to_string());
+    }
+}
+
 #[tauri::command]
 fn get_cli_tracks() -> Vec<Track> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let paths: Vec<String> = {
+        let mut buf = PENDING_CLI_PATHS.lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut *buf)
+    };
     let mut tracks = Vec::new();
-    for arg in args {
-        if arg.starts_with("--") || arg.starts_with("-") {
-            continue;
-        }
-        let p = Path::new(&arg);
-        if p.exists() && p.is_file() && supported_ext(p) {
-            if let Some(t) = parse_track(p) {
-                tracks.push(t);
-            }
+    for path in paths {
+        if let Some(t) = parse_track(Path::new(&path)) {
+            tracks.push(t);
         }
     }
     tracks
@@ -420,6 +440,13 @@ fn get_audio_devices() -> Result<Vec<String>, String> {
 }
 
 fn main() {
+    // Remember this instance's own "open with" paths up front so the
+    // frontend can pick them up at boot via get_cli_tracks (it polls and
+    // drains this buffer several times during startup).
+    for arg in std::env::args().skip(1) {
+        push_cli_path(&arg);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             use tauri::{Emitter, Manager};
@@ -434,6 +461,11 @@ fn main() {
                 if !arg.starts_with("-") {
                     let p = Path::new(&arg);
                     if p.exists() && p.is_file() && supported_ext(p) {
+                        // Buffer the path for the boot-time get_cli_tracks
+                        // polls: when the app was closed, this event can be
+                        // emitted before the webview has any JS listener and
+                        // would otherwise be dropped (multi-file "Open With").
+                        push_cli_path(&arg);
                         if let Some(t) = parse_track(p) {
                             tracks.push(t);
                         }

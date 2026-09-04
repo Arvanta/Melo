@@ -390,7 +390,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.6.1 Beta</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.7.0 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -577,6 +577,18 @@ if (isTauri && !urlPanel) {
   });
 }
 
+// True once files were opened from Windows Explorer / the command line in
+// this session. Shared between the open-with handler (which sets it) and
+// the resume-on-reopen block (which must skip when it is set): files the
+// user explicitly asked to open must play, instead of the resume restore
+// re-loading the previous session's last track/position on top of them.
+let cliOpenSeen = false;
+// Dedup map for paths that can arrive twice during boot — once via a
+// get_cli_tracks poll (draining the Rust-side buffer) and once via the
+// melo:open-files event emitted by the same companion process. Keyed by
+// path → delivery time + source; cross-source duplicates within 6s drop.
+const recentOpenPaths = new Map<string, { t: number; src: "event" | "poll" }>();
+
 // Desktop: closing the player closes the whole app (panels included)
 if (isTauri && !urlPanel) {
   import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
@@ -750,10 +762,32 @@ if (isTauri && !urlPanel) {
   // is registered; each extra instance is forwarded here as its own event with
   // a single path. If we import with mode:"replace" immediately, only the last
   // file survives. Coalesce arrivals for a short window, then import once.
+  //
+  // Boot-time robustness: a companion process can forward its path before the
+  // webview has finished loading, in which case the melo:open-files event is
+  // emitted while no JS listener exists yet and gets dropped (Tauri does not
+  // buffer events). The Rust side therefore ALSO buffers every forwarded
+  // path, and we drain that buffer by polling get_cli_tracks during the
+  // first seconds of boot — so nothing is lost, and a single early invoke
+  // can't miss a path that arrived a moment later. When the app is already
+  // running, the same paths come through the event below; recentOpenPaths
+  // stops the same path from being imported twice (buffer drain + event).
   const pendingOpenPaths: string[] = [];
   let pendingOpenTimer = 0;
-  const queueOpenPaths = (paths: string[]) => {
-    for (const p of paths) if (p && !pendingOpenPaths.includes(p)) pendingOpenPaths.push(p);
+  const queueOpenPaths = (paths: string[], src: "event" | "poll" = "poll") => {
+    const now = Date.now();
+    for (const [p, r] of recentOpenPaths) {
+      if (now - r.t > 60000) recentOpenPaths.delete(p);
+    }
+    for (const p of paths) {
+      if (!p) continue;
+      const seen = recentOpenPaths.get(p);
+      // Same path from both the buffered poll and the event = one delivery.
+      if (seen && seen.src !== src && now - seen.t < 6000) continue;
+      recentOpenPaths.set(p, { t: now, src });
+      if (!pendingOpenPaths.includes(p)) pendingOpenPaths.push(p);
+    }
+    if (pendingOpenPaths.length) cliOpenSeen = true;
     window.clearTimeout(pendingOpenTimer);
     pendingOpenTimer = window.setTimeout(async () => {
       const batch = pendingOpenPaths.splice(0, pendingOpenPaths.length);
@@ -764,18 +798,26 @@ if (isTauri && !urlPanel) {
     }, 450);
   };
 
-  import("@tauri-apps/api/core").then(async ({ invoke }) => {
+  // Drains the Rust-side CLI buffer (this instance's own argv plus paths
+  // forwarded from companion processes). Polled several times: cold-start
+  // WebView2 loads slowly and companion processes can take a second or two
+  // to hand their file over. get_cli_tracks clears the buffer each call,
+  // so repeated polls never return the same path twice.
+  const pollCliTracks = async () => {
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
       const cliTracks: any[] = await invoke("get_cli_tracks");
       if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-        queueOpenPaths(cliTracks.map((t: any) => t.path).filter(Boolean));
+        queueOpenPaths(cliTracks.map((t: any) => t.path).filter(Boolean), "poll");
       }
     } catch {}
-  });
+  };
+  pollCliTracks();
+  for (const ms of [400, 900, 1500, 2200, 3000]) window.setTimeout(pollCliTracks, ms);
 
   busOn("melo:open-files", (cliTracks: any) => {
     if (Array.isArray(cliTracks) && cliTracks.length > 0) {
-      queueOpenPaths(cliTracks.map((t: any) => t.path).filter(Boolean));
+      queueOpenPaths(cliTracks.map((t: any) => t.path).filter(Boolean), "event");
     }
   });
 }
@@ -1505,7 +1547,7 @@ document.addEventListener("click", (e) => {
   if (!(e.target as HTMLElement)?.closest('#btnAbout, [data-melo="about"]')) return;
   e.stopPropagation();
   aboutPop.innerHTML = `
-    <div class="about-head">Melo <b>0.5.2 Beta</b></div>
+    <div class="about-head">Melo <b>0.7.0 Beta</b></div>
     <div style="font-size:11.5px; color:var(--text-soft); margin:6px 0 10px;">
       Modern Windows Music Player<br/>
       Tauri 2 + TypeScript + Rust
@@ -1566,6 +1608,14 @@ if (isTauri && urlPanel) {
   // a playlist again.
   setTimeout(async () => {
     try {
+      // Files opened via Explorer "Open With" / CLI take priority over
+      // restoring the previous session — the user explicitly asked for
+      // those files. Without this guard the resume restore re-loaded the
+      // OLD last track and the OLD saved seek position ~500ms after boot,
+      // on top of the freshly imported file (same track → paused at the
+      // old time; different track → old track shown, or the new one
+      // jumping to the old position).
+      if (cliOpenSeen) return;
       const autoplay = localStorage.getItem("melo-pref-resume") !== "0";
       const state = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
       const lib = (window as any).LumiLibrary;
