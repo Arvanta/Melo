@@ -67,11 +67,26 @@ function getContainer(): HTMLElement | null {
   );
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return [56, 189, 248];
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+function hexToRgb(c: string): [number, number, number] {
+  const s = c.trim().toLowerCase();
+  if (s.startsWith("#")) {
+    const h = s.slice(1);
+    if (/^[0-9a-f]{3}$/.test(h)) {
+      return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)];
+    }
+    if (/^[0-9a-f]{6}$/.test(h)) {
+      const n = parseInt(h, 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+  } else {
+    // cover.ts writes the album-art color as "rgb(r, g, b)" into
+    // --visualizer / --accent; parse those too, otherwise mix() silently
+    // falls back to the fixed sky-blue and modes based on it (Radial
+    // Sunburst, Dot Matrix, peak caps, pale tops) never follow the cover.
+    const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(s);
+    if (m) return [Math.min(255, +m[1]), Math.min(255, +m[2]), Math.min(255, +m[3])];
+  }
+  return [56, 189, 248];
 }
 function mix(hexA: string, hexB: string, t: number): string {
   const a = hexToRgb(hexA), b = hexToRgb(hexB);
@@ -698,17 +713,21 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function bindContainer() {
     if (!container) return;
     container.title = "Click: next mode • Right-click: choose mode";
-    container.addEventListener("click", () => {
+    // Property assignment (NOT addEventListener): skin apply/reset paths
+    // re-run bindContainer through rebind() on the very same element, and
+    // stacked listeners made every click advance the mode by TWO steps
+    // (1 → 3 → 5). Assignment overwrites, so duplicates are impossible.
+    container.onclick = () => {
       hideMenu();
       const enabled = getEnabledVizModes();
       const idx = enabled.findIndex((m) => m === mode);
       setMode(enabled[(idx + 1) % enabled.length]);
-    });
-    container.addEventListener("contextmenu", (e) => {
+    };
+    container.oncontextmenu = (e) => {
       e.preventDefault();
       e.stopPropagation();
       showMenu(e.clientX, e.clientY);
-    });
+    };
   }
   document.addEventListener("click", (e) => {
     if (menuEl && menuEl.style.display !== "none" && !menuEl.contains(e.target as Node)) hideMenu();

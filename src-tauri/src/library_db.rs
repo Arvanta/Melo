@@ -918,10 +918,16 @@ pub async fn ensure_track_artwork(id:String,state:State<'_,LibraryState>)->Resul
 /// sniffed from magic bytes (jpeg/png/webp/gif, else fall back to `.png`),
 /// so the original encoding is never re-encoded — zero quality loss, no
 /// extra decode cost; the webview sniffs the actual content regardless.
+/// Full-resolution artwork for the playing track, delivered as a
+/// `data:` URL (base64) — NO disk cache. Every request re-reads the
+/// picture straight from the file's tags; the frontend keeps its own
+/// in-memory-per-session cache, so nothing is ever written to disk and
+/// nothing is left behind after a restart. Embedded art larger than
+/// 8 MB is skipped (returns None) so a pathological tag can't ship a
+/// giant data URL into the webview — the 256px thumb stays.
 #[tauri::command]
 pub async fn get_track_artwork_full(id: String, state: State<'_, LibraryState>) -> Result<Option<String>, String> {
     let db_path = state.db_path.clone();
-    let artwork_dir = state.artwork_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = open_db(&db_path)?;
         let path: String = conn
@@ -935,45 +941,67 @@ pub async fn get_track_artwork_full(id: String, state: State<'_, LibraryState>) 
         let Some(picture) = tag.and_then(|t| t.pictures().first()) else {
             return Ok(None);
         };
-        Ok(cache_full_artwork(picture.data(), &artwork_dir))
+        Ok(image_data_url(picture.data()))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-fn art_ext(data: &[u8]) -> &'static str {
+const MAX_FULL_ART_BYTES: usize = 8 * 1024 * 1024;
+
+fn art_mime(data: &[u8]) -> &'static str {
     if data.len() >= 8 && &data[..8] == b"\x89PNG\r\n\x1a\n" {
-        "png"
+        "image/png"
     } else if data.len() >= 3 && &data[..3] == b"\xff\xd8\xff" {
-        "jpg"
+        "image/jpeg"
     } else if data.len() >= 12 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP" {
-        "webp"
+        "image/webp"
     } else if data.len() >= 6 && (&data[..6] == b"GIF87a" || &data[..6] == b"GIF89a") {
-        "gif"
+        "image/gif"
     } else {
-        "png"
+        // Most embedded album art is JPEG; the webview sniffs content anyway.
+        "image/jpeg"
     }
 }
 
-fn cache_full_artwork(data: &[u8], artwork_dir: &Path) -> Option<String> {
-    if data.is_empty() {
+const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+fn b64_encode(data: &[u8]) -> String {
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut i = 0;
+    while i + 3 <= data.len() {
+        let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | (data[i + 2] as u32);
+        out.push(B64_CHARS[(n >> 18) as usize & 63] as char);
+        out.push(B64_CHARS[(n >> 12) as usize & 63] as char);
+        out.push(B64_CHARS[(n >> 6) as usize & 63] as char);
+        out.push(B64_CHARS[n as usize & 63] as char);
+        i += 3;
+    }
+    match data.len() - i {
+        1 => {
+            let n = (data[i] as u32) << 16;
+            out.push(B64_CHARS[(n >> 18) as usize & 63] as char);
+            out.push(B64_CHARS[(n >> 12) as usize & 63] as char);
+            out.push('=');
+            out.push('=');
+        }
+        2 => {
+            let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8);
+            out.push(B64_CHARS[(n >> 18) as usize & 63] as char);
+            out.push(B64_CHARS[(n >> 12) as usize & 63] as char);
+            out.push(B64_CHARS[(n >> 6) as usize & 63] as char);
+            out.push('=');
+        }
+        _ => {}
+    }
+    out
+}
+
+fn image_data_url(data: &[u8]) -> Option<String> {
+    if data.is_empty() || data.len() > MAX_FULL_ART_BYTES {
         return None;
     }
-    let hash = format!("{:x}", Sha256::digest(data));
-    let ext = art_ext(data);
-    let target = artwork_dir.join(format!("full-{}.{}", hash, ext));
-    if !target.exists() {
-        let tmp = artwork_dir.join(format!("full-{}.{}.tmp", hash, ext));
-        if std::fs::write(&tmp, data).is_err() {
-            let _ = std::fs::remove_file(&tmp);
-            return None;
-        }
-        if std::fs::rename(&tmp, &target).is_err() && !target.exists() {
-            let _ = std::fs::remove_file(&tmp);
-            return None;
-        }
-    }
-    Some(target.to_string_lossy().to_string())
+    Some(format!("data:{};base64,{}", art_mime(data), b64_encode(data)))
 }
 
 #[tauri::command]

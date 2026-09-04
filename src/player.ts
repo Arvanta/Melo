@@ -101,16 +101,17 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   }
 
   // ---------------------------------------------------------------------
-  // Full-resolution cover art upgrade
+  // Full-resolution cover art upgrade (no disk cache)
   // ---------------------------------------------------------------------
   // The Library caches a 256×256 thumbnail per track (fast for lists), but
   // skins with large cover art render it blurry. For the playing track we
-  // ALSO fetch the ORIGINAL embedded artwork (Rust `get_track_artwork_full`
-  // reads the full bytes straight from the file's tags, cached on disk by
-  // content hash) and swap it in when it arrives. The thumb is shown
-  // instantly first, so there is no blank/fallback flash. Only one image
-  // (the playing track's) is ever held; results are cached per track id for
-  // the session, so a skin swap re-applies the full art instantly.
+  // ALSO fetch the ORIGINAL embedded artwork — Rust reads the full bytes
+  // straight from the file's tags every time and returns them as a base64
+  // `data:` URL; nothing is written to disk, so no cache ever grows or
+  // leaves orphaned files behind. The thumb is shown instantly first, so
+  // there is no blank/fallback flash. The Map below is ONLY an in-memory
+  // cache for this session (re-fetching on a skin swap / track return
+  // would be a wasted IPC + tag parse); it dies with the app.
   const fullArtCache = new Map<string, string>();
   const fullArtPending = new Set<string>();
 
@@ -128,16 +129,15 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if (fullArtPending.has(t.id)) return;
     fullArtPending.add(t.id);
     try {
-      const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
-      const fullPath = await invoke<string | null>("get_track_artwork_full", { id: t.id });
-      if (fullPath) {
-        const url = convertFileSrc(fullPath);
-        fullArtCache.set(t.id, url);
+      const { invoke } = await import("@tauri-apps/api/core");
+      const dataUrl = await invoke<string | null>("get_track_artwork_full", { id: t.id });
+      if (dataUrl) {
+        fullArtCache.set(t.id, dataUrl);
         // Touch the DOM only if this track is STILL current — the user may
         // have switched tracks while the fetch was in flight.
         const cur = queue[currentIndex];
         if (cur && cur.id === t.id && coverImg) {
-          coverImg.src = url;
+          coverImg.src = dataUrl;
           coverImg.style.display = "block";
           if (coverFallback) coverFallback.style.display = "none";
         }
