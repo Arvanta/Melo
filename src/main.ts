@@ -1546,7 +1546,10 @@ function setupSettings(toast: ToastFn) {
 function bindWinControls() {
   document.querySelectorAll('.win-btn, [data-melo="minimize"], [data-melo="close"]').forEach(btn => {
     (btn as HTMLElement).onclick = async () => {
-      const label = btn.getAttribute("aria-label") || btn.getAttribute("data-melo");
+      // Lowercase: some skins write aria-label="Minimize"/"Close" (capital
+      // first letter) — the label must be normalized before comparing,
+      // otherwise the buttons silently do nothing.
+      const label = ((btn.getAttribute("aria-label") || btn.getAttribute("data-melo") || "") as string).toLowerCase();
       if ((window as any).__TAURI__) {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const w = getCurrentWindow();

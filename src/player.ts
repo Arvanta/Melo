@@ -615,8 +615,16 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   function syncStopButtonVisibility(enabled = localStorage.getItem("melo-pref-showStopBtn") === "1") {
     const stop = findHook<HTMLButtonElement>("btnStop", "stop");
     if (!stop) return;
-    // Inline !important wins over all skin rules, including custom skins.
-    stop.style.setProperty("display", enabled ? "inline-flex" : "none", "important");
+    if (enabled) {
+      // Let the skin's OWN CSS take over: every Melo button style centers
+      // its icon with display:grid + place-items:center. Forcing
+      // inline-flex !important here overrode that (place-items is a grid
+      // property), so the stop icon sat misaligned in the button — most
+      // visible in the aria / graphite / mist docks.
+      stop.style.removeProperty("display");
+    } else {
+      stop.style.setProperty("display", "none", "important");
+    }
   }
 
   function bindDOM() {
