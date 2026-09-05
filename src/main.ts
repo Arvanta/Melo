@@ -243,7 +243,7 @@ app.innerHTML = `
     </div>
 
     <!-- SETTINGS WINDOW -->
-    <div class="float-win hidden" id="win-settings" style="left:50%; top:50%; width:650px; height:540px; transform:translate(-50%,-50%); z-index:10;">
+    <div class="float-win hidden" id="win-settings" style="left:50%; top:50%; width:630px; height:660px; transform:translate(-50%,-50%); z-index:10;">
       <div class="float-header" data-drag="win-settings" style="cursor:move;">
         <div class="float-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -912,6 +912,14 @@ busOn("melo:pref-changed", (p: any) => {
 
 // Floating windows toggle & drag/resize
 const winIds = ["win-library", "win-playlist", "win-equalizer", "win-lyrics", "win-settings"];
+// Minimum size per floating window (browser / non-Tauri mode). The resize
+// handler used to apply one global 260x160 floor to every window, so the
+// Settings panel could be dragged narrower than its layout supports.
+// Keep in sync with `mins` in openPanelWindow(), which does the same job
+// for real Tauri windows.
+const FLOAT_MIN_SIZE: Record<string, [number, number]> = { "win-settings": [630, 400] };
+const FLOAT_MIN_DEFAULT: [number, number] = [260, 160];
+const floatMin = (id: string): [number, number] => FLOAT_MIN_SIZE[id] || FLOAT_MIN_DEFAULT;
 const desktop = document.getElementById("desktop") as HTMLElement;
 const toggleMap: Record<string, string> = {
   "btnToggleLibrary": "win-library",
@@ -946,16 +954,22 @@ async function openPanelWindow(panel: string) {
   const btn = document.getElementById(panelBtnMap[panel]);
   const existing = await WebviewWindow.getByLabel(label);
   if (existing) { await existing.close(); btn?.classList.remove("active"); return; }
-  const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [600, 540] };
-  const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [500, 400] };
+  const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [630, 660] };
+  const mins: Record<string, [number, number]> = { library: [360, 400], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [630, 400] };
   const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
   const sz = sizes[panel] || [420, 520];
+  const mn = mins[panel] || [360, 360];
   let geo: any = null;
   try { geo = JSON.parse(localStorage.getItem("melo-geo-panel-" + panel) || "null"); } catch {}
+  // Restored geometry is clamped to the current minimums. Someone who had
+  // already shrunk a panel below a minimum we later raised would otherwise
+  // reopen it at the old, now-illegal size.
+  const width = Math.max(mn[0], geo?.w || sz[0]);
+  const height = Math.max(mn[1], geo?.h || sz[1]);
   new WebviewWindow(label, {
     url: `/?panel=${panel}`,
     title: titles[panel] || panel,
-    width: geo?.w || sz[0], height: geo?.h || sz[1], minWidth: (mins[panel] || [360, 360])[0], minHeight: (mins[panel] || [360, 360])[1],
+    width, height, minWidth: mn[0], minHeight: mn[1],
     ...(geo?.x != null ? { x: geo.x, y: geo.y } : { center: true }),
     decorations: false,
     transparent: true,
@@ -1037,7 +1051,7 @@ if (!urlPanel) {
     }
   });
   // Restore the user's own resizes / drags (if any) — otherwise the
-  // DEFAULT sizes (e.g. 650px for Settings) apply. Written by the
+  // DEFAULT sizes (e.g. 630x660 for Settings) apply. Written by the
   // drag/resize handlers below.
   winIds.forEach(id => {
     const el = document.getElementById(id);
@@ -1045,8 +1059,12 @@ if (!urlPanel) {
     try {
       const sz = JSON.parse(localStorage.getItem("melo-win-size-" + id) || "null");
       if (sz && typeof sz.width === "string" && typeof sz.height === "string") {
-        el.style.width = sz.width;
-        el.style.height = sz.height;
+        // Clamp to the current minimum: a size saved before the minimum was
+        // raised would otherwise be restored at the old, too-small value.
+        const [mnW, mnH] = floatMin(id);
+        const pw = parseFloat(sz.width), ph = parseFloat(sz.height);
+        el.style.width = Number.isFinite(pw) ? Math.max(mnW, pw) + "px" : sz.width;
+        el.style.height = Number.isFinite(ph) ? Math.max(mnH, ph) + "px" : sz.height;
       }
       const pos = JSON.parse(localStorage.getItem("melo-win-pos-" + id) || "null");
       if (pos && typeof pos.left === "string" && typeof pos.top === "string") {
@@ -1130,8 +1148,9 @@ window.addEventListener("mousemove", (e: MouseEvent) => {
     const win = document.getElementById(resizeState.id)!;
     let nw = resizeState.initW + (e.clientX - resizeState.startX);
     let nh = resizeState.initH + (e.clientY - resizeState.startY);
-    nw = Math.max(260, nw);
-    nh = Math.max(160, nh);
+    const [mnW, mnH] = floatMin(resizeState.id);
+    nw = Math.max(mnW, nw);
+    nh = Math.max(mnH, nh);
     win.style.width = nw + "px";
     win.style.height = nh + "px";
   }

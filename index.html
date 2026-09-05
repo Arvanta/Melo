@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Melo</title>
     <meta name="melo-build" content="2026-08-10c" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Inter is bundled locally (see the @font-face in src/app.css), so Melo
+         issues no network requests. Preloading it removes the flash of
+         fallback text that the old Google Fonts <link> caused on every one
+         of the five windows. -->
+    <link rel="preload" href="/fonts/inter-variable-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <div id="app"></div>

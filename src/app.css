@@ -1,3 +1,24 @@
+/* Inter, bundled locally — Melo makes no network requests at all.
+ *
+ * This is the VARIABLE build (wght axis 100..900), not the 5 static weights
+ * that used to be pulled from Google Fonts. The UI and the shipped skins ask
+ * for in-between weights (450, 620, 650, 680, 690, 750, 760, 780, 790, 820);
+ * with static weights the browser had to snap or synthesise those, so they
+ * never rendered as authored. One axis covers all of them exactly.
+ *
+ * File: public/fonts/inter-variable-latin.woff2 (47 KB, latin subset).
+ * Licence: SIL Open Font License 1.1 — public/fonts/Inter-LICENSE.txt.
+ * Characters outside the latin subset (symbols, emoji) fall back to the
+ * system font, exactly as they did with the Google-hosted latin subset.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-variable-latin.woff2') format('woff2-variations');
+}
+
 :root {
   --bg: #dbe6f0;
   --bg-gradient: radial-gradient(1200px 600px at 50% -10%, #e8eef6 0%, #dbe6f0 45%, #c8d6e8 100%);

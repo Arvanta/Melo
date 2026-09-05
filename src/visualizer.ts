@@ -105,12 +105,6 @@ function hexToRgb(c: string): [number, number, number] {
   }
   return [56, 189, 248];
 }
-// Stable pseudo-random in 0..1 from a single number — lets a scene give
-// each element its own fixed character without allocating a state array.
-function hash1(n: number): number {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
-}
 function mix(hexA: string, hexB: string, t: number): string {
   const a = hexToRgb(hexA), b = hexToRgb(hexB);
   const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
