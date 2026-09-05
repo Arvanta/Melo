@@ -3,7 +3,7 @@ import { busOn } from "./bus";
 
 export type VizMode =
   | "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks" | "radial" | "dots"
-  | "aurora" | "aurora2" | "bubbles" | "drift" | "fireflies" | "glitch" | "lantern" | "meadow"
+  | "aurora" | "aurora2" | "bubbles" | "fireflies" | "glitch" | "lantern" | "meadow"
   | "petals" | "quake" | "ripples" | "shards" | "sparks" | "tide" | "tide2";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
@@ -20,7 +20,6 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "aurora", label: "Aurora" },
   { id: "aurora2", label: "Aurora II" },
   { id: "bubbles", label: "Bubbles" },
-  { id: "drift", label: "Drifting Lights" },
   { id: "fireflies", label: "Fireflies" },
   { id: "glitch", label: "Glitch" },
   { id: "lantern", label: "Lantern" },
@@ -105,6 +104,12 @@ function hexToRgb(c: string): [number, number, number] {
     if (m) return [Math.min(255, +m[1]), Math.min(255, +m[2]), Math.min(255, +m[3])];
   }
   return [56, 189, 248];
+}
+// Stable pseudo-random in 0..1 from a single number — lets a scene give
+// each element its own fixed character without allocating a state array.
+function hash1(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
 }
 function mix(hexA: string, hexB: string, t: number): string {
   const a = hexToRgb(hexA), b = hexToRgb(hexB);
@@ -299,7 +304,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   let ambLow = 0, ambMid = 0, ambHigh = 0, ambAll = 0;
   let ambFlow = 0, ambSpeed = 0, ambLast = 0;
   let ripplePhase = 0;
-  let driftLights: { x: number; y: number; r: number; s: number; p: number; b: number }[] = [];
   let petals: { x: number; y: number; s: number; a: number; spin: number; ph: number; sway: number; b: number; c: number }[] = [];
   let fireflies: { x: number; y: number; vx: number; vy: number; ph: number; rate: number; b: number; glow: number; c: number }[] = [];
   let lanternPuffs: { x: number; y: number; r: number; life: number; max: number; drift: number }[] = [];
@@ -400,8 +404,14 @@ export function setupVisualizer(audio: HTMLAudioElement) {
         if (i === 0) g2d.moveTo(x, y); else g2d.lineTo(x, y);
       }
       g2d.closePath();
-      g2d.strokeStyle = (k % 2 ? P1 : P2)(alpha);
-      g2d.lineWidth = (1 + 1.5 * (1 - p)) * dpr;
+      const P = k % 2 ? P1 : P2;
+      // A water ring has a bright crest and a soft inner wash trailing it,
+      // rather than being one uniform hairline.
+      g2d.strokeStyle = P(alpha * 0.35);
+      g2d.lineWidth = (3.5 + 5 * (1 - p)) * dpr;
+      g2d.stroke();
+      g2d.strokeStyle = P(Math.min(1, alpha * 1.6));
+      g2d.lineWidth = (0.9 + 1.3 * (1 - p)) * dpr;
       g2d.stroke();
     }
     // still centre dot that glows with energy
@@ -454,6 +464,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   // A calm sea under a soft moon. Calm: three slow swells rise with the
   // overall energy. Lively: each swell follows its own band (all / mid /
   // bass), moves faster and carries spectrum "foam" on its crest.
+  // Each swell is filled with a vertical gradient (lit near the crest,
+  // sinking into the dark toward the bottom) and finished with a specular
+  // crest line, so the water has depth instead of reading as flat paper
+  // cut-outs.
   function drawTide(w: number, h: number, lively: boolean) {
     const dpr = dprOf();
     const S = ambientSignals(lively);
@@ -463,6 +477,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const gr = Math.min(w, h) * (0.35 + (lively ? 0.45 : 0.25) * S.low);
     const glow = g2d.createRadialGradient(gx, gy, 0, gx, gy, gr);
     glow.addColorStop(0, P1(0.22 + (lively ? 0.4 : 0.2) * S.low));
+    glow.addColorStop(0.45, P1(0.07 + 0.1 * S.low));
     glow.addColorStop(1, P1(0));
     g2d.fillStyle = glow;
     g2d.fillRect(0, 0, w, h);
@@ -481,16 +496,27 @@ export function setupVisualizer(audio: HTMLAudioElement) {
         - amp * Math.sin(u * Math.PI * wv.k + S.t * sp)
         - amp * 0.3 * Math.sin(u * Math.PI * wv.k * 2.7 - S.t * sp * 1.9)
         - (foam ? foam * bandAt(S.bands, u) : 0);
+      const crestTop = h * wv.base - amp * 1.4 - foam;
       g2d.beginPath();
       g2d.moveTo(0, h);
       for (let i = 0; i <= steps; i++) g2d.lineTo((i / steps) * w, yAt(i / steps));
       g2d.lineTo(w, h);
       g2d.closePath();
-      g2d.fillStyle = wv.P(wv.a * (0.7 + 0.3 * S.all));
+      const body = g2d.createLinearGradient(0, crestTop, 0, h);
+      const a0 = wv.a * (0.7 + 0.3 * S.all);
+      body.addColorStop(0, wv.P(Math.min(1, a0 * 1.25)));
+      body.addColorStop(0.35, wv.P(a0 * 0.9));
+      body.addColorStop(1, wv.P(a0 * 0.45));
+      g2d.fillStyle = body;
       g2d.fill();
-      // crest highlight
-      g2d.strokeStyle = P1(0.18 + 0.2 * S.all);
-      g2d.lineWidth = 1 * dpr;
+      // Specular crest: a light sweep along the wave top, brightest where
+      // the moon glow sits.
+      const sweep = g2d.createLinearGradient(0, 0, w, 0);
+      sweep.addColorStop(0, P1(0.10 + 0.12 * S.all));
+      sweep.addColorStop(0.72, P1(0.42 + 0.35 * S.all));
+      sweep.addColorStop(1, P1(0.12 + 0.14 * S.all));
+      g2d.strokeStyle = sweep;
+      g2d.lineWidth = (0.9 + 0.5 * wi) * dpr;
       g2d.beginPath();
       for (let i = 0; i <= steps; i++) {
         const u = i / steps;
@@ -498,46 +524,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       }
       g2d.stroke();
     });
-  }
-
-  // Soft bokeh lights drifting upward. Every light listens to its own slice
-  // of the spectrum and swells / brightens with it; the drift speed follows
-  // the overall energy.
-  function drawDrift(w: number, h: number) {
-    const dpr = dprOf();
-    const S = ambientSignals(false);
-    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
-    const P2 = painter(cssVar("--accent", "#0284c7"));
-    const count = Math.max(10, Math.min(26, Math.round((w / dpr) / 30)));
-    if (driftLights.length !== count) {
-      driftLights = Array.from({ length: count }, (_, i) => ({
-        x: Math.random(), y: Math.random(),
-        r: 0.35 + Math.random() * 0.65,
-        s: 0.6 + Math.random() * 0.8,
-        p: Math.random() * Math.PI * 2,
-        b: (i * GOLDEN) % 1,                            // the slice of the spectrum this light listens to
-      }));
-    }
-    const rise = S.dt * ambSpeed * (0.03 + 0.14 * S.all);
-    const sway = S.dt * 0.012;
-    for (let i = 0; i < driftLights.length; i++) {
-      const q = driftLights[i];
-      const lv = bandAt(S.bands, q.b);
-      q.y -= rise * q.s;
-      q.x += Math.sin(S.t * 0.5 + q.p) * sway;
-      if (q.y < -0.15) { q.y = 1.15; q.x = Math.random(); }
-      if (q.x < -0.1) q.x = 1.1; else if (q.x > 1.1) q.x = -0.1;
-      const pulse = 0.5 + 0.5 * Math.sin(S.t * 0.8 * q.s + q.p);
-      const rad = (5 + 12 * q.r) * dpr * (1 + 0.9 * lv + 0.3 * S.mid);
-      const alpha = (0.14 + 0.26 * pulse) * (0.5 + 0.9 * S.all) + 0.3 * lv;
-      const P = i % 3 === 0 ? P2 : P1;
-      const g = g2d.createRadialGradient(q.x * w, q.y * h, 0, q.x * w, q.y * h, rad);
-      g.addColorStop(0, P(alpha));
-      g.addColorStop(0.6, P(alpha * 0.35));
-      g.addColorStop(1, P(0));
-      g2d.fillStyle = g;
-      g2d.beginPath(); g2d.arc(q.x * w, q.y * h, rad, 0, Math.PI * 2); g2d.fill();
-    }
   }
 
   // Soft petals sailing down on a warm breeze. Each petal leans into the
@@ -563,7 +549,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     }
     const breeze = 0.012 + 0.03 * S.mid;                      // sideways wind
     const fall = 0.035 + 0.05 * S.all;
-    const size = Math.max(5, Math.min(13, h / 11)) * dpr;
+    const size = Math.max(6, Math.min(17, h / 8.5)) * dpr;
     for (const q of petals) {
       const lv = bandAt(S.bands, q.b);
       q.y += S.dt * ambSpeed * fall * q.s;
@@ -584,10 +570,23 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       g2d.bezierCurveTo(sz * 0.9, -sz * 0.6, sz * 0.9, sz * 0.5, 0, sz);
       g2d.bezierCurveTo(-sz * 0.9, sz * 0.5, -sz * 0.9, -sz * 0.6, 0, -sz);
       g2d.closePath();
-      g2d.fillStyle = P(0.22 + 0.26 * q.s * (0.6 + 0.4 * S.all) + 0.18 * lv);
+      // Shaded petal: lit along the leading edge, translucent at the far
+      // side, with a centre crease — the old flat fill read as a blob.
+      const pg = g2d.createLinearGradient(-sz * 0.9, -sz, sz * 0.9, sz);
+      const a0 = 0.22 + 0.26 * q.s * (0.6 + 0.4 * S.all) + 0.18 * lv;
+      pg.addColorStop(0, P(Math.min(1, a0 * 1.9)));
+      pg.addColorStop(0.5, P(a0));
+      pg.addColorStop(1, P(a0 * 0.45));
+      g2d.fillStyle = pg;
       g2d.fill();
       g2d.strokeStyle = P(0.4 + 0.3 * lv);
       g2d.lineWidth = 1 * dpr;
+      g2d.stroke();
+      g2d.beginPath();
+      g2d.moveTo(0, -sz * 0.86);
+      g2d.quadraticCurveTo(sz * 0.10, 0, 0, sz * 0.86);
+      g2d.strokeStyle = P(0.22 + 0.22 * lv);
+      g2d.lineWidth = 0.7 * dpr;
       g2d.stroke();
       g2d.restore();
     }
@@ -702,19 +701,38 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.fillStyle = halo;
     g2d.beginPath(); g2d.arc(cx, cy - fh * 0.2, fh * 1.6, 0, Math.PI * 2); g2d.fill();
     const lean = (0.08 + 0.15 * S.mid) * Math.sin(S.t * 2.6) * fw;
-    const flame = (scale: number, alpha: number, P: (a: number) => string) => {
+    const flame = (scale: number, alpha: number, P: (a: number) => string, hot: number) => {
       const hh = fh * scale, ww = fw * scale;
       g2d.beginPath();
       g2d.moveTo(cx, cy + hh * 0.35);
       g2d.bezierCurveTo(cx + ww, cy + hh * 0.2, cx + ww * 0.7 + lean, cy - hh * 0.45, cx + lean * 1.3, cy - hh);
       g2d.bezierCurveTo(cx - ww * 0.7 + lean, cy - hh * 0.45, cx - ww, cy + hh * 0.2, cx, cy + hh * 0.35);
       g2d.closePath();
-      g2d.fillStyle = P(alpha);
+      // Gradient centred low and slightly forward: hot at the base, cooling
+      // and thinning out toward the tip, so shells blend instead of banding.
+      const gy = cy + hh * 0.12;
+      const gr = g2d.createRadialGradient(cx + lean * 0.2, gy, 0, cx + lean * 0.2, gy, hh * 1.15);
+      gr.addColorStop(0, P(Math.min(1, alpha * (0.9 + 0.5 * hot))));
+      gr.addColorStop(0.45, P(alpha * 0.8));
+      gr.addColorStop(1, P(alpha * 0.12));
+      g2d.fillStyle = gr;
       g2d.fill();
     };
-    flame(1, 0.55, P2);
-    flame(0.66, 0.75, P1);
-    flame(0.36, 0.95, P1);
+    // Three hard-edged stacked shapes made the flame look like a layered
+    // logo. Each shell is now filled through its own radial gradient so the
+    // body melts into the next one, and the core carries a white-hot tip.
+    flame(1.08, 0.34, P2, 0.55);
+    flame(0.80, 0.52, P2, 0.7);
+    flame(0.58, 0.68, P1, 0.85);
+    flame(0.34, 0.92, P1, 1);
+    // white-hot heart, sitting low in the flame where combustion is hottest
+    const heartR = fh * 0.18;
+    const heart = g2d.createRadialGradient(cx + lean * 0.3, cy - fh * 0.05, 0, cx + lean * 0.3, cy - fh * 0.05, heartR);
+    heart.addColorStop(0, "rgba(255,255,255," + (0.55 + 0.3 * lanternBreath).toFixed(3) + ")");
+    heart.addColorStop(0.5, P1(0.5));
+    heart.addColorStop(1, P1(0));
+    g2d.fillStyle = heart;
+    g2d.beginPath(); g2d.arc(cx + lean * 0.3, cy - fh * 0.05, heartR, 0, Math.PI * 2); g2d.fill();
   }
 
   // Soap bubbles rising slowly through the frame: thin iridescent rings
@@ -759,14 +777,26 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       g2d.save();
       g2d.translate(px, py);
       g2d.scale(wob, 1 / wob);
-      const g = g2d.createRadialGradient(0, 0, rad * 0.55, 0, 0, rad);
+      const g = g2d.createRadialGradient(0, 0, rad * 0.45, 0, 0, rad);
       g.addColorStop(0, P1(0.02));
-      g.addColorStop(1, P1(0.14 + 0.16 * lv));
+      g.addColorStop(0.82, P1(0.10 + 0.12 * lv));
+      g.addColorStop(1, P1(0.20 + 0.22 * lv));
       g2d.fillStyle = g;
       g2d.beginPath(); g2d.arc(0, 0, rad, 0, Math.PI * 2); g2d.fill();
-      g2d.strokeStyle = P1(0.4 + 0.35 * lv); g2d.lineWidth = 1.2 * dpr; g2d.stroke();
-      g2d.beginPath(); g2d.arc(0, 0, rad * 0.72, Math.PI * 1.15, Math.PI * 1.45);
+      // Iridescent rim: brightest where the light hits, dimming round the
+      // far side, instead of a single flat-weight outline.
+      const rim = g2d.createLinearGradient(-rad, -rad, rad, rad);
+      rim.addColorStop(0, P1(0.75 + 0.25 * lv));
+      rim.addColorStop(0.45, P2(0.32 + 0.3 * lv));
+      rim.addColorStop(1, P1(0.5 + 0.3 * lv));
+      g2d.strokeStyle = rim; g2d.lineWidth = 1.3 * dpr; g2d.stroke();
+      // crescent sheen + a hard specular dot
+      g2d.beginPath(); g2d.arc(0, 0, rad * 0.72, Math.PI * 1.12, Math.PI * 1.46);
       g2d.strokeStyle = P2(0.85); g2d.lineWidth = 1.6 * dpr; g2d.stroke();
+      g2d.beginPath();
+      g2d.arc(-rad * 0.34, -rad * 0.38, Math.max(0.7 * dpr, rad * 0.12), 0, Math.PI * 2);
+      g2d.fillStyle = "rgba(255,255,255,0.55)";
+      g2d.fill();
       g2d.restore();
     }
   }
@@ -884,10 +914,17 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       const v = S.d[i];
       const bh = Math.max(1.5 * dpr, v * (h - 2 * dpr) * (1 + 0.1 * S.beat));
       const x = i * slot + (slot - bw) / 2, y = h - bh;
+      // Chromatic-aberration ghosts, then a shaded core column and a hot
+      // scan cap. The core used to be one flat fill, which read as a plain
+      // bar chart with an offset shadow.
       b.fillStyle = P1(0.45); b.fillRect(x - split, y, bw, bh);
       b.fillStyle = P2(0.45); b.fillRect(x + split, y, bw, bh);
-      b.fillStyle = P2(0.95); b.fillRect(x, y, bw, bh);
-      b.fillStyle = P1(1); b.fillRect(x, y, bw, Math.max(1, 2 * dpr));
+      const cg = b.createLinearGradient(0, y, 0, h);
+      cg.addColorStop(0, P1(0.98));
+      cg.addColorStop(0.35, P2(0.95));
+      cg.addColorStop(1, P2(0.55));
+      b.fillStyle = cg; b.fillRect(x, y, bw, bh);
+      b.fillStyle = "rgba(255,255,255,0.75)"; b.fillRect(x, y, bw, Math.max(1, 2 * dpr));
     }
     b.fillStyle = P2(0.10);
     for (let y = 0; y < h; y += 4 * dpr) b.fillRect(0, y, w, 1 * dpr);
@@ -921,6 +958,18 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     } else {
       analyser.getByteTimeDomainData(timeData as any);
       td = timeData;
+      // Same guard as the oscilloscope: dead-silent time-domain data while a
+      // track is playing would otherwise flatten the seismograph into a
+      // single horizontal line.
+      let moved = false;
+      for (let i = 0; i < td.length; i += 17) {
+        if (Math.abs(td[i] - 128) > 2) { moved = true; break; }
+      }
+      if (!moved && !audio.paused) {
+        if (!fakeWaveData) fakeWaveData = new Uint8Array(1024);
+        fakeWave(fakeWaveData);
+        td = fakeWaveData;
+      }
     }
     quakeShake = S.hit ? 1 : quakeShake * Math.exp(-S.dt / 0.12);
     const shake = quakeShake * 7 * dpr;
@@ -1025,6 +1074,41 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       g.addColorStop(0, P2(0.95)); g.addColorStop(0.55, P2(0.8)); g.addColorStop(1, P1(0.5));
       g2d.fillStyle = g; g2d.fill();
       g2d.strokeStyle = P1(0.85); g2d.lineWidth = 1 * dpr; g2d.stroke();
+
+      // Crystal facets: one lit flank per tooth. Without this the jaws are
+      // a perfectly uniform sawtooth — geometric, but not a shard.
+      for (let i = 0; i < n; i++) {
+        const j = fromTop ? n - 1 - i : i;
+        const tipX = (i + (fromTop ? 1 : 0.5)) * slot + shift;
+        const len = Math.max(2 * dpr, S.d[j] * H);
+        const tipY = edge + sign * len;
+        const rootL = tipX - slot / 2, rootR = tipX + slot / 2;
+        // lit flank (left side of every tooth)
+        g2d.beginPath();
+        g2d.moveTo(rootL, edge);
+        g2d.lineTo(tipX, tipY);
+        g2d.lineTo(tipX - slot * 0.14, edge);
+        g2d.closePath();
+        g2d.fillStyle = P1(0.20 + 0.22 * S.d[j]);
+        g2d.fill();
+        // shaded flank (right side), only on the taller teeth
+        if (S.d[j] > 0.35) {
+          g2d.beginPath();
+          g2d.moveTo(rootR, edge);
+          g2d.lineTo(tipX, tipY);
+          g2d.lineTo(tipX + slot * 0.16, edge);
+          g2d.closePath();
+          g2d.fillStyle = "rgba(0,0,0,0.22)";
+          g2d.fill();
+        }
+        // tip spark on the tallest teeth
+        if (S.d[j] > 0.72) {
+          g2d.fillStyle = "rgba(255,255,255," + (0.25 + 0.5 * S.beat).toFixed(3) + ")";
+          g2d.beginPath();
+          g2d.arc(tipX, tipY, Math.max(0.8 * dpr, slot * 0.07), 0, Math.PI * 2);
+          g2d.fill();
+        }
+      }
     };
     jaw(false);
     jaw(true);
@@ -1034,6 +1118,37 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     }
   }
 
+
+  // ---------------------------------------------------------------------
+  // Shared column helpers for the spectrum family.
+  // ---------------------------------------------------------------------
+  // Column paint for the bar family.
+  //
+  // Default is deliberately FLAT: a single solid cover colour, which is the
+  // look Melo has always had. The two-tone crown → dark-accent gradient is
+  // what the Settings → Visualizer "Pale tops" switch turns on, so the two
+  // are not two different features doing almost the same thing.
+  function columnGrad(yTop: number, yBase: number, c1: string, c2: string) {
+    if (!fx.pale) return c1;
+    const g = g2d.createLinearGradient(0, yTop, 0, yBase);
+    g.addColorStop(0, mix(c1, "#ffffff", 0.55));
+    g.addColorStop(0.42, c1);
+    g.addColorStop(1, mix(c2, "#000000", 0.18));
+    return g;
+  }
+  // Rounded crown, square foot — a bar should sit flush on its baseline
+  // rather than turn into a pill when it is short.
+  function barPath(x: number, y: number, bw: number, bh: number, r: number) {
+    r = Math.max(0, Math.min(r, bw / 2, bh));
+    g2d.beginPath();
+    g2d.moveTo(x, y + bh);
+    g2d.lineTo(x, y + r);
+    g2d.quadraticCurveTo(x, y, x + r, y);
+    g2d.lineTo(x + bw - r, y);
+    g2d.quadraticCurveTo(x + bw, y, x + bw, y + r);
+    g2d.lineTo(x + bw, y + bh);
+    g2d.closePath();
+  }
 
   function drawPeaks(data: number[], h: number, bw: number, slot: number) {
     if (!fx.peak) return;
@@ -1064,32 +1179,53 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     // Mirror fade reserves a thin zone at the bottom for the reflection.
     const mirH = fx.mirrorFade ? Math.max(6 * dpr, Math.min(h * 0.22, 12 * dpr)) : 0;
     const base = h - mirH - 1 * dpr;
-    const topC = fx.pale ? mix(c1, "#ffffff", 0.5) : c1;
-    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
+    const radius = Math.min(bw / 2, 3.5 * dpr);
+    const grad: string | CanvasGradient = columnGrad(2 * dpr, base, c1, c2);
+
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 7 * dpr; }
     for (let i = 0; i < n; i++) {
       const v = data[i];
       const bh = Math.max(2 * dpr, v * (base - 2 * dpr));
       const x = i * slot + (slot - bw) / 2, y = base - bh;
-      const grad = g2d.createLinearGradient(0, y, 0, base);
-      grad.addColorStop(0, topC);
-      grad.addColorStop(1, c1);
       g2d.fillStyle = grad;
       // Pale tops: bars that reach high fade slightly + shift color.
       if (fx.pale && v > 0.72) g2d.globalAlpha = 1 - (v - 0.72) * 0.8;
-      g2d.beginPath();
-      rr(x, y, bw, bh, Math.min(bw / 2, 3.5 * dpr));
+      barPath(x, y, bw, bh, radius);
       g2d.fill();
-      if (mirH > 0) {
-        // Very subtle inverted reflection below the baseline.
-        g2d.globalAlpha = 0.14;
-        g2d.beginPath();
-        rr(x, base + 1 * dpr, bw, Math.max(1.5 * dpr, bh * 0.24), Math.min(bw / 2, 2 * dpr));
+      g2d.globalAlpha = 1;
+
+      // Bright crown cap — part of the "Pale tops" look, not the default.
+      if (fx.pale && bh > 3 * dpr) {
+        const capH = Math.min(bh * 0.45, Math.max(1.4 * dpr, 2.6 * dpr));
+        g2d.fillStyle = mix(c1, "#ffffff", 0.72);
+        g2d.globalAlpha = 0.30 + 0.45 * v;
+        barPath(x, y, bw, capH, Math.min(radius, capH));
         g2d.fill();
         g2d.globalAlpha = 1;
       }
-      g2d.globalAlpha = 1;
     }
     g2d.shadowBlur = 0;
+
+    if (mirH > 0) {
+      // Reflection: drawn once through a fading gradient instead of a flat
+      // 14% alpha, so it actually falls off like a reflection.
+      const refl = g2d.createLinearGradient(0, base, 0, base + mirH);
+      refl.addColorStop(0, mix(c1, "#000000", 0.1));
+      refl.addColorStop(1, "rgba(0,0,0,0)");
+      g2d.save();
+      g2d.beginPath();
+      g2d.rect(0, base + 1 * dpr, w, mirH);
+      g2d.clip();
+      g2d.fillStyle = refl;
+      g2d.globalAlpha = 0.26;
+      for (let i = 0; i < n; i++) {
+        const bh = Math.max(2 * dpr, data[i] * (base - 2 * dpr));
+        const x = i * slot + (slot - bw) / 2;
+        g2d.fillRect(x, base + 1 * dpr, bw, Math.max(1.5 * dpr, bh * 0.3));
+      }
+      g2d.globalAlpha = 1;
+      g2d.restore();
+    }
     drawPeaks(data, base, bw, slot);
   }
 
@@ -1099,17 +1235,28 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const c2 = accentOrDarker(c1);
     const n = data.length, slot = w / n, mid = h / 2;
     const bw = Math.max(1.5 * dpr, slot * 0.62);
-    const topC = fx.pale ? mix(c1, "#ffffff", 0.5) : c1;
-    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 5 * dpr; }
+    const half = h / 2 - 3 * dpr;
+    // Flat by default; "Pale tops" turns it into bright-at-the-centre-line
+    // falling to the darker accent at both tips. No centre rail — the bars
+    // themselves already mark the axis.
+    let grad: string | CanvasGradient = c1;
+    if (fx.pale) {
+      const g = g2d.createLinearGradient(0, mid - half, 0, mid + half);
+      g.addColorStop(0, mix(c2, "#000000", 0.14));
+      g.addColorStop(0.35, c1);
+      g.addColorStop(0.5, mix(c1, "#ffffff", 0.6));
+      g.addColorStop(0.65, c1);
+      g.addColorStop(1, mix(c2, "#000000", 0.14));
+      grad = g;
+    }
+
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
     for (let i = 0; i < n; i++) {
-      const bh = Math.max(1.5 * dpr, data[i] * (h / 2 - 3 * dpr));
+      const v = data[i];
+      const bh = Math.max(1.5 * dpr, v * half);
       const x = i * slot + (slot - bw) / 2;
-      const grad = g2d.createLinearGradient(0, mid - bh, 0, mid + bh);
-      grad.addColorStop(0, topC);
-      grad.addColorStop(0.5, c1);
-      grad.addColorStop(1, topC);
       g2d.fillStyle = grad;
-      if (fx.pale && data[i] > 0.72) g2d.globalAlpha = 1 - (data[i] - 0.72) * 0.8;
+      if (fx.pale && v > 0.72) g2d.globalAlpha = 1 - (v - 0.72) * 0.8;
       g2d.beginPath();
       rr(x, mid - bh, bw, bh * 2, Math.min(bw / 2, 3 * dpr));
       g2d.fill();
@@ -1129,6 +1276,17 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       px.push(((i + 0.5) / n) * w);
       py.push(h - 2 * dpr - data[i] * (h - 8 * dpr));
     }
+    const spine = () => {
+      g2d.beginPath();
+      g2d.moveTo(px[0], py[0]);
+      for (let i = 1; i < n; i++) {
+        const cx = (px[i - 1] + px[i]) / 2;
+        g2d.quadraticCurveTo(px[i - 1], py[i - 1], cx, (py[i - 1] + py[i]) / 2);
+      }
+      g2d.lineTo(px[n - 1], py[n - 1]);
+    };
+
+    // Filled body under the curve.
     g2d.beginPath();
     g2d.moveTo(px[0], h);
     g2d.lineTo(px[0], py[0]);
@@ -1140,26 +1298,33 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.lineTo(px[n - 1], h);
     g2d.closePath();
     const fill = g2d.createLinearGradient(0, 0, 0, h);
-    fill.addColorStop(0, fx.pale ? mix(c1, "#ffffff", 0.4) : c1);
-    fill.addColorStop(1, "transparent");
-    g2d.globalAlpha = 0.18;
+    fill.addColorStop(0, mix(c1, "#ffffff", fx.pale ? 0.45 : 0.15));
+    fill.addColorStop(0.55, c1);
+    fill.addColorStop(1, mix(c2, "#000000", 0.35));
+    g2d.globalAlpha = 0.34;
     g2d.fillStyle = fill;
     g2d.fill();
     g2d.globalAlpha = 1;
 
-    if (fx.bloom) { g2d.shadowColor = c2; g2d.shadowBlur = 6 * dpr; }
-    g2d.beginPath();
-    g2d.moveTo(px[0], py[0]);
-    for (let i = 1; i < n; i++) {
-      const cx = (px[i - 1] + px[i]) / 2;
-      g2d.quadraticCurveTo(px[i - 1], py[i - 1], cx, (py[i - 1] + py[i]) / 2);
-    }
-    g2d.lineTo(px[n - 1], py[n - 1]);
-    g2d.strokeStyle = c2;
-    g2d.lineWidth = 2 * dpr;
     g2d.lineJoin = "round";
+    g2d.lineCap = "round";
+    // Soft halo underneath, then the crisp trace on top.
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 9 * dpr; }
+    spine();
+    g2d.strokeStyle = c1;
+    g2d.globalAlpha = 0.22;
+    g2d.lineWidth = 6 * dpr;
     g2d.stroke();
     g2d.shadowBlur = 0;
+    g2d.globalAlpha = 1;
+    // One even trace. A horizontal bass→treble sweep was tried here and
+    // rejected: whitening the treble end read as a smear of haze over the
+    // right-hand side of the canvas rather than as shading.
+    spine();
+    g2d.strokeStyle = c2;
+    g2d.lineWidth = 2.2 * dpr;
+    g2d.stroke();
+    g2d.lineCap = "butt";
   }
 
   // Mirrored, connected spectrum around a horizontal centre line.
@@ -1215,7 +1380,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.shadowBlur = 0;
 
     g2d.globalAlpha = 1;
-    trace(true); g2d.strokeStyle = c2; g2d.lineWidth = 1.2 * dpr; g2d.stroke();
+    trace(true); g2d.strokeStyle = c2; g2d.lineWidth = 1.4 * dpr; g2d.stroke();
     trace(false); g2d.stroke();
     g2d.beginPath();
     g2d.moveTo(0, mid); g2d.lineTo(w, mid);
@@ -1224,8 +1389,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.globalAlpha = 1;
   }
 
-  // Quantized square-cell equalizer. Each frequency column is built from
-  // discrete blocks instead of a continuous bar.
+  // Quantized square-cell equalizer — a hardware LED ladder: the whole
+  // grid is always faintly visible and the level lights cells from the
+  // bottom up, instead of only drawing the lit cells against a void.
   function drawBlocks(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
@@ -1236,19 +1402,32 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const rowGap = Math.max(1 * dpr, h * 0.025);
     const cellW = Math.max(1, (w - colGap * (cols - 1)) / cols);
     const cellH = Math.max(1, (h - rowGap * (rows - 1)) / rows);
-    const grad = g2d.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, fx.pale ? mix(c1, "#ffffff", 0.4) : c1);
-    grad.addColorStop(1, c1);
-    g2d.fillStyle = grad;
-    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 4 * dpr; }
+    const rad = Math.min(2 * dpr, cellW / 3, cellH / 3);
+    const cell = (x: number, y: number) => { g2d.beginPath(); rr(x, y, cellW, cellH, rad); g2d.fill(); };
 
+    // Unlit ladder.
+    g2d.fillStyle = c1;
+    g2d.globalAlpha = 0.07;
+    for (let i = 0; i < cols; i++) {
+      const x = i * (cellW + colGap);
+      for (let r = 0; r < rows; r++) cell(x, h - (r + 1) * cellH - r * rowGap);
+    }
+    g2d.globalAlpha = 1;
+
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 5 * dpr; }
     for (let i = 0; i < cols; i++) {
       const lit = Math.max(1, Math.min(rows, Math.round(data[i] * rows)));
       const x = i * (cellW + colGap);
       for (let r = 0; r < lit; r++) {
+        const t = (r + 1) / rows;
         const y = h - (r + 1) * cellH - r * rowGap;
-        g2d.globalAlpha = 0.58 + 0.42 * ((r + 1) / rows);
-        g2d.fillRect(x, y, cellW, cellH);
+        const top = r === lit - 1;
+        // Flat cover colour with the classic alpha climb. "Pale tops" is
+        // what makes the ladder shift colour from the dark accent up to a
+        // white-lifted head cell.
+        g2d.fillStyle = fx.pale ? (top ? mix(c1, "#ffffff", 0.7) : mix(c2, c1, t)) : c1;
+        g2d.globalAlpha = top && fx.pale ? 1 : 0.52 + 0.4 * t;
+        cell(x, y);
       }
     }
     g2d.globalAlpha = 1;
@@ -1269,6 +1448,18 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     } else {
       analyser.getByteTimeDomainData(timeData as any);
       td = timeData;
+      // Parity with getLevels(): if the graph hands us dead silence while a
+      // track is actually playing, fall back to the synthetic wave instead
+      // of drawing a flat dead line across the middle.
+      let moved = false;
+      for (let i = 0; i < td.length; i += 17) {
+        if (Math.abs(td[i] - 128) > 2) { moved = true; break; }
+      }
+      if (!moved && !audio.paused) {
+        if (!fakeWaveData) fakeWaveData = new Uint8Array(1024);
+        fakeWave(fakeWaveData);
+        td = fakeWaveData;
+      }
     }
     const path = () => {
       g2d.beginPath();
@@ -1279,50 +1470,106 @@ export function setupVisualizer(audio: HTMLAudioElement) {
         else g2d.lineTo(x, y);
       }
     };
-    if (fx.bloom) { g2d.shadowColor = c2; g2d.shadowBlur = 6 * dpr; }
-    path();
-    g2d.strokeStyle = c2;
-    g2d.globalAlpha = 0.16;
-    g2d.lineWidth = 6 * dpr;
     g2d.lineJoin = "round";
-    g2d.stroke();
+    g2d.lineCap = "round";
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 8 * dpr; }
     path();
-    g2d.globalAlpha = 1;
-    g2d.lineWidth = 1.8 * dpr;
+    g2d.strokeStyle = c1;
+    g2d.globalAlpha = 0.18;
+    g2d.lineWidth = 7 * dpr;
     g2d.stroke();
     g2d.shadowBlur = 0;
+    g2d.globalAlpha = 1;
+    // Even trace, no horizontal sweep (see drawLine for why).
+    path();
+    g2d.strokeStyle = c2;
+    g2d.lineWidth = 2 * dpr;
+    g2d.stroke();
+    g2d.lineCap = "butt";
   }
 
-  // Radial Sunburst — semicircle of rays rising from the bottom centre.
+  // Radial Sunburst — a full 360 degree corona around a pulsing core.
+  // The old version fanned rays across a half-circle rooted at the bottom
+  // edge with a ray width computed from the arc length, which on a wide
+  // strip overlapped every ray into one solid blob. Now the rays are
+  // mirrored around the vertical axis (so the figure is symmetric), sized
+  // from the actual angular slot, and drawn with a gradient along their
+  // length.
   function drawRadial(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
     const c2 = accentOrDarker(c1);
-    const cx = w / 2, cy = h - 2 * dpr;
-    const R = h - 8 * dpr;
+    const cx = w / 2, cy = h / 2;
+    const R = Math.min(w, h) * 0.46;
+    const inner = R * 0.30;
     const n = data.length;
-    const slot = Math.PI / n;
-    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 5 * dpr; }
+    const rays = n * 2;                       // mirrored → symmetric corona
+    const slot = (Math.PI * 2) / rays;
+    const spin = (performance.now() / 1000) * 0.10;
+
+    let sum = 0;
+    for (const v of data) sum += v;
+    const avg = sum / Math.max(1, n);
+
+    // Core: soft halo + solid disc that breathes with the average level.
+    const coreR = inner * (0.72 + 0.42 * avg);
+    const halo = g2d.createRadialGradient(cx, cy, 0, cx, cy, inner * 2.6);
+    halo.addColorStop(0, mix(c1, "#ffffff", 0.4));
+    halo.addColorStop(0.35, c1);
+    halo.addColorStop(1, "rgba(0,0,0,0)");
+    g2d.globalAlpha = 0.30 + 0.3 * avg;
+    g2d.fillStyle = halo;
+    g2d.beginPath(); g2d.arc(cx, cy, inner * 2.6, 0, Math.PI * 2); g2d.fill();
+    g2d.globalAlpha = 1;
+
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
     g2d.lineCap = "round";
-    for (let i = 0; i < n; i++) {
+    const rayW = Math.max(1.4 * dpr, Math.min(inner * slot * 0.9, 6 * dpr));
+    for (let k = 0; k < rays; k++) {
+      const i = k < n ? k : rays - 1 - k;     // mirror the second half
       const v = data[i];
-      const theta = Math.PI + slot * (i + 0.5);
-      const len = Math.max(3 * dpr, v * R);
-      const x0 = cx + Math.cos(theta) * 2.5 * dpr;
-      const y0 = cy + Math.sin(theta) * 2.5 * dpr;
-      const x1 = cx + Math.cos(theta) * len;
-      const y1 = cy + Math.sin(theta) * len;
-      g2d.strokeStyle = mix(c2, c1, v);
-      g2d.globalAlpha = fx.pale && v > 0.72 ? 1 - (v - 0.72) * 0.8 : 1;
-      g2d.lineWidth = Math.max(2 * dpr, (Math.PI * R * slot) * 0.62);
+      const theta = -Math.PI / 2 + slot * (k + 0.5) + spin;
+      const len = inner + Math.max(2 * dpr, v * (R - inner));
+      const ct = Math.cos(theta), st = Math.sin(theta);
+      const x0 = cx + ct * inner, y0 = cy + st * inner;
+      const x1 = cx + ct * len,   y1 = cy + st * len;
+      const rg = g2d.createLinearGradient(x0, y0, x1, y1);
+      rg.addColorStop(0, mix(c2, "#000000", 0.1));
+      rg.addColorStop(0.55, mix(c2, c1, 0.75));
+      rg.addColorStop(1, mix(c1, "#ffffff", fx.pale ? 0.62 : 0.30));
+      g2d.strokeStyle = rg;
+      g2d.globalAlpha = fx.pale && v > 0.72 ? 1 - (v - 0.72) * 0.6 : 1;
+      g2d.lineWidth = rayW;
       g2d.beginPath();
       g2d.moveTo(x0, y0);
       g2d.lineTo(x1, y1);
       g2d.stroke();
+      // Peak cap riding the ray.
+      if (fx.peak) {
+        const pl = inner + peakHold[i] * (R - inner);
+        g2d.fillStyle = mix(c1, "#ffffff", 0.75);
+        g2d.globalAlpha = 0.8;
+        g2d.beginPath();
+        g2d.arc(cx + ct * pl, cy + st * pl, rayW * 0.42, 0, Math.PI * 2);
+        g2d.fill();
+      }
+      g2d.globalAlpha = 1;
     }
-    g2d.globalAlpha = 1;
-    g2d.shadowBlur = 0;
     g2d.lineCap = "butt";
+    g2d.shadowBlur = 0;
+
+    // Core disc + rim, drawn last so the ray roots disappear under it.
+    const disc = g2d.createRadialGradient(cx - coreR * 0.3, cy - coreR * 0.35, 0, cx, cy, coreR);
+    disc.addColorStop(0, mix(c1, "#ffffff", 0.8));
+    disc.addColorStop(0.6, c1);
+    disc.addColorStop(1, mix(c2, "#000000", 0.15));
+    g2d.fillStyle = disc;
+    g2d.beginPath(); g2d.arc(cx, cy, coreR, 0, Math.PI * 2); g2d.fill();
+    g2d.strokeStyle = mix(c1, "#ffffff", 0.6);
+    g2d.globalAlpha = 0.5;
+    g2d.lineWidth = 0.9 * dpr;
+    g2d.beginPath(); g2d.arc(cx, cy, coreR, 0, Math.PI * 2); g2d.stroke();
+    g2d.globalAlpha = 1;
   }
 
   // Dot Matrix — grid of dots lit by spectrum energy.
@@ -1562,7 +1809,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     if (mode === "aurora" || mode === "aurora2") return drawAurora(w, h, mode === "aurora2");
     if (mode === "tide" || mode === "tide2") return drawTide(w, h, mode === "tide2");
     if (mode === "ripples") return drawRipples(w, h);
-    if (mode === "drift") return drawDrift(w, h);
     if (mode === "petals") return drawPetals(w, h);
     if (mode === "fireflies") return drawFireflies(w, h);
     if (mode === "lantern") return drawLantern(w, h);
