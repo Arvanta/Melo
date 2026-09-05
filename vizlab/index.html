@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Melo — Visualizer Lab</title>
+<style>
+  :root {
+    --visualizer: #38bdf8;
+    --accent: #0284c7;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px;
+    background: #0b1016;
+    color: #dbe6f2;
+    font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; letter-spacing: .3px; }
+  p.sub { margin: 0 0 16px; color: #7d8fa3; font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; align-items: center; }
+  button {
+    background: #16202b; color: #cfe0f0; border: 1px solid #263445;
+    border-radius: 7px; padding: 5px 11px; font: inherit; cursor: pointer;
+  }
+  button:hover { background: #1d2b3a; }
+  button.on { background: var(--visualizer); border-color: var(--visualizer); color: #06131d; font-weight: 600; }
+  .swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #33445a; cursor: pointer; padding: 0; }
+  .stage { border: 1px solid #1e2a38; border-radius: 12px; overflow: hidden; background: #070b10; margin-bottom: 14px; }
+  .stage h2 { font-size: 11px; font-weight: 600; margin: 0; padding: 7px 11px; color: #8aa0b8;
+              text-transform: uppercase; letter-spacing: .9px; border-bottom: 1px solid #16202b; }
+  .viz { width: 100%; }
+  .viz canvas { display: block; width: 100%; height: 100%; }
+  .tall .viz { height: 260px; }
+  .short .viz { height: 56px; }
+  .hint { color: #64768a; font-size: 11px; margin-top: 12px; }
+  label { color: #8aa0b8; font-size: 12px; margin-right: 4px; }
+</style>
+</head>
+<body>
+  <h1>Melo — Visualizer Lab</h1>
+  <p class="sub">Dev-only harness (not part of the app build). Runs the real
+     <code>src/visualizer.ts</code> against its built-in fake-signal generator.</p>
+
+  <div class="row" id="modes"></div>
+  <div class="row">
+    <label>Cover colour</label>
+    <span id="swatches"></span>
+    <label style="margin-left:14px">FX</label>
+    <button data-fx="bloom">Bloom</button>
+    <button data-fx="afterglow">Afterglow</button>
+    <button data-fx="peak">Peak hold</button>
+  </div>
+
+  <div class="stage tall">
+    <h2>Large stage (custom skins / embedded stage)</h2>
+    <div class="viz" id="vizBars"></div>
+  </div>
+
+  <div class="stage short">
+    <h2>56&nbsp;px strip (default skin height)</h2>
+    <div class="viz" id="vizSmall"></div>
+  </div>
+
+  <div class="hint">Click a canvas to cycle modes · right-click for the mode menu.</div>
+
+  <script type="module" src="./lab.ts"></script>
+</body>
+</html>

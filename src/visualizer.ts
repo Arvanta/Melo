@@ -3,8 +3,8 @@ import { busOn } from "./bus";
 
 export type VizMode =
   | "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks" | "radial" | "dots"
-  | "aurora" | "aurora2" | "bubbles" | "drift" | "fireflies" | "glitch" | "lantern" | "petals"
-  | "quake" | "ripples" | "shards" | "sparks" | "tide" | "tide2";
+  | "aurora" | "aurora2" | "bubbles" | "drift" | "fireflies" | "glitch" | "lantern" | "meadow"
+  | "petals" | "quake" | "ripples" | "shards" | "sparks" | "tide" | "tide2";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "bars", label: "Classic Bars" },
@@ -24,6 +24,7 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "fireflies", label: "Fireflies" },
   { id: "glitch", label: "Glitch" },
   { id: "lantern", label: "Lantern" },
+  { id: "meadow", label: "Wildflower Meadow" },
   { id: "petals", label: "Petals" },
   { id: "quake", label: "Quake" },
   { id: "ripples", label: "Ripples" },
@@ -304,6 +305,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   let lanternPuffs: { x: number; y: number; r: number; life: number; max: number; drift: number }[] = [];
   let lanternBreath = 0;
   let bubbles: { x: number; y: number; r: number; s: number; ph: number; b: number; pop: number }[] = [];
+  // Wildflower Meadow
+  let meadowBlades: { x: number; h: number; lean: number; ph: number; b: number; depth: number; c: number }[] = [];
+  let meadowFlowers: { x: number; stem: number; petals: number; ph: number; spin: number; b: number; c: number; size: number }[] = [];
+  let meadowPollen: { x: number; y: number; r: number; ph: number; sp: number; b: number; c: number }[] = [];
 
   function ambientSignals(lively: boolean): AmbientSignals {
     const now = performance.now();
@@ -1347,6 +1352,204 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.shadowBlur = 0;
   }
 
+  // ---------------------------------------------------------------------
+  // Wildflower Meadow — a field of grass and flowers breathing in the wind.
+  // Layered blades bend to a two-octave breeze, each flower head opens with
+  // its own slice of the spectrum, and pollen drifts up through warm air.
+  // ---------------------------------------------------------------------
+  function drawMeadow(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const cssW = w / dpr;
+    const ground = h * 0.985;
+
+    const bladeCount = Math.max(24, Math.min(130, Math.round(cssW / 6.5)));
+    if (meadowBlades.length !== bladeCount) {
+      meadowBlades = Array.from({ length: bladeCount }, (_, i) => {
+        const depth = (i % 3) / 2; // 0 = far/dim/short, 1 = near/bright/tall
+        return {
+          x: (i + 0.5) / bladeCount + (Math.random() - 0.5) / bladeCount,
+          h: (0.22 + 0.30 * Math.random()) * (0.65 + 0.6 * depth),
+          lean: (Math.random() - 0.5) * 0.7,
+          ph: Math.random() * Math.PI * 2,
+          b: (i * GOLDEN) % 1,
+          depth,
+          c: i % 4 === 0 ? 1 : 0,
+        };
+      });
+    }
+    const flowerCount = Math.max(4, Math.min(20, Math.round(cssW / 38)));
+    if (meadowFlowers.length !== flowerCount) {
+      meadowFlowers = Array.from({ length: flowerCount }, (_, i) => ({
+        x: (i + 0.5) / flowerCount + (Math.random() - 0.5) * 0.6 / flowerCount,
+        stem: 0.30 + Math.random() * 0.46,
+        petals: 5 + (i % 3),
+        ph: Math.random() * Math.PI * 2,
+        spin: (i % 2 ? 1 : -1) * (0.10 + Math.random() * 0.22),
+        b: ((i + 0.5) * GOLDEN * 3) % 1,
+        c: i % 2,
+        size: 0.72 + Math.random() * 0.55,
+      }));
+    }
+    const pollenCount = Math.max(8, Math.min(38, Math.round(cssW / 22)));
+    if (meadowPollen.length !== pollenCount) {
+      meadowPollen = Array.from({ length: pollenCount }, (_, i) => ({
+        x: Math.random(), y: Math.random(),
+        r: 0.6 + Math.random() * 1.4,
+        ph: Math.random() * Math.PI * 2,
+        sp: 0.5 + Math.random(),
+        b: ((i + 1) * GOLDEN * 5) % 1,
+        c: i % 3 === 0 ? 1 : 0,
+      }));
+    }
+
+    // Warm air above, soft earth glow along the ground line.
+    const sky = g2d.createLinearGradient(0, 0, 0, ground);
+    sky.addColorStop(0, P2(0.15 + 0.14 * S.high));
+    sky.addColorStop(0.62, P2(0.03 + 0.05 * S.all));
+    sky.addColorStop(1, P1(0));
+    g2d.fillStyle = sky;
+    g2d.fillRect(0, 0, w, h);
+
+    // Two overlapping breeze waves so the field never sways in lockstep.
+    const breeze = (Math.sin(S.t * 0.75) * 0.62 + Math.sin(S.t * 1.63 + 1.3) * 0.38) * (0.45 + 0.85 * S.all);
+
+    // Distant rolling hills — depth behind the field, drifting very slowly.
+    for (let k = 0; k < 2; k++) {
+      const base = ground - h * (0.30 + 0.13 * k);
+      const amp = h * (0.045 + 0.03 * k) * (0.7 + 0.5 * S.low);
+      g2d.fillStyle = P1(0.05 + 0.045 * k + 0.05 * S.low);
+      g2d.beginPath();
+      g2d.moveTo(0, h);
+      g2d.lineTo(0, base);
+      for (let x = 0; x <= w; x += Math.max(4 * dpr, w / 40)) {
+        const u = x / w;
+        const y = base + Math.sin(u * Math.PI * (2.2 + k) + S.t * 0.12 * (k + 1) + k * 1.7) * amp
+                       + Math.sin(u * Math.PI * (5.3 - k) + k) * amp * 0.35;
+        g2d.lineTo(x, y);
+      }
+      g2d.lineTo(w, h);
+      g2d.closePath();
+      g2d.fill();
+    }
+
+    const soil = g2d.createLinearGradient(0, ground - h * 0.26, 0, h);
+    soil.addColorStop(0, P1(0));
+    soil.addColorStop(1, P1(0.13 + 0.17 * S.low));
+    g2d.fillStyle = soil;
+    g2d.fillRect(0, ground - h * 0.26, w, h - ground + h * 0.26);
+
+    // Grass: tapered blades (filled, not stroked) so they read as leaves
+    // rather than needles, curving into the breeze with a real arc.
+    for (const q of meadowBlades) {
+      const lv = bandAt(S.bands, q.b);
+      const bh = q.h * h * (0.82 + 0.55 * lv);
+      // Per-blade phase carries most of the motion so the field ripples
+      // instead of every blade leaning the same way at the same instant.
+      const bend = (q.lean + breeze * (0.20 + 0.30 * q.depth) + Math.sin(S.t * 1.7 + q.ph) * (0.16 + 0.20 * S.all)) * bh * 0.45;
+      const bx = q.x * w;
+      const tipX = bx + bend, tipY = ground - bh;
+      // Control point pulled BACK from the tip → the blade arcs instead of
+      // running dead straight to its tip.
+      const cx = bx + bend * 0.22, cy = ground - bh * 0.62;
+      const halfW = (0.55 + 1.15 * q.depth) * dpr;
+      const P = q.c ? P2 : P1;
+      g2d.fillStyle = P(0.10 + 0.22 * q.depth + 0.34 * lv * (0.35 + 0.65 * q.depth));
+      g2d.beginPath();
+      g2d.moveTo(bx - halfW, ground);
+      g2d.quadraticCurveTo(cx - halfW * 0.55, cy, tipX, tipY);
+      g2d.quadraticCurveTo(cx + halfW * 0.55, cy, bx + halfW, ground);
+      g2d.closePath();
+      g2d.fill();
+    }
+
+    if (fx.bloom) { g2d.shadowColor = cssVar("--visualizer", "#38bdf8"); g2d.shadowBlur = 5 * dpr; }
+    g2d.lineCap = "round";
+    for (const f of meadowFlowers) {
+      const lv = bandAt(S.bands, f.b);
+      const bloom = 0.55 + 0.45 * lv;
+      const sh = f.stem * h * (0.9 + 0.22 * lv);
+      const bend = (breeze * 0.85 + Math.sin(S.t * 1.45 + f.ph) * 0.28) * sh * 0.45;
+      const sx = f.x * w;
+      const hx = sx + bend, hy = ground - sh;
+      const P = f.c ? P2 : P1;
+      const Q = f.c ? P1 : P2;
+      g2d.strokeStyle = P(0.34 + 0.30 * lv);
+      g2d.lineWidth = 1.5 * dpr;
+      g2d.beginPath();
+      g2d.moveTo(sx, ground);
+      g2d.quadraticCurveTo(sx + bend * 0.28, ground - sh * 0.55, hx, hy);
+      g2d.stroke();
+      // a pair of slim leaves halfway up the stem, angled upward
+      const lx = sx + bend * 0.28, ly = ground - sh * 0.5;
+      const leaf = Math.max(1.6 * dpr, sh * 0.11);
+      g2d.fillStyle = P(0.16 + 0.16 * lv);
+      for (const side of [-1, 1]) {
+        g2d.save();
+        g2d.translate(lx, ly);
+        g2d.rotate(side * (0.75 + 0.12 * Math.sin(S.t * 1.3 + f.ph)));
+        g2d.beginPath();
+        g2d.moveTo(0, 0);
+        g2d.quadraticCurveTo(leaf * 0.5, -leaf * 0.34, leaf * 1.6, -leaf * 0.15);
+        g2d.quadraticCurveTo(leaf * 0.5, leaf * 0.10, 0, 0);
+        g2d.closePath();
+        g2d.fill();
+        g2d.restore();
+      }
+      const rad = Math.max(2.2 * dpr, Math.min(w * 0.018, h * 0.115)) * f.size * bloom;
+      const halo = g2d.createRadialGradient(hx, hy, 0, hx, hy, rad * 3.2);
+      halo.addColorStop(0, P(0.20 + 0.32 * lv));
+      halo.addColorStop(1, P(0));
+      g2d.fillStyle = halo;
+      g2d.beginPath(); g2d.arc(hx, hy, rad * 3.2, 0, Math.PI * 2); g2d.fill();
+      const spin = S.t * f.spin + f.ph;
+      g2d.lineWidth = 0.9 * dpr;
+      for (let p = 0; p < f.petals; p++) {
+        g2d.save();
+        g2d.translate(hx, hy);
+        g2d.rotate(spin + (p / f.petals) * Math.PI * 2);
+        // Petals fan slightly wider as the band lifts, so the head "opens".
+        g2d.beginPath();
+        g2d.ellipse(0, -rad * 0.92, rad * 0.44, rad * 0.92, 0, 0, Math.PI * 2);
+        const pg = g2d.createLinearGradient(0, 0, 0, -rad * 1.85);
+        pg.addColorStop(0, P(0.20 + 0.30 * lv));
+        pg.addColorStop(1, Q(0.34 + 0.44 * lv));
+        g2d.fillStyle = pg;
+        g2d.fill();
+        g2d.strokeStyle = P(0.16 + 0.24 * lv);
+        g2d.stroke();
+        g2d.restore();
+      }
+      g2d.fillStyle = Q(0.68 + 0.3 * lv);
+      g2d.beginPath(); g2d.arc(hx, hy, rad * 0.40, 0, Math.PI * 2); g2d.fill();
+      g2d.fillStyle = P(0.55 + 0.4 * lv);
+      g2d.beginPath(); g2d.arc(hx, hy, rad * 0.18, 0, Math.PI * 2); g2d.fill();
+    }
+    g2d.shadowBlur = 0;
+
+    for (const q of meadowPollen) {
+      const lv = bandAt(S.bands, q.b);
+      q.y -= S.dt * ambSpeed * q.sp * (0.020 + 0.045 * S.all);
+      q.x += S.dt * ambSpeed * (breeze * 0.045 + Math.sin(S.t * q.sp * 1.7 + q.ph) * 0.014);
+      if (q.y < -0.06) { q.y = 1.04; q.x = Math.random(); }
+      if (q.x > 1.06) q.x = -0.06; else if (q.x < -0.06) q.x = 1.06;
+      const tw = 0.55 + 0.45 * Math.sin(S.t * 2.2 * q.sp + q.ph);
+      const r = (q.r + 1.6 * lv) * dpr;
+      const px = q.x * w, py = q.y * h;
+      const P = q.c ? P2 : P1;
+      const g = g2d.createRadialGradient(px, py, 0, px, py, r * 3);
+      g.addColorStop(0, P((0.18 + 0.4 * lv) * tw));
+      g.addColorStop(1, P(0));
+      g2d.fillStyle = g;
+      g2d.beginPath(); g2d.arc(px, py, r * 3, 0, Math.PI * 2); g2d.fill();
+      g2d.fillStyle = P((0.45 + 0.4 * lv) * tw);
+      g2d.beginPath(); g2d.arc(px, py, Math.max(0.7 * dpr, r * 0.5), 0, Math.PI * 2); g2d.fill();
+    }
+    g2d.lineCap = "butt";
+  }
+
   function draw() {
     const w = canvas.width, h = canvas.height;
     if (!w || !h) return;
@@ -1363,6 +1566,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     if (mode === "petals") return drawPetals(w, h);
     if (mode === "fireflies") return drawFireflies(w, h);
     if (mode === "lantern") return drawLantern(w, h);
+    if (mode === "meadow") return drawMeadow(w, h);
     if (mode === "bubbles") return drawBubbles(w, h);
     if (mode === "sparks") return drawSparks(w, h);
     if (mode === "glitch") return drawGlitch(w, h);

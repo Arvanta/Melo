@@ -26,7 +26,36 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // User volume (percent) as tracked by the slider. Kept separately from
   // `audio.volume` (which goes to 0 during fade-out-on-pause) so a skin
   // swap can restore the slider to the real value, not 0 or the template's 60.
-  let userVolumePct = 60;
+  //
+  // PERSISTED across app restarts (`melo-volume`): every skin template ships
+  // the markup default `value="60"`, so without a saved value the player
+  // silently reset to 60% on every launch no matter what the user had set.
+  const DEFAULT_VOLUME_PCT = 60;
+  function readSavedVolumePct(): number {
+    const raw = parseInt(localStorage.getItem("melo-volume") ?? "", 10);
+    if (!Number.isFinite(raw)) return DEFAULT_VOLUME_PCT;
+    return Math.max(0, Math.min(100, raw));
+  }
+  let userVolumePct = readSavedVolumePct();
+
+  // Dragging the slider fires `input` continuously; coalesce the writes so a
+  // drag is one localStorage hit instead of dozens.
+  let volumeSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  function persistVolume() {
+    if (volumeSaveTimer) clearTimeout(volumeSaveTimer);
+    volumeSaveTimer = setTimeout(() => {
+      volumeSaveTimer = null;
+      try { localStorage.setItem("melo-volume", String(userVolumePct)); } catch {}
+    }, 180);
+  }
+  function persistMuted(muted: boolean) {
+    try { localStorage.setItem("melo-muted", muted ? "1" : "0"); } catch {}
+  }
+
+  // Restore the saved mute state once, before anything binds the UI.
+  // (`syncMuteUI()` in bindDOM then paints the correct icon.)
+  if (localStorage.getItem("melo-muted") === "1") primaryAudio.muted = true;
+  primaryAudio.volume = userVolumePct / 100;
 
   let queue: Track[] = [];
   let currentIndex = 0;
@@ -84,6 +113,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   function toggleMute(notify = true) {
     audio.muted = !audio.muted;
     if (crossfadeActive && cfIncoming) cfIncoming.muted = audio.muted;
+    persistMuted(audio.muted);
     syncMuteUI();
     if (notify) toast(audio.muted ? "Muted" : "Unmuted");
   }
@@ -695,6 +725,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
         updateVolBackground();
         if (volPct) volPct.textContent = volBar.value + "%";
         applyReplayGain();
+        persistVolume();
       };
     }
 
@@ -705,11 +736,16 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // placeholder values — including the volume bar's default "60". Restore
     // the slider from the user-volume tracker (NOT audio.volume, which can
     // be 0 mid fade-out-on-pause) so the volume never jumps back to 60%
-    // when the skin changes.
+    // when the skin changes. On the FIRST bind (app boot) the tracker itself
+    // comes from localStorage, which is what makes the volume survive a
+    // restart instead of snapping back to the markup default.
     if (volBar) {
       volBar.value = String(userVolumePct);
       if (volPct) volPct.textContent = volBar.value + "%";
       updateVolBackground();
+      // Push the restored level onto the live deck too, unless a fade is
+      // currently animating audio.volume (pause fade / crossfade).
+      if (fadeRAF === null && !crossfadeActive) audio.volume = computeTargetVolume();
     }
 
     if (queue[currentIndex]) {
