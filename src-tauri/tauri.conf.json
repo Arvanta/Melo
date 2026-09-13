@@ -46,9 +46,7 @@
       "icons/icon.png",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../skins/*"
-    ],
+    "resources": [],
     "fileAssociations": [
       {
         "ext": [
