@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Melo — Halcyon</title>
+<style>
+  /*
+    HALCYON — "a still sea at dusk"
+    ------------------------------------------------------------------
+    A calm, wide player built around three ideas:
+
+      1. WATER   — the cover art sits above its own reflection, the
+                   visualizer reads as a horizon line, and everything is
+                   masked so nothing ends with a hard edge.
+      2. DUSK    — the background is a deep twilight gradient with three
+                   extremely slow light fields drifting across it
+                   (42s / 58s / 74s). Nothing blinks, nothing snaps.
+      3. QUIET   — hairline dividers, one accent colour, light weights,
+                   generous space, and motion only on hover.
+
+    Every colour that matters falls back to --accent, so the Dynamic
+    Album Artwork Theme re-tints the whole skin live from the cover art.
+
+    Light + Dark via [data-theme] on <html>. Motion is gated behind
+    prefers-reduced-motion.
+  */
+
+  /* ================================================================
+     1. TOKENS — dark ("Dusk") is the base, light ("Dawn") overrides
+     ================================================================ */
+  :root,
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    --hc-bg-a: #172731;
+    --hc-bg-b: #101c26;
+    --hc-bg-c: #0a1119;
+    --hc-card-border: rgba(170, 215, 225, 0.10);
+    --hc-ink: #eaf1f4;
+    --hc-soft: #a2b5bf;
+    --hc-mute: #8398a3;          /* 5.3:1 on the card — readable, still quiet */
+    --hc-line: rgba(255, 255, 255, 0.07);
+    --hc-line-2: rgba(255, 255, 255, 0.14);
+    --hc-well: rgba(255, 255, 255, 0.05);
+    --hc-well-2: rgba(255, 255, 255, 0.10);
+    --hc-track: rgba(255, 255, 255, 0.09);
+    --hc-thumb-ring: #14232e;
+    /* Tight on purpose: the window is transparent and the card fills almost
+       all of it, so a wide-blur shadow gets clipped by the window edge and
+       reads as a grey haze around the player. This is a contact shadow. */
+    --hc-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.28);
+    --hc-shadow-soft: 0 14px 34px rgba(0, 0, 0, 0.34);
+    --hc-glow-1: rgba(126, 211, 196, 0.26);   /* sea glass   */
+    --hc-glow-2: rgba(118, 152, 255, 0.16);   /* dusk indigo */
+    --hc-glow-3: rgba(255, 196, 148, 0.11);   /* last light  */
+    --hc-grain: 0.05;
+    /* placeholder artwork (only shown when a track has no embedded cover) */
+    --hc-fb-1: #2b4250;
+    --hc-fb-2: #243b47;
+    --hc-fb-3: #17262f;
+    --hc-fb-tint: #ffffff;
+    --hc-fb-ink: rgba(255, 255, 255, .92);
+    --accent: #7fd3c0;
+    --accent-2: #aae8da;
+    --accent-ink: #06201c;
+    --accent-glow: rgba(127, 211, 192, 0.28);
+    --visualizer: #7fd3c0;
+    --track-bg: rgba(255, 255, 255, 0.09);
+    --hc-danger: #e2747f;
+  }
+  :root[data-theme="light"],
+  [data-theme="light"] {
+    --hc-bg-a: #fdfbf8;
+    --hc-bg-b: #f4f5f3;
+    --hc-bg-c: #e9edec;
+    --hc-card-border: rgba(45, 80, 92, 0.13);
+    --hc-ink: #2b3d45;
+    --hc-soft: #526a71;          /* 5.2:1 */
+    --hc-mute: #5a6f76;          /* 4.8:1 */
+    --hc-line: rgba(45, 80, 92, 0.10);
+    --hc-line-2: rgba(45, 80, 92, 0.20);
+    --hc-well: rgba(45, 80, 92, 0.05);
+    --hc-well-2: rgba(45, 80, 92, 0.10);
+    --hc-track: rgba(45, 80, 92, 0.11);
+    --hc-thumb-ring: #fbfaf7;
+    --hc-shadow: 0 1px 2px rgba(45, 80, 92, 0.12), 0 4px 10px rgba(45, 80, 92, 0.10);
+    --hc-shadow-soft: 0 12px 28px rgba(45, 80, 92, 0.12);
+    --hc-glow-1: rgba(88, 175, 165, 0.17);
+    --hc-glow-2: rgba(150, 185, 235, 0.18);
+    --hc-glow-3: rgba(240, 190, 150, 0.17);
+    --hc-grain: 0.035;
+    --hc-fb-1: #b9cfcb;
+    --hc-fb-2: #cfe0da;
+    --hc-fb-3: #e9e3da;
+    --hc-fb-tint: #ffffff;
+    --hc-fb-ink: rgba(38, 62, 62, .72);
+    --accent: #2f7a72;           /* 4.6:1 on the card */
+    --accent-2: #34817a;         /* keeps the white play glyph above 4.5:1 */
+    --accent-ink: #ffffff;
+    --accent-glow: rgba(47, 122, 114, 0.22);
+    --visualizer: #2f7a72;
+    --track-bg: rgba(45, 80, 92, 0.11);
+    --hc-danger: #d1666f;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* ================================================================
+     2. ROOT — fixed size when opened as a file, fills the transparent
+        frameless window when running inside Melo
+     ================================================================ */
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 900px; height: 320px; margin: 0; padding: 0;
+    position: relative; overflow: visible;
+    color: var(--hc-ink);
+    background: transparent;
+    border: 0; border-radius: 0;
+    font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", "Avenir Next", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.tauri-main,
+  body.tauri-main .app-shell { min-width: 0 !important; }
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    padding: 0 !important; border: 0 !important; border-radius: 0 !important;
+    box-shadow: none !important; background: transparent !important;
+    overflow: visible !important; position: relative !important;
+    clip-path: none !important;
+  }
+  body.tauri-main.custom-skin-active #app,
+  body.tauri-main.custom-skin-active .app-shell,
+  html.custom-skin-active,
+  body.custom-skin-active {
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  /* Just enough room for the contact shadow to fade out inside the window
+     instead of being cut off by its edge. */
+  .hc-root { position: absolute; inset: 0; padding: 9px 11px 13px; }
+
+  /* ================================================================
+     3. THE CARD
+     ================================================================ */
+  .hc-card {
+    position: relative; isolation: isolate;
+    width: 100%; height: 100%;
+    padding: 14px 16px 16px 16px;
+    display: grid;
+    grid-template-columns: minmax(140px, 196px) minmax(0, 1fr) 48px;
+    grid-template-rows: 28px minmax(0, 1fr);
+    column-gap: 20px; row-gap: 12px;
+    border: 1px solid var(--hc-card-border);
+    border-radius: 24px;
+    background: linear-gradient(158deg, var(--hc-bg-a) 0%, var(--hc-bg-b) 52%, var(--hc-bg-c) 100%);
+    box-shadow: var(--hc-shadow);
+    overflow: hidden;
+  }
+  /* a single 1px catch-light along the top edge — glass, not plastic */
+  .hc-card::after {
+    content: ""; position: absolute; inset: 0; z-index: 3;
+    border-radius: inherit; pointer-events: none;
+    box-shadow: inset 0 1px 0 var(--hc-sheen);
+  }
+  :root, :root[data-theme="dark"], [data-theme="dark"] { --hc-sheen: rgba(255, 255, 255, 0.07); }
+  :root[data-theme="light"], [data-theme="light"] { --hc-sheen: rgba(255, 255, 255, 0.85); }
+  .hc-card > * { position: relative; z-index: 2; }
+
+  /* --- slow light fields + film grain ------------------------------- */
+  .hc-aurora {
+    position: absolute; inset: 0; z-index: 0 !important;
+    overflow: hidden; border-radius: inherit; pointer-events: none;
+  }
+  .hc-aurora i {
+    position: absolute; display: block; border-radius: 50%;
+    filter: blur(46px); opacity: .9;
+  }
+  .hc-a1 { width: 460px; height: 360px; left: -90px;  top: -140px;
+           background: radial-gradient(circle at 50% 50%, var(--hc-glow-1), transparent 68%); }
+  .hc-a2 { width: 520px; height: 320px; right: -140px; bottom: -130px;
+           background: radial-gradient(circle at 50% 50%, var(--hc-glow-2), transparent 68%); }
+  .hc-a3 { width: 360px; height: 260px; left: 42%;   bottom: -120px;
+           background: radial-gradient(circle at 50% 50%, var(--hc-glow-3), transparent 70%); }
+  .hc-grain {
+    position: absolute; inset: 0; z-index: 1 !important; pointer-events: none;
+    opacity: var(--hc-grain); mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ================================================================
+     4. TOP BAR (window drag handle)
+     ================================================================ */
+  .hc-bar {
+    grid-column: 1 / 4; grid-row: 1;
+    display: flex; align-items: center; justify-content: space-between;
+    -webkit-app-region: drag; user-select: none;
+  }
+  .hc-brand { display: flex; align-items: center; gap: 9px; padding-left: 4px; }
+  .hc-pulse {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); opacity: .22;
+    box-shadow: 0 0 10px var(--accent-glow);
+    transition: opacity .6s ease;
+  }
+  .hc-word {
+    font-size: 10px; font-weight: 600; letter-spacing: .42em;
+    text-transform: uppercase; color: var(--hc-mute);
+  }
+  .hc-word em { font-style: normal; color: var(--hc-soft); }
+
+  .hc-tools { display: flex; align-items: center; gap: 4px; -webkit-app-region: no-drag; }
+  .hc-tool {
+    width: 26px; height: 24px; padding: 0; border: 0; border-radius: 8px;
+    background: transparent; color: var(--hc-mute); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .18s ease, color .18s ease, transform .18s ease;
+  }
+  .hc-tool svg { width: 14px; height: 14px; }
+  .hc-tool:hover { color: var(--hc-ink); background: var(--hc-well-2); }
+  .hc-tool.close:hover { color: #fff; background: var(--hc-danger); }
+  .hc-tool:active { transform: scale(.94); }
+  .hc-tools .hc-sep { width: 1px; height: 14px; margin: 0 4px; background: var(--hc-line-2); }
+
+  /* ================================================================
+     5. COVER ART + ITS REFLECTION
+     ================================================================ */
+  .hc-artcol { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; min-height: 0; }
+  /* The art box takes the leftover height and centres a square inside it,
+     so the artwork stays perfectly square at any allowed window width. */
+  .hc-artbox { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .hc-art {
+    position: relative;
+    height: 100%; aspect-ratio: 1 / 1; max-width: 100%;
+    border-radius: 18px; overflow: hidden;
+    background: var(--hc-well);
+    box-shadow: var(--hc-shadow-soft), inset 0 0 0 1px var(--hc-line-2);
+    /* the water reflection — Chromium / WebView2 only, purely decorative */
+    -webkit-box-reflect: below 5px linear-gradient(transparent 56%, rgba(255, 255, 255, 0.16));
+    transition: transform .5s cubic-bezier(.2, .7, .3, 1);
+  }
+  .hc-art:hover { transform: scale(1.014); }
+  .hc-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hc-reflgap { flex: 0 0 30px; height: 30px; }
+
+  /* breathing glow behind the artwork */
+  .hc-artglow {
+    position: absolute; z-index: -1; left: 50%; top: 50%;
+    width: 132%; height: 132%; transform: translate(-50%, -50%);
+    background: radial-gradient(circle at 50% 50%, var(--accent-glow), transparent 66%);
+    filter: blur(26px); opacity: .55; pointer-events: none;
+  }
+
+  .hc-fallback {
+    width: 100%; height: 100%; display: grid; place-items: center;
+    position: relative; overflow: hidden; color: var(--hc-fb-ink);
+    background:
+      radial-gradient(80% 70% at 26% 16%, color-mix(in srgb, var(--accent) 34%, var(--hc-fb-tint)), transparent 62%),
+      radial-gradient(70% 80% at 84% 88%, color-mix(in srgb, var(--accent) 22%, var(--hc-fb-2)), transparent 66%),
+      linear-gradient(165deg, var(--hc-fb-1), color-mix(in srgb, var(--accent) 28%, var(--hc-fb-2)) 58%, var(--hc-fb-3));
+  }
+  .hc-fallback svg { width: 46px; height: 46px; opacity: .8; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .18)); }
+
+  /* ================================================================
+     6. INFORMATION COLUMN
+     ================================================================ */
+  .hc-info {
+    grid-column: 2; grid-row: 2;
+    display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
+  }
+
+  .hc-title {
+    min-width: 0; font-size: 21px; font-weight: 500; letter-spacing: -.005em;
+    line-height: 1.25; color: var(--hc-ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .hc-sub {
+    display: flex; align-items: baseline; gap: 7px; min-width: 0;
+    margin-top: 3px; font-size: 12.5px;
+  }
+  .hc-artist { min-width: 0; font-weight: 550; color: var(--accent);
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hc-album  { min-width: 0; color: var(--hc-soft);
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hc-dot { color: var(--hc-mute); flex: 0 0 auto; }
+  .hc-sub .hc-dot:has(+ [data-melo="album"]:empty) { display: none; }
+
+  .hc-chips { display: flex; gap: 6px; margin-top: 9px; overflow: hidden; }
+  .hc-chip {
+    font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--hc-mute); background: var(--hc-well);
+    border: 1px solid var(--hc-line); padding: 2.5px 8px; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .hc-chip.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+  .hc-chip:empty { display: none; }
+  .hc-chips:has(.hc-chip:not(:empty)) { margin-top: 9px; }
+
+  /* --- the horizon: visualizer ------------------------------------- */
+  .hc-viz {
+    /* flex-basis 0 on purpose: the canvas Melo injects has its own intrinsic
+       size, which would otherwise leak into the layout and squash the rows
+       around it. Basis 0 means the strip simply absorbs the free space. */
+    position: relative; flex: 1 1 0; margin: auto 0;
+    min-height: 32px; max-height: 86px;
+    cursor: pointer; overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  }
+  .hc-viz canvas { width: 100% !important; height: 100% !important; display: block; position: relative; z-index: 1; }
+  /* waterline under the waves */
+  .hc-viz::after {
+    content: ""; position: absolute; z-index: 0; left: 0; right: 0; bottom: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--hc-line-2) 20%, var(--hc-line-2) 80%, transparent);
+    pointer-events: none;
+  }
+  /* idle shimmer — only while no canvas exists (i.e. the standalone
+     preview of this file); Melo injects a real canvas at runtime. */
+  .hc-viz::before {
+    content: ""; position: absolute; z-index: 0; left: 0; right: 0; top: 50%;
+    height: 34px; transform: translateY(-50%);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 70%, transparent) 50%, transparent);
+    filter: blur(7px); opacity: .6; pointer-events: none;
+    animation: hcIdle 9s ease-in-out infinite;
+  }
+  .hc-viz:has(canvas)::before { display: none; }
+
+  /* --- seek --------------------------------------------------------- */
+  .hc-seekrow {
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px;
+    gap: 12px; align-items: center;
+  }
+  .hc-time {
+    font-size: 11px; font-weight: 500; color: var(--hc-mute);
+    font-variant-numeric: tabular-nums; letter-spacing: .01em;
+  }
+  .hc-time.end { text-align: right; }
+
+  .hc-seek {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
+    border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--progress, 0%),
+      var(--hc-track) var(--progress, 0%), var(--hc-track) 100%);
+    transition: height .18s ease;
+  }
+  .hc-seek:hover { height: 6px; }
+  .hc-seek::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); border: 2.5px solid var(--hc-thumb-ring);
+    box-shadow: 0 0 0 4px var(--accent-glow), 0 2px 6px rgba(0, 0, 0, .28);
+    transition: transform .16s ease;
+  }
+  .hc-seek::-webkit-slider-thumb:hover { transform: scale(1.18); }
+  .hc-seek::-moz-range-thumb {
+    width: 13px; height: 13px; border-radius: 50%; background: var(--accent);
+    border: 2.5px solid var(--hc-thumb-ring);
+    box-shadow: 0 0 0 4px var(--accent-glow), 0 2px 6px rgba(0, 0, 0, .28);
+  }
+
+  /* --- transport + volume ------------------------------------------- */
+  .hc-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .hc-transport { display: flex; align-items: center; gap: 5px; }
+
+  .hc-btn {
+    width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: var(--hc-ink); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease;
+  }
+  .hc-btn svg { width: 15px; height: 15px; }
+  .hc-btn:hover { background: var(--hc-well-2); transform: translateY(-1px); }
+  .hc-btn:active { transform: translateY(0) scale(.94); }
+  .hc-btn.ghost { color: var(--hc-soft); }
+  .hc-btn.ghost:hover { color: var(--hc-ink); }
+  .hc-btn.active { color: var(--accent); background: var(--hc-well-2);
+                   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent); }
+
+  .hc-btn.play {
+    width: 44px; height: 44px; margin: 0 3px;
+    background: linear-gradient(150deg, var(--accent-2), var(--accent));
+    color: var(--accent-ink);
+    box-shadow: 0 8px 22px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, .35);
+  }
+  .hc-btn.play svg { width: 18px; height: 18px; }
+  .hc-btn.play:hover {
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 12px 26px var(--accent-glow), 0 0 0 5px color-mix(in srgb, var(--accent) 14%, transparent),
+                inset 0 1px 0 rgba(255, 255, 255, .35);
+  }
+  .hc-btn.play:active { transform: scale(.96); }
+
+  .hc-volwrap { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; }
+  .hc-volico {
+    display: grid; place-items: center; width: 16px; height: 16px;
+    color: var(--hc-mute); cursor: pointer; transition: color .18s ease;
+  }
+  .hc-volico svg { width: 15px; height: 15px; }
+  .hc-volico:hover { color: var(--hc-soft); }
+  .hc-volico.muted { color: var(--accent); }
+  .hc-volico .hc-slash { opacity: 0; transition: opacity .18s ease; }
+  .hc-volico .hc-wave { opacity: 1; transition: opacity .18s ease; }
+  .hc-volico.muted .hc-slash { opacity: 1; }
+  .hc-volico.muted .hc-wave { opacity: 0; }
+
+  .hc-vol {
+    -webkit-appearance: none; appearance: none; width: 88px; height: 3px;
+    border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--vol, 60%),
+      var(--hc-track) var(--vol, 60%), var(--hc-track) 100%);
+    transition: height .18s ease;
+  }
+  .hc-vol:hover { height: 5px; }
+  .hc-vol::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--hc-thumb-ring);
+    box-shadow: 0 0 0 3px var(--accent-glow); transition: transform .16s ease;
+  }
+  .hc-vol::-webkit-slider-thumb:hover { transform: scale(1.2); }
+  .hc-vol::-moz-range-thumb {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
+    border: 2px solid var(--hc-thumb-ring); box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .hc-pct {
+    font-size: 10px; font-weight: 600; color: var(--hc-mute);
+    font-variant-numeric: tabular-nums; min-width: 30px; text-align: right;
+  }
+
+  /* ================================================================
+     7. SIDE RAIL — secondary windows
+     ================================================================ */
+  .hc-rail {
+    grid-column: 3; grid-row: 2;
+    display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+    gap: 7px; -webkit-app-region: no-drag;
+    border-left: 1px solid var(--hc-line); margin-left: 4px;
+    padding-left: 13px;
+  }
+  .hc-rail button {
+    position: relative;
+    width: 100%; height: 30px; padding: 0; border: 0; border-radius: 9px;
+    background: transparent; color: var(--hc-mute); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background .18s ease, color .18s ease, transform .18s ease;
+  }
+  .hc-rail button svg { width: 14px; height: 14px; }
+  .hc-rail button:hover { color: var(--accent); background: var(--hc-well-2); transform: translateY(-1px); }
+  .hc-rail button:active { transform: scale(.94); }
+  .hc-rail .hc-railsep { width: 14px; height: 1px; margin: 2px 0; background: var(--hc-line-2); align-self: center; }
+
+  /* A panel window that is currently open lights its own rail button.
+     Melo already toggles `.active` on these buttons by id (main.ts:
+     openPanelWindow / setVisible / the 1.2s panel-state refresh), so the
+     skin only has to style it. Keep the ids below in sync with
+     `panelBtnMap` in src/main.ts or the highlight stops working. */
+  .hc-rail button.active {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+  }
+  .hc-rail button.active::after {
+    content: ""; position: absolute; left: -13px; top: 7px; bottom: 7px;
+    width: 3px; border-radius: 0 3px 3px 0;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent-glow);
+  }
+
+  /* ================================================================
+     8. MOTION — everything here is slow on purpose
+     ================================================================ */
+  @keyframes hcDrift1 {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    50%      { transform: translate3d(40px, 28px, 0) scale(1.08); }
+  }
+  @keyframes hcDrift2 {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
+    50%      { transform: translate3d(-36px, -24px, 0) scale(1); }
+  }
+  @keyframes hcDrift3 {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    33%      { transform: translate3d(30px, -18px, 0) scale(1.07); }
+    66%      { transform: translate3d(-22px, 16px, 0) scale(.95); }
+  }
+  @keyframes hcBreathe {
+    0%, 100% { opacity: .42; transform: translate(-50%, -50%) scale(.96); }
+    50%      { opacity: .78; transform: translate(-50%, -50%) scale(1.05); }
+  }
+  @keyframes hcPulse {
+    0%, 100% { opacity: .3;  transform: scale(.85); }
+    50%      { opacity: 1;   transform: scale(1.15); }
+  }
+  @keyframes hcIdle {
+    0%, 100% { opacity: .45; transform: translate(-4%, -50%) scaleX(.98); }
+    50%      { opacity: .8;  transform: translate(4%, -50%) scaleX(1.04); }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hc-a1 { animation: hcDrift1 42s ease-in-out infinite; }
+    .hc-a2 { animation: hcDrift2 58s ease-in-out infinite; }
+    .hc-a3 { animation: hcDrift3 74s ease-in-out infinite; }
+    .hc-artglow { animation: hcBreathe 13s ease-in-out infinite; }
+    .hc-viz::before { animation: hcIdle 9s ease-in-out infinite; }
+    /* The brand dot only comes alive while a track is actually playing.
+       Melo flips the pause icon's inline display to "block" when playing. */
+    .hc-card:has([data-melo="pause-icon"][style*="block"]) .hc-pulse {
+      animation: hcPulse 3.6s ease-in-out infinite;
+    }
+  }
+  .hc-card:has([data-melo="pause-icon"][style*="block"]) .hc-pulse { opacity: 1; }
+  .hc-card:has([data-melo="pause-icon"][style*="block"]) .hc-word em { color: var(--accent); }
+
+  /* ================================================================
+     9. STANDALONE PREVIEW (opening this file in a browser)
+     ================================================================ */
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 44px;
+    display: grid; place-items: center; overflow: hidden;
+    background: radial-gradient(120% 130% at 18% 0%, #1b2b36, #101a22 55%, #0a1017);
+  }
+  [data-theme="light"] body:not(.tauri-main):has(#melo-player) {
+    background: radial-gradient(120% 130% at 18% 0%, #fdfaf6, #f0efec 55%, #e4e8e8);
+  }
+</style>
+</head>
+<body data-window-width="900" data-window-height="320"
+      data-min-width="820" data-min-height="320"
+      data-max-width="1240" data-max-height="320"
+      data-resizable="true">
+
+<!-- PREVIEW ONLY — lives outside #melo-player, so Melo never sees it -->
+<div class="hc-preview" style="position:fixed; top:14px; left:50%; transform:translateX(-50%); display:flex; gap:4px; padding:4px; border-radius:999px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.10); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); z-index:99; font-family:Inter, system-ui, sans-serif;">
+  <button data-theme-btn="dark"  style="border:0; cursor:pointer; padding:4px 12px; border-radius:999px; font-size:10px; letter-spacing:.12em; text-transform:uppercase; background:transparent; color:#8fa4ae;">Dusk</button>
+  <button data-theme-btn="light" style="border:0; cursor:pointer; padding:4px 12px; border-radius:999px; font-size:10px; letter-spacing:.12em; text-transform:uppercase; background:transparent; color:#8fa4ae;">Dawn</button>
+</div>
+<script>
+  /* Preview-only theme switch. Melo applies a skin by injecting the
+     contents of #melo-player, so this markup and script are ignored
+     inside the app — they exist just so this file can be judged on its
+     own in a browser. */
+  (function () {
+    var root = document.documentElement;
+    var btns = Array.prototype.slice.call(document.querySelectorAll("[data-theme-btn]"));
+    function set(t) {
+      root.setAttribute("data-theme", t);
+      btns.forEach(function (b) {
+        var on = b.getAttribute("data-theme-btn") === t;
+        b.style.background = on ? "rgba(127,211,192,.20)" : "transparent";
+        b.style.color = on ? "#7fd3c0" : "#8fa4ae";
+      });
+    }
+    btns.forEach(function (b) {
+      b.addEventListener("click", function () { set(b.getAttribute("data-theme-btn")); });
+    });
+    set("dark");
+  })();
+</script>
+
+<div id="melo-player">
+  <div class="hc-root">
+    <div class="hc-card">
+
+      <!-- light fields + grain -->
+      <div class="hc-aurora"><i class="hc-a1"></i><i class="hc-a2"></i><i class="hc-a3"></i></div>
+      <div class="hc-grain"></div>
+
+      <!-- ================= top bar ================= -->
+      <div class="hc-bar" data-tauri-drag-region>
+        <div class="hc-brand">
+          <span class="hc-pulse"></span>
+          <span class="hc-word">halcyon <em>·</em> melo</span>
+        </div>
+        <div class="hc-tools">
+          <button class="hc-tool" data-melo="add-files" title="Add files">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="M9 14h6"/></svg>
+          </button>
+          <button class="hc-tool" data-melo="add-folder" title="Add folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v5"/><path d="M9.5 13.5h5"/></svg>
+          </button>
+          <span class="hc-sep"></span>
+          <button class="hc-tool win-btn" data-melo="minimize" aria-label="minimize" title="Minimize">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+          </button>
+          <button class="hc-tool close win-btn" data-melo="close" aria-label="close" title="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- ================= cover art ================= -->
+      <div class="hc-artcol">
+        <div class="hc-artbox">
+          <div class="hc-art">
+            <div class="hc-artglow"></div>
+            <img data-melo="cover" id="coverImg" alt="cover" style="display:none" />
+            <div class="hc-fallback" data-melo="cover-fallback" id="coverFallback">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8.6" r="4.1"/>
+                <path d="M2.5 16.6c1.7-1.5 3.4-1.5 5.1 0s3.4 1.5 5.1 0 3.4-1.5 5.1 0"/>
+                <path d="M2.5 20.4c1.7-1.5 3.4-1.5 5.1 0s3.4 1.5 5.1 0 3.4-1.5 5.1 0"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div class="hc-reflgap"></div>
+      </div>
+
+      <!-- ================= info ================= -->
+      <div class="hc-info">
+        <div class="hc-head">
+          <div class="hc-title" data-melo="title" id="trackTitle">Nothing playing</div>
+          <div class="hc-sub">
+            <span class="hc-artist" data-melo="artist" id="trackArtist">Add music to begin</span>
+            <span class="hc-dot">·</span>
+            <span class="hc-album" data-melo="album" id="trackAlbum"></span>
+          </div>
+          <div class="hc-chips">
+            <span class="hc-chip accent" data-melo="codec" id="trackCodec"></span>
+            <span class="hc-chip" data-melo="specs" id="trackSpecs"></span>
+          </div>
+        </div>
+
+        <div class="hc-viz" data-melo="visualizer" id="vizBars" data-bars="56"></div>
+
+        <div class="hc-seekrow">
+          <span class="hc-time" data-melo="current-time" id="curTime">0:00</span>
+          <input class="hc-seek" type="range" data-melo="seek" id="seekBar" min="0" max="100" value="0" />
+          <span class="hc-time end" data-melo="duration" id="durTime">0:00</span>
+        </div>
+
+        <div class="hc-controls">
+          <div class="hc-transport">
+            <button class="hc-btn ghost" data-melo="shuffle" id="btnShuffle" title="Shuffle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg>
+            </button>
+            <button class="hc-btn" data-melo="prev" id="btnPrev" title="Previous">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
+            </button>
+            <button class="hc-btn" data-melo="stop" id="btnStop" title="Stop" style="display:none">
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+            <button class="hc-btn play" data-melo="play" id="btnPlay" title="Play / Pause">
+              <svg data-melo="play-icon" id="iconPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.2v13.6L19 12z"/></svg>
+              <svg data-melo="pause-icon" id="iconPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zm6.6 0H17v14h-3.4z"/></svg>
+            </button>
+            <button class="hc-btn" data-melo="next" id="btnNext" title="Next">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
+            </button>
+            <button class="hc-btn ghost" data-melo="repeat" id="btnRepeat" title="Repeat">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            </button>
+          </div>
+
+          <div class="hc-volwrap">
+            <span class="hc-volico" data-melo="volume-icon" id="volIcon" title="Mute">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path class="hc-wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8 8 0 0 1 0 12"/>
+                <path class="hc-slash" d="M16 9.5l5 5M21 9.5l-5 5"/>
+              </svg>
+            </span>
+            <input class="hc-vol" type="range" data-melo="volume" id="volBar" min="0" max="100" value="60" title="Volume" />
+            <span class="hc-pct" data-melo="volume-pct" id="volPct">60%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= rail ================= -->
+      <div class="hc-rail">
+        <button data-melo="toggle-library" id="btnToggleLibrary" title="Library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
+        </button>
+        <button data-melo="toggle-playlist" id="btnTogglePlaylist" title="Playlist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>
+        </button>
+        <button data-melo="toggle-lyrics" id="btnToggleLyrics" title="Lyrics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+        </button>
+        <button data-melo="toggle-eq" id="btnToggleEq" title="Equalizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        </button>
+        <span class="hc-railsep"></span>
+        <button data-melo="theme-toggle" title="Theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4 7.2 7.2 0 1 0 20 14.2z"/></svg>
+        </button>
+        <button data-melo="toggle-settings" id="btnOpenSettings" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3922fa59f0089d8',t:'MTc4OTA4MjY2NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>

@@ -374,6 +374,10 @@ html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: b
 .track-row .t-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-row .t-artist { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-row .t-dur { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+/* Group (artist/album/genre) row titles in the Library — slightly larger
+   than track titles, but smaller than the previous 16px body default */
+.lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lib-item:not(.lib-card):not(.track-row) .t-artist { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-cover-mini { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; background: var(--track-bg); flex-shrink: 0; }
 .chip { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: var(--track-bg); color: var(--text-soft); border: 1px solid var(--card-border); cursor: pointer; white-space: nowrap; }
 .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
@@ -412,6 +416,7 @@ html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: b
 #trackList[data-lib-view="compact"] .track-cover-mini { width: 22px; height: 22px; }
 #trackList[data-lib-view="compact"] .t-title { font-size: 11px; font-weight: 600; }
 #trackList[data-lib-view="compact"] .t-artist { font-size: 10px; }
+#trackList[data-lib-view="details"] .lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 14px; }
 #trackList[data-lib-view="compact"] .t-dur { font-size: 10px; }
 .tab { padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; background: transparent; color: var(--text-soft); white-space: nowrap; }
 .tab.active { background: var(--track-bg); color: var(--text); }
@@ -716,22 +721,6 @@ input, textarea, [contenteditable] { -webkit-user-select: text; user-select: tex
 
 html:has(.panel-root), body:has(.panel-root) { background: transparent !important; background-color: transparent !important; }
 
-/* Compact skin: clip every webview root to the same fixed pill. This keeps
-   transparent pixels outside the rounded card truly empty on Windows. */
-html.compact-skin-active,
-body.compact-skin-active,
-body.compact-skin-active #app,
-body.compact-skin-active .app-shell {
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-body.compact-skin-active #app,
-body.compact-skin-active .app-shell,
-body.compact-skin-active .player-card {
-  border-radius: 24px !important;
-  clip-path: inset(0 round 24px) !important;
-}
 .app-brand-mark { flex-shrink: 0; color: var(--accent); }
 
 

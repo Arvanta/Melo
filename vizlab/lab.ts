@@ -3,7 +3,7 @@
 // built-in fake-signal generator so scenes can be eyeballed without audio.
 import { setupVisualizer, VIZ_MODES, type VizMode } from "../src/visualizer";
 
-const START: VizMode = (localStorage.getItem("melo-viz-mode") as VizMode) || "meadow";
+const START: VizMode = (localStorage.getItem("melo-viz-mode") as VizMode) || "Classic Bars";
 
 // --- mode buttons -----------------------------------------------------
 const modesEl = document.getElementById("modes")!;

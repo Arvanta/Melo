@@ -32,8 +32,7 @@ This guide covers everything you need to write, import, and share a skin.
 
 | Kind | What it does | Example |
 |---|---|---|
-| **Full HTML skin** | Replaces the whole player markup *and* styles. Anything you can describe in HTML/CSS is possible. | `full-html-example.html` |
-| **Compact skin** | A built-in, fixed-size (780×138) mini player. Kept for reference; it is also a full HTML skin. | `compact-pill.html` |
+| **Full HTML skin** | Replaces the whole player markup *and* styles. Anything you can describe in HTML/CSS is possible. | `full-html-example.html` (reference), `halcyon.html`, `slate.html`, `aria.html`, etc. |
 
 This guide focuses on **full HTML skins**.
 

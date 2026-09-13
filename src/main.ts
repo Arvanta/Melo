@@ -319,7 +319,6 @@ app.innerHTML = `
             <div style="display:flex; gap:6px; align-items:center;">
               <select class="settings-select" id="skinSelect" style="flex:1; height:34px; font-size:12px; padding:4px 10px;">
                 <option value="default">Default Melo (Standard)</option>
-                <option value="compact-pill">Minimal Compact (Pill Bar)</option>
               </select>
               <button class="btn small" id="btnRefreshSkins" title="Refresh skins from disk" style="height:34px; width:34px; padding:0; display:grid; place-items:center; flex-shrink:0;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
@@ -433,7 +432,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.7.1 Beta</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.7.2 Beta</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -638,15 +637,12 @@ if (isTauri && !urlPanel) {
     const mainWin = getCurrentWindow();
 
     // Resolve the native window size a skin wants:
-    //  - compact pill: fixed 780×138, not resizable
     //  - custom skin with a declared target size: resize to it, then apply bounds
     //  - custom skin with only min/max bounds: keep current size, apply bounds
     //  - custom skin without geometry: keep current size, free to resize
     //  - default skin: 960×240, resizable (650 floor, 260 max height)
     const getTargetSize = () => {
       const activeSkin = localStorage.getItem("melo-active-skin-id") || "default";
-      const isCompact = activeSkin === "compact-pill" || (typeof activeSkin === "string" && activeSkin.startsWith("compact-pill"));
-      if (isCompact) return { w: 780, h: 138, resizable: false, fixed: true, custom: false, force: true, minW: 780, minH: 138, maxW: 780, maxH: 138 };
       if (activeSkin !== "default") {
         const geo = readSkinGeometry();
         if (geo) {
@@ -672,11 +668,7 @@ if (isTauri && !urlPanel) {
     const applySizeConstraints = async (sz: { fixed: boolean; custom: boolean; resizable: boolean; minW?: number; minH?: number; maxW?: number; maxH?: number; w: number; h: number }) => {
       try {
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (sz.fixed) {
-          // Compact Pill: fixed-size design — min == max == target.
-          await mainWin.setMinSize(new LogicalSize(sz.w, sz.h));
-          await mainWin.setMaxSize(new LogicalSize(sz.w, sz.h));
-        } else if (sz.custom) {
+        if (sz.custom) {
           // Custom skins: a skin may declare min and/or max bounds (or none).
           const minW = sz.minW || 240;
           const minH = sz.minH || 120;
@@ -740,10 +732,7 @@ if (isTauri && !urlPanel) {
       try {
         const target = getTargetSize();
         const { LogicalSize } = await import("@tauri-apps/api/dpi");
-        if (target.fixed) {
-          // Compact Pill is a fixed-size design; keep its exact dimensions.
-          await mainWin.setSize(new LogicalSize(target.w, target.h));
-        } else if (!target.custom) {
+        if (!target.custom) {
           // Default skin: keep its height and don't shrink below its floor.
           const sz = await mainWin.innerSize();
           const logical = sz.toLogical(await mainWin.scaleFactor());
@@ -1515,17 +1504,12 @@ function setupSettings(toast: ToastFn) {
     if (!skinSelect) return;
     const currentVal = localStorage.getItem("melo-active-skin-id") || "default";
     const installed = await listInstalledSkins();
-    skinSelect.innerHTML = `
-      <option value="default">Default Melo (Standard)</option>
-      <option value="compact-pill">Minimal Compact (Pill Bar)</option>
-    `;
+    skinSelect.innerHTML = `<option value="default">Default Melo (Standard)</option>`;
     installed.forEach(item => {
-      if (item.filename !== "compact-pill.html" && item.filename !== "compact-pill-light.html" && item.filename !== "compact-pill-dark.html") {
-        const opt = document.createElement("option");
-        opt.value = item.filename;
-        opt.textContent = `${item.name} (${item.filename})`;
-        skinSelect.appendChild(opt);
-      }
+      const opt = document.createElement("option");
+      opt.value = item.filename;
+      opt.textContent = `${item.name} (${item.filename})`;
+      skinSelect.appendChild(opt);
     });
     skinSelect.value = currentVal;
   }

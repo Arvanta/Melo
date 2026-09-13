@@ -40,16 +40,15 @@ pub struct SkinFileInfo {
 }
 
 // Embedded default skin templates to ensure the skins folder is always populated on disk
-const DEFAULT_SKIN_COMPACT: &str = include_str!("../../skins/compact-pill.html");
 const DEFAULT_SKIN_FULL_EXAMPLE: &str = include_str!("../../skins/full-html-example.html");
 const DEFAULT_SKIN_GUIDE: &str = include_str!("../../skins/README.md");
 const DEFAULT_SKIN_SLATE: &str = include_str!("../../skins/slate.html");
 const DEFAULT_SKIN_SILK_ORBIT: &str = include_str!("../../skins/silk-orbit.html");
-const DEFAULT_SKIN_IVORY: &str = include_str!("../../skins/ivory.html");
 const DEFAULT_SKIN_MICROLINE: &str = include_str!("../../skins/microline.html");
 // Bundled community skins
 const DEFAULT_SKIN_ARIA: &str = include_str!("../../skins/aria.html");
 const DEFAULT_SKIN_GRAPHITE: &str = include_str!("../../skins/graphite.html");
+const DEFAULT_SKIN_HALCYON: &str = include_str!("../../skins/halcyon.html");
 const DEFAULT_SKIN_HAVEN: &str = include_str!("../../skins/haven.html");
 const DEFAULT_SKIN_HIRA: &str = include_str!("../../skins/hira.html");
 const DEFAULT_SKIN_KOTO: &str = include_str!("../../skins/koto.html");
@@ -206,15 +205,16 @@ fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 fn ensure_default_skins_on_disk(skins_dir: &Path) {
-    let f1 = skins_dir.join("compact-pill.html");
-    if !f1.exists() {
-        let _ = std::fs::write(f1, DEFAULT_SKIN_COMPACT);
-    }
-    // Remove legacy split skins left by older installs so they don't linger
+    // Remove retired skins left by older installs so they don't linger in
+    // the skins folder / dropdown: Minimal Compact (compact-pill) and
+    // its legacy light/dark splits, the old example-custom placeholder,
+    // and the retired Ivory skin.
+    let _ = std::fs::remove_file(skins_dir.join("compact-pill.html"));
     let _ = std::fs::remove_file(skins_dir.join("compact-pill-light.html"));
     let _ = std::fs::remove_file(skins_dir.join("compact-pill-dark.html"));
-    // Remove the retired example skin left by older installs.
     let _ = std::fs::remove_file(skins_dir.join("example-custom.html"));
+    let _ = std::fs::remove_file(skins_dir.join("ivory.html"));
+
     let f3 = skins_dir.join("full-html-example.html");
     if !f3.exists() {
         let _ = std::fs::write(f3, DEFAULT_SKIN_FULL_EXAMPLE);
@@ -232,10 +232,6 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
     if !f6.exists() {
         let _ = std::fs::write(f6, DEFAULT_SKIN_SILK_ORBIT);
     }
-    let f7 = skins_dir.join("ivory.html");
-    if !f7.exists() {
-        let _ = std::fs::write(f7, DEFAULT_SKIN_IVORY);
-    }
     let f8 = skins_dir.join("microline.html");
     if !f8.exists() {
         let _ = std::fs::write(f8, DEFAULT_SKIN_MICROLINE);
@@ -245,6 +241,7 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
     for (fname, content) in [
         ("aria.html", DEFAULT_SKIN_ARIA),
         ("graphite.html", DEFAULT_SKIN_GRAPHITE),
+        ("halcyon.html", DEFAULT_SKIN_HALCYON),
         ("haven.html", DEFAULT_SKIN_HAVEN),
         ("hira.html", DEFAULT_SKIN_HIRA),
         ("koto.html", DEFAULT_SKIN_KOTO),
@@ -341,24 +338,25 @@ fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<Str
 
     // Check embedded fallback if filename matches
     match filename_or_path.as_str() {
-        "compact-pill.html" | "compact-pill" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
-        // Legacy ids keep older saved preferences working
-        "compact-pill-light.html" | "compact-pill-light" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
-        "compact-pill-dark.html" | "compact-pill-dark" => Ok(DEFAULT_SKIN_COMPACT.to_string()),
         "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
         "slate.html" | "slate" => Ok(DEFAULT_SKIN_SLATE.to_string()),
         "silk-orbit.html" | "silk-orbit" => Ok(DEFAULT_SKIN_SILK_ORBIT.to_string()),
-        "ivory.html" | "ivory" => Ok(DEFAULT_SKIN_IVORY.to_string()),
         "microline.html" | "microline" => Ok(DEFAULT_SKIN_MICROLINE.to_string()),
         // Bundled community skins
         "aria.html" | "aria" => Ok(DEFAULT_SKIN_ARIA.to_string()),
         "graphite.html" | "graphite" => Ok(DEFAULT_SKIN_GRAPHITE.to_string()),
+        "halcyon.html" | "halcyon" => Ok(DEFAULT_SKIN_HALCYON.to_string()),
         "haven.html" | "haven" => Ok(DEFAULT_SKIN_HAVEN.to_string()),
         "hira.html" | "hira" => Ok(DEFAULT_SKIN_HIRA.to_string()),
         "koto.html" | "koto" => Ok(DEFAULT_SKIN_KOTO.to_string()),
         "lumen.html" | "lumen" => Ok(DEFAULT_SKIN_LUMEN.to_string()),
         "microline-v.html" | "microline-v" => Ok(DEFAULT_SKIN_MICROLINE_V.to_string()),
         "mist.html" | "mist" => Ok(DEFAULT_SKIN_MIST.to_string()),
+        // Retired skins: no longer shipped. Fall through to the error so
+        // the frontend can surface the failure and drop the saved id.
+        "compact-pill.html" | "compact-pill" | "compact-pill-light.html" | "compact-pill-light"
+        | "compact-pill-dark.html" | "compact-pill-dark" | "ivory.html" | "ivory" =>
+            Err(format!("Retired skin: {}", filename_or_path)),
         _ => Err(format!("Skin file not found: {}", filename_or_path)),
     }
 }

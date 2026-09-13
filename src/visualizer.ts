@@ -2,35 +2,54 @@ import { getAudioGraph } from "./audio-graph";
 import { busOn } from "./bus";
 
 export type VizMode =
-  | "bars" | "thin" | "line" | "mirror" | "wave" | "spectrumWave" | "blocks" | "radial" | "dots"
-  | "aurora" | "aurora2" | "bubbles" | "fireflies" | "glitch" | "lantern" | "meadow"
-  | "petals" | "quake" | "ripples" | "shards" | "sparks" | "tide" | "tide2";
+  | "Classic Bars" | "Thin Bars" | "Spectrum Line" | "Mirror Bars" | "Oscilloscope" | "Spectrum Wave" | "Block Equalizer" | "Radial Sunburst" | "Dot Matrix"
+  | "Aurora" | "Aurora II" | "Bubbles" | "Fireflies" | "Glitch" | "Lantern" | "Wildflower Meadow"
+  | "Petals" | "Quake" | "Ripples" | "Shards" | "Sparks" | "Tide" | "Tide II"
+  | "Warp Drive" | "Triumph" | "Disco" | "Carnival"
+  | "Velvet"
+  | "Ashes" | "Waves" | "Charge"
+  | "Puddle Ripples";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
-  { id: "bars", label: "Classic Bars" },
-  { id: "thin", label: "Thin Bars" },
-  { id: "line", label: "Spectrum Line" },
-  { id: "mirror", label: "Mirror Bars" },
-  { id: "wave", label: "Oscilloscope" },
-  { id: "spectrumWave", label: "Spectrum Wave" },
-  { id: "blocks", label: "Block Equalizer" },
-  { id: "radial", label: "Radial Sunburst" },
-  { id: "dots", label: "Dot Matrix" },
-  // Ambient / beat-driven family.
-  { id: "aurora", label: "Aurora" },
-  { id: "aurora2", label: "Aurora II" },
-  { id: "bubbles", label: "Bubbles" },
-  { id: "fireflies", label: "Fireflies" },
-  { id: "glitch", label: "Glitch" },
-  { id: "lantern", label: "Lantern" },
-  { id: "meadow", label: "Wildflower Meadow" },
-  { id: "petals", label: "Petals" },
-  { id: "quake", label: "Quake" },
-  { id: "ripples", label: "Ripples" },
-  { id: "shards", label: "Shards" },
-  { id: "sparks", label: "Sparks" },
-  { id: "tide", label: "Tide" },
-  { id: "tide2", label: "Tide II" },
+  { id: "Classic Bars", label: "Classic Bars" },
+  { id: "Thin Bars", label: "Thin Bars" },
+  { id: "Spectrum Line", label: "Spectrum Line" },
+  { id: "Mirror Bars", label: "Mirror Bars" },
+  { id: "Oscilloscope", label: "Oscilloscope" },
+  { id: "Spectrum Wave", label: "Spectrum Wave" },
+  { id: "Block Equalizer", label: "Block Equalizer" },
+  { id: "Radial Sunburst", label: "Radial Sunburst" },
+  { id: "Dot Matrix", label: "Dot Matrix" },
+  { id: "Aurora", label: "Aurora" },
+  { id: "Aurora II", label: "Aurora II" },
+  { id: "Bubbles", label: "Bubbles" },
+  { id: "Fireflies", label: "Fireflies" },
+  { id: "Glitch", label: "Glitch" },
+  { id: "Lantern", label: "Lantern" },
+  { id: "Wildflower Meadow", label: "Wildflower Meadow" },
+  { id: "Petals", label: "Petals" },
+  { id: "Quake", label: "Quake" },
+  { id: "Ripples", label: "Ripples" },
+  { id: "Shards", label: "Shards" },
+  { id: "Sparks", label: "Sparks" },
+  { id: "Tide", label: "Tide" },
+  { id: "Tide II", label: "Tide II" },
+
+
+  { id: "Warp Drive", label: "Warp Drive" },
+
+  { id: "Triumph", label: "Triumph" },
+
+
+  { id: "Disco", label: "Disco" },
+  { id: "Carnival", label: "Carnival" },
+  { id: "Velvet", label: "Velvet" },
+  { id: "Ashes", label: "Ashes" },
+  { id: "Waves", label: "Waves" },
+  { id: "Charge", label: "Charge" },
+  { id: "Puddle Ripples", label: "Puddle Ripples" },
+
+
 ];
 
 // ---------------------------------------------------------------------
@@ -124,8 +143,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   let fakeWaveData: Uint8Array | null = null;
   let useFake = false;
 
-  let mode: VizMode = (localStorage.getItem("melo-viz-mode") as VizMode) || "bars";
-  // If the saved mode was disabled in Settings, fall back to the first enabled one.
+  let mode: VizMode = (localStorage.getItem("melo-viz-mode") as VizMode) || "Classic Bars";
   if (!getEnabledVizModes().includes(mode)) mode = getEnabledVizModes()[0];
 
   let fx: VizFx = fxFromStorage();
@@ -358,6 +376,27 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       if (m) [r, g, b] = m[1].split(",").map((x) => parseFloat(x));
     }
     return (alpha: number) => `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+
+  // Which theme the skin is in. A scene that wants a dark room cannot just
+  // paint black over a light skin — it reads as a hole punched in the page —
+  // so it asks for a scrim and gets the value that suits the ground it sits
+  // on. Light theme: a pale wash. Dark theme: the usual black.
+  function isLightTheme(): boolean {
+    try {
+      return document.documentElement.getAttribute("data-theme") === "light";
+    } catch { return false; }
+  }
+  function scrim(alpha: number): string {
+    return isLightTheme() ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`;
+  }
+  // The hottest thing in a scene — the specular, the core, the flash. White
+  // is the brightest thing on a dark ground, but it disappears on a pale
+  // one, so there it becomes a deep, saturated accent instead.
+  function hotInk(P: (a: number) => string): (a: number) => string {
+    return isLightTheme()
+      ? (a: number) => P(Math.max(0, Math.min(1, a * 1.7)))
+      : (a: number) => `rgba(255,255,255,${Math.max(0, Math.min(1, a))})`;
   }
 
   // Concentric rings expanding outward from the centre like drops on
@@ -795,7 +834,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     }
   }
 
-  // ---------------------------------------------------------------------
 
   // Beat-driven renderers — Glitch / Quake / Shards / Sparks
   // They share punchSignals(): fast-attack band groups from getLevels(), a
@@ -1054,15 +1092,19 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       const sign = fromTop ? 1 : -1;
       const shift = fromTop ? 0 : kick;
       g2d.beginPath();
-      g2d.moveTo(shift - slot, edge);
+      g2d.moveTo(0, edge);
       for (let i = 0; i < n; i++) {
         const j = fromTop ? n - 1 - i : i;                  // bass on opposite sides so the jaws interlock
-        const tipX = (i + (fromTop ? 1 : 0.5)) * slot + shift; // half-slot offset so the teeth interleave
-        const tipY = edge + sign * Math.max(2 * dpr, S.d[j] * H + (Math.random() - 0.5) * jit);
+        const tipX = (i + 0.5) * slot + shift; // valleys land exactly on 0 and w: every tooth the same shape
+        // motion floor + a shared beat pulse: quiet (treble) bands at the
+        // jaw ends used to sit almost still; now every tooth dances with
+        // the rhythm while loud bands still reach further
+        const v = 0.22 * (0.4 + 0.6 * S.beat) + 0.78 * S.d[j];
+        const tipY = edge + sign * Math.max(2 * dpr, v * H + (Math.random() - 0.5) * jit);
         g2d.lineTo(tipX, tipY);
-        g2d.lineTo(tipX + slot / 2, edge);
+        g2d.lineTo(Math.min(w, tipX + slot / 2), edge);
       }
-      g2d.lineTo(w + slot, edge);
+      g2d.lineTo(w, edge);
       g2d.closePath();
       const g = g2d.createLinearGradient(0, edge, 0, edge + sign * H);
       g.addColorStop(0, P2(0.95)); g.addColorStop(0.55, P2(0.8)); g.addColorStop(1, P1(0.5));
@@ -1073,8 +1115,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       // a perfectly uniform sawtooth — geometric, but not a shard.
       for (let i = 0; i < n; i++) {
         const j = fromTop ? n - 1 - i : i;
-        const tipX = (i + (fromTop ? 1 : 0.5)) * slot + shift;
-        const len = Math.max(2 * dpr, S.d[j] * H);
+        const tipX = (i + 0.5) * slot + shift;
+        const len = Math.max(2 * dpr, (0.22 * (0.4 + 0.6 * S.beat) + 0.78 * S.d[j]) * H);
         const tipY = edge + sign * len;
         const rootL = tipX - slot / 2, rootR = tipX + slot / 2;
         // lit flank (left side of every tooth)
@@ -1428,6 +1470,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.shadowBlur = 0;
     drawPeaks(data, h, cellW, cellW + colGap);
   }
+
+
 
   function drawWave() {
     const w = canvas.width, h = canvas.height;
@@ -1791,48 +1835,1029 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.lineCap = "butt";
   }
 
+
+  // =====================================================================
+  // HIGH-ENERGY FAMILY — 24 scenes in 8 categories
+  //
+  // All of them run on punchSignals(): fast-attack band groups, a
+  // short-release energy envelope and the shared bass-onset detector
+  // (`hit` is true on the frame a beat lands, `beat` decays 1 → 0 in
+  // ~160 ms). Everything is painted through painter() with --visualizer /
+  // --accent, so the Dynamic Album Artwork Theme re-tints them live.
+  //
+  // Sizing rule: `w` / `h` are already in DEVICE pixels, so only
+  // thicknesses and radii get multiplied by dpr — same as every other
+  // scene in this file. Every scene is built to read at both a large
+  // stage and the default skin's 56 px strip.
+  // =====================================================================
+  interface WarpStar { x: number; y: number; z: number; pz: number; c: number }
+  let warpStars: WarpStar[] = [];
+
+  // ⚡ 1. ENERGETIC — a charged ridge. The spectrum is smoothed into
+  // terrain, lightning crawls off the loudest peaks and forks on its way
+  // up, embers ride the updraft, and every beat flashes the whole sky.
+  // ⚡ 1. ENERGETIC — a warp tunnel: rings rushing out of the vanishing
+  // point, stars stretched into streaks, the field turning slowly, and a
+  // jump on every beat that pulls the whole sky past you.
+  function drawWarp(w: number, h: number) {
+    const dpr = dprOf();
+    const S = punchSignals(24);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const cap = Math.round(Math.max(90, Math.min(260, (w / dpr) * 0.35)));
+    const cx = w / 2, cy = h / 2;
+    const k = Math.max(w, h) * 0.55;
+    const ar = h / Math.max(1, w);
+    const HOT = hotInk(P1);
+
+    // the deep of it
+    const bg = g2d.createRadialGradient(cx, cy, 0, cx, cy, Math.max(0.001, Math.hypot(w, h) * 0.5));
+    bg.addColorStop(0, P1(0.06 + 0.08 * S.all));
+    bg.addColorStop(0.55, P2(0.03 + 0.03 * S.all));
+    bg.addColorStop(1, scrim(0.35));
+    g2d.fillStyle = bg; g2d.fillRect(0, 0, w, h);
+
+    // the tunnel: rings coming at you out of the vanishing point
+    for (let r = 0; r < 7; r++) {
+      const u = (S.t * (0.30 + 0.30 * S.all) + r * 0.143) % 1;
+      const z = 1 - u;
+      const rr = (1 / Math.max(0.06, z)) * k * 0.32;
+      const a = (1 - z) * (0.08 + 0.16 * S.all);
+      g2d.strokeStyle = P1(a);
+      g2d.lineWidth = Math.max(0.6 * dpr, Math.min(w, h) * 0.006 * (1 - z));
+      g2d.beginPath();
+      g2d.ellipse(cx, cy, rr, rr * Math.max(0.35, ar) * 1.4, 0, 0, Math.PI * 2);
+      g2d.stroke();
+    }
+
+    const speed = 0.35 + 2.2 * S.all + (S.hit ? 0.9 : 0);
+    const stretch = 1 + 7 * S.beat;      // the beat pulls every streak out
+    const roll = S.t * 0.06;             // and the field turns, always
+    const cs = Math.cos(roll), sn = Math.sin(roll);
+    while (warpStars.length < cap) {
+      warpStars.push({
+        x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2 * ar,
+        z: 0.1 + Math.random() * 0.9, pz: 1, c: Math.random() < 0.35 ? 1 : 0,
+      });
+    }
+    g2d.lineCap = "round";
+    for (const s of warpStars) {
+      s.pz = s.z;
+      s.z -= S.dt * speed * (0.35 + 0.75 * s.z);
+      if (s.z <= 0.03) {
+        s.z = 1; s.pz = 1;
+        s.x = (Math.random() - 0.5) * 2; s.y = (Math.random() - 0.5) * 2 * ar;
+      }
+      const pzLag = Math.max(0.03, s.z + (s.pz - s.z) * 3.4 * stretch);
+      const rx = s.x * cs - s.y * sn, ry = s.x * sn + s.y * cs;
+      const sx = cx + (rx / s.z) * k, sy = cy + (ry / s.z) * k;
+      const px = cx + (rx / pzLag) * k, py = cy + (ry / pzLag) * k;
+      if (Math.abs(sx) > w * 3 && Math.abs(sy) > h * 3) continue;
+      const near = 1 - s.z;
+      const a = Math.min(1, near * 1.3) * (0.35 + 0.65 * S.all);
+      if (a < 0.02) continue;
+      const P = s.c ? P2 : P1;
+      g2d.strokeStyle = P(a * 0.85);
+      g2d.lineWidth = Math.max(0.7 * dpr, (0.8 + 2.2 * near) * dpr);
+      g2d.beginPath(); g2d.moveTo(px, py); g2d.lineTo(sx, sy); g2d.stroke();
+      // the head of it, bright
+      g2d.fillStyle = HOT(a * 0.55);
+      g2d.beginPath();
+      g2d.arc(sx, sy, Math.max(0.5 * dpr, (0.6 + 1.0 * near) * dpr), 0, Math.PI * 2);
+      g2d.fill();
+    }
+    g2d.lineCap = "butt";
+
+    // the point you are falling into
+    const cr = Math.min(w, h) * (0.05 + 0.10 * S.beat + 0.05 * S.low);
+    const cg = g2d.createRadialGradient(cx, cy, 0, cx, cy, Math.max(0.001, cr));
+    cg.addColorStop(0, HOT(0.18 + 0.35 * S.beat));
+    cg.addColorStop(0.4, P1((0.16 + 0.25 * S.beat) * (0.4 + 0.8 * S.all)));
+    cg.addColorStop(1, P1(0));
+    g2d.fillStyle = cg;
+    g2d.beginPath(); g2d.arc(cx, cy, Math.max(0.001, cr), 0, Math.PI * 2); g2d.fill();
+
+    // and the scrim at the edges of it — theme-aware, so on the light
+    // theme the rim pales out instead of going muddy black
+    const vg = g2d.createRadialGradient(cx, cy, Math.min(w, h) * 0.22, cx, cy, Math.max(0.001, Math.hypot(w, h) * 0.55));
+    vg.addColorStop(0, scrim(0));
+    vg.addColorStop(1, scrim(0.35));
+    g2d.fillStyle = vg; g2d.fillRect(0, 0, w, h);
+  }
+
+  // ⚡ 1. ENERGETIC — a summit in the dark: three ridges standing in depth,
+  // the sky burning along the horizon behind them, stars over the top, dust
+  // drifting through the air, and the near crest rimmed with fire on every
+  // beat. No sun — the light comes from beyond the ridge.
+  function drawTriumph(w: number, h: number) {
+    const dpr = dprOf();
+    const n = 36;
+    const S = punchSignals(n);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const ridgeLine = h * 0.62;
+
+    // the sky: uniformly dark top to bottom (the old gradient went pale
+    // toward the horizon, which read as a washed white lower half on the
+    // light theme); one faint uniform tint keeps the colour in both halves
+    const dk = isLightTheme() ? 0.15 : 0.44;   // uniform top-to-bottom, lighter on the pale theme
+    const sky = g2d.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, `rgba(0,0,0,${dk})`);
+    sky.addColorStop(0.5, `rgba(0,0,0,${Math.max(0, dk - 0.02)})`);
+    sky.addColorStop(1, `rgba(0,0,0,${dk})`);
+    g2d.fillStyle = sky; g2d.fillRect(0, 0, w, h);
+    g2d.fillStyle = P2(isLightTheme() ? 0.10 + 0.06 * S.all : 0.04 + 0.05 * S.all);
+    g2d.fillRect(0, 0, w, h);
+
+    // the stars over the top of it
+    for (let k = 0; k < 40; k++) {
+      const r1 = ((Math.sin(k * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const r2 = ((Math.sin(k * 78.233) * 12345.6789) % 1 + 1) % 1;
+      const x = r1 * w;
+      const y = r2 * ridgeLine * 0.85;
+      const tw = 0.25 + 0.75 * Math.pow(Math.abs(Math.sin(S.t * 0.9 + k * 2.3)), 3);
+      const a = tw * (1 - r2 * 0.7) * (0.25 + 0.45 * (1 - S.all));
+      g2d.fillStyle = `rgba(255,255,255,${a})`;
+      g2d.beginPath();
+      g2d.arc(x, y, Math.max(0.4 * dpr, (0.5 + 0.8 * tw) * dpr), 0, Math.PI * 2);
+      g2d.fill();
+    }
+
+    // the dust in the air
+    for (let k = 0; k < 34; k++) {
+      const r1 = ((Math.sin(k * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const r2 = ((Math.sin(k * 78.233) * 12345.6789) % 1 + 1) % 1;
+      const x = (((r1 + S.t * (0.01 + 0.03 * r2) * (0.4 + S.all)) % 1) + 1) % 1 * w;
+      const y = (((r2 + Math.sin(S.t * 0.35 + k) * 0.02) % 1) + 1) % 1 * h * 0.9;
+      const tw = 0.2 + 0.8 * Math.pow(Math.abs(Math.sin(S.t * 1.4 + k * 2.1)), 3);
+      g2d.fillStyle = `rgba(255,255,255,${tw * (0.08 + 0.18 * S.all)})`;
+      g2d.beginPath();
+      g2d.arc(x, y, Math.max(0.5 * dpr, (0.6 + 1.0 * tw) * dpr), 0, Math.PI * 2);
+      g2d.fill();
+    }
+
+    // three ridges, far to near, each on its own part of the spectrum
+    const ridge = (layer: number) => {
+      const off = layer * 2;
+      const scale = 0.42 + 0.16 * layer;
+      const at = (i: number) => h - Math.max(2 * dpr, S.d[Math.max(0, Math.min(n - 1, i + off))] * h * scale);
+      g2d.beginPath();
+      g2d.moveTo(0, h); g2d.lineTo(0, at(0));
+      for (let i = 0; i < n - 1; i++) {
+        const x0 = ((i + 0.5) / n) * w, x1 = ((i + 1.5) / n) * w;
+        g2d.quadraticCurveTo(x0, at(i), (x0 + x1) / 2, (at(i) + at(i + 1)) / 2);
+      }
+      g2d.lineTo(w, at(n - 1)); g2d.lineTo(w, h); g2d.closePath();
+    };
+    const shades: string[][] = [
+      [P1(0.16 + 0.10 * S.all), P1(0.28 + 0.12 * S.all)],
+      [P2(0.32 + 0.12 * S.all), P2(0.52 + 0.14 * S.all)],
+      [P2(0.68 + 0.14 * S.all), P2(0.94)],
+    ];
+    for (let layer = 0; layer < 3; layer++) {
+      ridge(layer);
+      const g = g2d.createLinearGradient(0, h * 0.30, 0, h);
+      g.addColorStop(0, shades[layer][0]);
+      g.addColorStop(1, shades[layer][1]);
+      g2d.fillStyle = g;
+      g2d.fill();
+      if (layer === 2) {
+        g2d.lineJoin = "round";
+        g2d.strokeStyle = P1(0.16 + 0.28 * S.beat);
+        g2d.lineWidth = Math.max(5 * dpr, Math.min(w, h) * 0.04);
+        g2d.stroke();
+        g2d.strokeStyle = `rgba(255,255,255,${0.50 + 0.40 * S.beat})`;
+        g2d.lineWidth = Math.max(1 * dpr, Math.min(w, h) * 0.008);
+        g2d.stroke();
+        g2d.lineJoin = "miter";
+      }
+    }
+
+    if (S.beat > 0.05) { g2d.fillStyle = `rgba(255,255,255,${S.beat * 0.10})`; g2d.fillRect(0, 0, w, h); }
+  }
+
+  // driven by its own band, with motes riding the updraft and a ground
+  // glow that swells with the bass.
+  // ⚡ 1. ENERGETIC — an ascension: pillars of light off a wet floor, rings
+  // climbing them, a peak marker above each, and embers riding the updraft
+  // clean out of the frame.
+  // flying out of each blast, and a white flash at the origin. Rings thin
+  // and fade as they grow; beats set them off.
+  // spinning as they fly, with motion-blur streaks and a flaring core on
+  // every beat.
+  // tall columns are blown off on every beat and tumble away under
+  // gravity, while the column itself snaps back down.
+  let chunks: { x: number; y: number; vx: number; vy: number; rot: number; vr: number; s: number; life: number; max: number; c: number }[] = [];
+  let detoH: number[] = [];
+  // ⚡ 1. ENERGETIC — a demolition. A rig of cells that jumps on the attack
+  // and sinks on the release, blown apart on every hit: chunks tumbling
+  // under gravity and bouncing off the floor, sparks off the impacts, and a
+  // shock ring running out along the ground.
+  let detoSparks: { x: number; y: number; vx: number; vy: number; life: number; max: number }[] = [];
+  let detoRings: { x: number; life: number; max: number }[] = [];
+  // ⚡ 1. ENERGETIC — a mirror ball, in colour. Every facet of it is lit by
+  // one fixed light and turns with the ball, cones swing out across the room
+  // and pool where they land, and a row of bars stands on the floor, bobbing
+  // and kicking on the beat. The room is a colour wheel that turns with the
+  // music, but the bars themselves take the album's own two-tone
+  // (--visualizer / --accent) so the dance floor still belongs to the cover.
+  // (Was two modes — the monochrome "Disco" and "Disco Colour"; the
+  // monochrome one was removed on request and this one took its name and id.)
+  let discoPeaks: number[] = [];
+  function drawDisco(w: number, h: number) {
+    const dpr = dprOf();
+    const n = 24;
+    const S = punchSignals(n);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const HOT = hotInk(P1);
+    // the wheel: one hue per thing, and the whole wheel turns with the music
+    const hueOf = (i: number) => (((i / n) * 320) + S.t * 18) % 360;
+    const C = (i: number, a: number, l = 58) =>
+      `hsla(${hueOf(i)}, 88%, ${l}%, ${Math.max(0, Math.min(1, a))})`;
+    const bx = w * 0.5, by = h * 0.17;
+    const floor = h * 0.86;
+    if (discoPeaks.length !== n) discoPeaks = new Array(n).fill(0);
+    g2d.fillStyle = scrim(0.45);
+    g2d.fillRect(0, 0, w, h);
+
+    // the cones, swinging
+    for (let k = 0; k < 6; k++) {
+      const base = S.t * (0.35 + 0.20 * k) + k * 1.9 + (S.hit ? 0.55 : 0);
+      const a = Math.PI / 2 + Math.sin(base) * 1.15;
+      const spread = 0.075 + 0.035 * Math.sin(base * 1.7);
+      const len = Math.hypot(w, h) * 1.1;
+      const ex = bx + Math.cos(a) * len, ey = by + Math.sin(a) * len;
+      g2d.beginPath();
+      g2d.moveTo(bx, by);
+      g2d.lineTo(bx + Math.cos(a - spread) * len, by + Math.sin(a - spread) * len);
+      g2d.lineTo(bx + Math.cos(a + spread) * len, by + Math.sin(a + spread) * len);
+      g2d.closePath();
+      const cg = g2d.createLinearGradient(bx, by, ex, ey);
+      const ia = (0.05 + 0.12 * S.mid + 0.09 * S.beat) * (0.4 + 0.8 * S.all);
+      cg.addColorStop(0, C(k * 4 + 1, ia, 62));
+      cg.addColorStop(0.5, C(k * 4 + 1, ia * 0.45, 50));
+      cg.addColorStop(1, C(k * 4 + 1, 0, 50));
+      g2d.fillStyle = cg; g2d.fill();
+      if (ey > floor) {
+        const t = (floor - by) / (ey - by);
+        const px = bx + (ex - bx) * t;
+        const pw = Math.min(w, h) * (0.05 + 0.05 * Math.abs(Math.sin(base)));
+        const pg = g2d.createRadialGradient(px, floor, 0, px, floor, Math.max(0.001, pw * 2.4));
+        pg.addColorStop(0, HOT(Math.min(1, ia * 1.6)));
+        pg.addColorStop(0.4, C(k * 4 + 1, ia * 0.9, 62));
+        pg.addColorStop(1, C(k * 4 + 1, 0, 62));
+        g2d.fillStyle = pg;
+        g2d.beginPath(); g2d.ellipse(px, floor, pw * 2.4, pw * 0.8, 0, 0, Math.PI * 2); g2d.fill();
+      }
+    }
+
+    // the glitter in the air
+    const sparkles = Math.round(Math.max(40, Math.min(160, (w / dpr) * 0.22)));
+    for (let k = 0; k < sparkles; k++) {
+      const px = Math.abs((Math.sin(k * 12.9898) * 43758.5453) % 1);
+      const py = Math.abs((Math.sin(k * 78.233) * 12345.6789) % 1);
+      const tw = 0.35 + 0.65 * Math.abs(Math.sin(S.t * (2 + (k % 5)) + k));
+      g2d.fillStyle = C(k, tw * (0.15 + 0.55 * S.high), 68);
+      g2d.beginPath();
+      g2d.arc(px * w, py * floor, (0.5 + 1.3 * ((k % 7) / 7)) * dpr, 0, Math.PI * 2);
+      g2d.fill();
+    }
+
+    // the wire it hangs from
+    g2d.strokeStyle = P2(0.30 + 0.20 * S.all);
+    g2d.lineWidth = Math.max(0.7 * dpr, 1.2 * dpr);
+    g2d.beginPath(); g2d.moveTo(bx, 0); g2d.lineTo(bx, by - Math.min(w, h) * 0.10); g2d.stroke();
+
+    // the ball
+    const rad = Math.max(6 * dpr, Math.min(w, h) * (0.095 + 0.03 * S.low + 0.02 * S.beat));
+    const bg = g2d.createRadialGradient(bx - rad * 0.3, by - rad * 0.35, rad * 0.1, bx, by, rad);
+    bg.addColorStop(0, HOT(0.75));
+    bg.addColorStop(0.5, C(6, 0.50, 56));
+    bg.addColorStop(1, C(6, 0.70, 40));
+    g2d.fillStyle = bg;
+    g2d.beginPath(); g2d.arc(bx, by, rad, 0, Math.PI * 2); g2d.fill();
+    const lx = 0.42, ly = -0.72, lz = 0.55;      // one light, for every facet
+    const spin = S.t * 0.6;
+    const LATS = 10, LONS = 18;
+    for (let la = 0; la < LATS; la++) {
+      const th = -Math.PI / 2 + ((la + 0.5) / LATS) * Math.PI;
+      const ct = Math.cos(th), st = Math.sin(th);
+      for (let lo = 0; lo < LONS; lo++) {
+        const ph = ((lo + 0.5) / LONS) * Math.PI * 2 + spin;
+        const nx = ct * Math.sin(ph), ny = -st, nz = ct * Math.cos(ph);
+        if (nz <= 0.05) continue;                // the far side of it
+        const diff = Math.max(0, nx * lx + ny * ly + nz * lz);
+        const px = bx + nx * rad, py = by + ny * rad;
+        const sz = Math.max(0.5 * dpr, rad * 0.13 * (0.5 + 0.5 * nz));
+        g2d.fillStyle = C(la * 2 + lo, 0.10 + 0.50 * diff, 64);
+        g2d.beginPath(); g2d.arc(px, py, sz, 0, Math.PI * 2); g2d.fill();
+        const spec = Math.pow(diff, 26);
+        if (spec > 0.15) {
+          const sr = Math.max(0.001, sz * 3);
+          const sg = g2d.createRadialGradient(px, py, 0, px, py, sr);
+          sg.addColorStop(0, HOT(Math.min(1, spec * 1.5)));
+          sg.addColorStop(0.4, C(la * 2 + lo, spec * 0.55, 66));
+          sg.addColorStop(1, C(la * 2 + lo, 0, 66));
+          g2d.fillStyle = sg;
+          g2d.beginPath(); g2d.arc(px, py, sr, 0, Math.PI * 2); g2d.fill();
+        }
+      }
+    }
+    const hg = g2d.createRadialGradient(bx, by, rad * 0.7, bx, by, Math.max(0.001, rad * 3));
+    hg.addColorStop(0, C(3, (0.14 + 0.22 * S.beat) * (0.4 + 0.8 * S.all), 60));
+    hg.addColorStop(1, P1(0));
+    g2d.fillStyle = hg;
+    g2d.beginPath(); g2d.arc(bx, by, Math.max(0.001, rad * 3), 0, Math.PI * 2); g2d.fill();
+
+    // the floor, and the bars dancing on it.
+    // BAR_SCALE: 30% shorter than they were, on request. It applies to the
+    // level, the bob and the beat kick alike, and the peak marker uses the
+    // same factor so it still lands on top of the bar it belongs to.
+    const BAR_SCALE = 0.70;
+    const slot = w / n, bw = slot * 0.62;
+    g2d.strokeStyle = P2(0.35 + 0.20 * S.all);
+    g2d.lineWidth = Math.max(0.6 * dpr, 1.2 * dpr);
+    g2d.beginPath(); g2d.moveTo(0, floor); g2d.lineTo(w, floor); g2d.stroke();
+    for (let i = 0; i < n; i++) {
+      const lv = S.d[i];
+      discoPeaks[i] = lv > discoPeaks[i] ? lv : Math.max(lv, discoPeaks[i] - S.dt * 0.60);
+      // the dance: a bob in its own phase, a lean, and a kick on the beat
+      const bob = Math.abs(Math.sin(S.t * 3.1 + i * 0.55)) * h * 0.055 * (0.35 + 0.90 * S.all)
+        + S.beat * h * 0.07;
+      const lean = Math.sin(S.t * 2.2 + i * 0.8) * bw * 0.18 * (0.30 + 0.80 * S.all);
+      const bh = Math.max(2 * dpr, (lv * h * 0.40 + bob) * BAR_SCALE);
+      const x = i * slot + (slot - bw) / 2 + lean;
+      // its reflection in the floor
+      const rh = Math.min(h - floor, bh * 0.45);
+      const rg = g2d.createLinearGradient(0, floor, 0, floor + rh);
+      rg.addColorStop(0, P1((0.16 + 0.22 * lv) * (0.4 + 0.8 * S.all)));
+      rg.addColorStop(1, P1(0));
+      g2d.fillStyle = rg;
+      g2d.fillRect(x, floor, bw, rh);
+      // the bar — cover colours, not the wheel
+      const g = g2d.createLinearGradient(0, floor - bh, 0, floor);
+      g.addColorStop(0, P1(0.35 + 0.45 * lv));
+      g.addColorStop(0.65, P2(0.45 + 0.35 * lv));
+      g.addColorStop(1, P2(0.75 + 0.20 * lv));
+      g2d.fillStyle = g;
+      const rr = Math.max(1 * dpr, bw * 0.30);
+      if (g2d.roundRect) {
+        g2d.beginPath(); g2d.roundRect(x, floor - bh, bw, bh, [rr, rr, 0, 0]); g2d.fill();
+      } else {
+        g2d.fillRect(x, floor - bh, bw, bh);
+      }
+      g2d.fillStyle = HOT(0.10 + 0.22 * lv);
+      g2d.fillRect(x + bw * 0.16, floor - bh, Math.max(1 * dpr, bw * 0.16), bh * 0.94);
+      g2d.fillStyle = HOT(0.45 + 0.40 * lv);
+      g2d.fillRect(x, floor - bh, bw, Math.max(1.5 * dpr, 2.5 * dpr));
+      // the glow off the top of it
+      const cgr = Math.max(0.001, bw * 1.6);
+      const cg = g2d.createRadialGradient(x + bw / 2, floor - bh, 0, x + bw / 2, floor - bh, cgr);
+      cg.addColorStop(0, P1((0.16 + 0.30 * lv) * (0.4 + 0.8 * S.all)));
+      cg.addColorStop(1, P1(0));
+      g2d.fillStyle = cg;
+      g2d.beginPath(); g2d.arc(x + bw / 2, floor - bh, cgr, 0, Math.PI * 2); g2d.fill();
+      // the marker, holding its height and falling back
+      if (discoPeaks[i] > lv + 0.03) {
+        g2d.fillStyle = HOT(0.22 + 0.35 * discoPeaks[i]);
+        g2d.fillRect(x, floor - (discoPeaks[i] * h * 0.40 + bob) * BAR_SCALE, bw, Math.max(1 * dpr, 2 * dpr));
+      }
+    }
+  }
+  // ⚡ 1. ENERGETIC — a fairground tunnel: rings of light turning at their
+  // own speeds and in their own directions, spokes flying past radially,
+  // bokeh drifting out of focus, and the middle of it flaring white on
+  // every kick.
+  function drawCarnival(w: number, h: number) {
+    const dpr = dprOf();
+    const S = punchSignals(24);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const cx = w / 2 + Math.sin(S.t * 1.7) * w * 0.04 * S.all;
+    const cy = h / 2 + Math.cos(S.t * 1.3) * h * 0.05 * S.all;
+    const R = Math.hypot(w, h) * 0.62;
+
+    const HOT = hotInk(P1);
+    g2d.fillStyle = scrim(0.45);
+    g2d.fillRect(0, 0, w, h);
+    const bg = g2d.createRadialGradient(cx, cy, 0, cx, cy, Math.max(0.001, R));
+    bg.addColorStop(0, P1(0.10 + 0.10 * S.all));
+    bg.addColorStop(0.55, P2(0.04 + 0.04 * S.all));
+    bg.addColorStop(1, scrim(0.30));
+    g2d.fillStyle = bg; g2d.fillRect(0, 0, w, h);
+
+    // the rings, each turning in its own direction at its own speed
+    const rings = 15;
+    for (let k = rings; k >= 1; k--) {
+      const u = k / rings;
+      const dir = k % 2 ? 1 : -1;
+      const ph = S.t * (0.30 + 0.85 * (1 - u)) * dir + k * 0.6;
+      const rr = R * Math.pow(u, 1.5) * (0.72 + 0.32 * S.low) + S.beat * R * 0.05;
+      const P = (k % 2) ? P1 : P2;
+      const seg = 5 + (k % 3);
+      const gap = (Math.PI * 2) / seg;
+      const bright = 0.18 + 0.62 * (1 - u) * (0.4 + 0.6 * S.mid);
+      g2d.lineCap = "round";
+      g2d.lineWidth = Math.max(1 * dpr, (1 + 4 * (1 - u)) * dpr);
+      for (let s = 0; s < seg; s++) {
+        const a0 = ph + s * gap;
+        g2d.beginPath();
+        g2d.arc(cx, cy, rr, a0, a0 + gap * 0.62);
+        g2d.strokeStyle = P(bright * 0.22);
+        g2d.lineWidth = Math.max(2 * dpr, (2 + 8 * (1 - u)) * dpr);
+        g2d.stroke();
+        g2d.strokeStyle = P(bright);
+        g2d.lineWidth = Math.max(1 * dpr, (1 + 4 * (1 - u)) * dpr);
+        g2d.stroke();
+      }
+      g2d.lineCap = "butt";
+    }
+
+    // the spokes, flying past
+    const spokes = 30;
+    for (let k = 0; k < spokes; k++) {
+      const a = (k / spokes) * Math.PI * 2 + S.t * (k % 2 ? 0.5 : -0.8);
+      const r0 = R * (0.10 + 0.5 * ((k * 7919) % 100) / 100);
+      const len = R * (0.04 + 0.20 * S.high);
+      const x0 = cx + Math.cos(a) * r0, y0 = cy + Math.sin(a) * r0;
+      const x1 = cx + Math.cos(a) * (r0 + len), y1 = cy + Math.sin(a) * (r0 + len);
+      g2d.strokeStyle = (k % 2 ? P1 : P2)(0.10 + 0.45 * S.high);
+      g2d.lineWidth = Math.max(0.8 * dpr, 1.8 * dpr);
+      g2d.lineCap = "round";
+      g2d.beginPath(); g2d.moveTo(x0, y0); g2d.lineTo(x1, y1); g2d.stroke();
+      g2d.lineCap = "butt";
+    }
+
+    // the bokeh: lights out of focus, drifting and breathing
+    for (let k = 0; k < 16; k++) {
+      const r1 = ((Math.sin(k * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const r2 = ((Math.sin(k * 78.233) * 12345.6789) % 1 + 1) % 1;
+      const ang = r1 * Math.PI * 2 + S.t * 0.15 * (r2 > 0.5 ? 1 : -1);
+      const rad = R * (0.20 + 0.55 * r2);
+      const x = cx + Math.cos(ang) * rad;
+      const y = cy + Math.sin(ang) * rad;
+      const br = Math.min(w, h) * (0.02 + 0.045 * Math.abs(Math.sin(S.t * 0.8 + k)));
+      const a = (0.05 + 0.14 * S.all) * (k % 3 ? 1 : 0.7);
+      const g = g2d.createRadialGradient(x, y, 0, x, y, Math.max(0.001, br));
+      g.addColorStop(0, (k % 2 ? P1 : P2)(a * 2));
+      g.addColorStop(0.55, (k % 2 ? P1 : P2)(a * 0.8));
+      g.addColorStop(1, (k % 2 ? P1 : P2)(0));
+      g2d.fillStyle = g;
+      g2d.beginPath(); g2d.arc(x, y, Math.max(0.001, br), 0, Math.PI * 2); g2d.fill();
+    }
+
+    // the flare in the middle of it, and its rays
+    const fr = R * (0.05 + 0.16 * S.low + 0.12 * S.beat);
+    const fg = g2d.createRadialGradient(cx, cy, 0, cx, cy, Math.max(0.001, fr));
+    fg.addColorStop(0, HOT(0.40 + 0.50 * S.beat));
+    fg.addColorStop(0.35, P1(0.35 + 0.30 * S.low));
+    fg.addColorStop(1, P1(0));
+    g2d.fillStyle = fg;
+    g2d.beginPath(); g2d.arc(cx, cy, Math.max(0.001, fr), 0, Math.PI * 2); g2d.fill();
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + S.t * 0.35;
+      const len = R * (0.10 + 0.28 * S.beat);
+      g2d.strokeStyle = HOT(0.05 + 0.18 * S.beat);
+      g2d.lineWidth = Math.max(0.8 * dpr, Math.min(w, h) * 0.010);
+      g2d.lineCap = "round";
+      g2d.beginPath();
+      g2d.moveTo(cx + Math.cos(a) * fr * 0.7, cy + Math.sin(a) * fr * 0.7);
+      g2d.lineTo(cx + Math.cos(a) * (fr * 0.7 + len), cy + Math.sin(a) * (fr * 0.7 + len));
+      g2d.stroke();
+      g2d.lineCap = "butt";
+    }
+    if (S.beat > 0.55) { g2d.fillStyle = `rgba(255,255,255,${0.12 * S.beat})`; g2d.fillRect(0, 0, w, h); }
+  }
+
+
+  // ⚡ 2. CALM — velvet: hills of it, one behind the other, a rim of light
+  // along every crest and mist lying in the hollows between them.
+  // The camera is bolted down — no layer drifts sideways, nothing pans — and
+  // every layer runs off ONE integrated phase, so the swell is continuous.
+  // The old version multiplied its accumulated time by the current energy
+  // (S.t * drift * (0.4 + 0.8 * S.all)); because that factor changes with the
+  // music, the phase jumped every time the level moved, which is exactly the
+  // "moves, freezes, moves again" lurch. Accumulating the rate per frame
+  // instead makes the rate change smoothly and the position never jump.
+  let velvetPhase = 0;
+  function drawVelvet(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(true);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const HOT = hotInk(P1);
+    // one clock for the whole scene: a base rate the swell never drops below,
+    // plus what the music adds — integrated, never scaled.
+    velvetPhase += S.dt * (0.50 + 1.10 * S.all);
+
+    // the sky
+    const sky = g2d.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, scrim(0.28));
+    sky.addColorStop(1, P2(0.10 + 0.08 * S.all));
+    g2d.fillStyle = sky; g2d.fillRect(0, 0, w, h);
+    // a low light behind the lot of it, breathing with the bass
+    const lg = g2d.createRadialGradient(w * 0.5, h * 1.02, 0, w * 0.5, h * 1.02, Math.max(0.001, Math.hypot(w, h) * 0.6));
+    lg.addColorStop(0, P1(0.10 + 0.12 * S.all + 0.10 * S.low));
+    lg.addColorStop(1, P1(0));
+    g2d.fillStyle = lg; g2d.fillRect(0, 0, w, h);
+
+    // far to near: the distant ones pale and faint, the near ones deep
+    const layers = [
+      { base: 0.30, amp: 0.055, k: 1.2, sp: 0.55, a: 0.22, P: P1 as (a: number) => string },
+      { base: 0.46, amp: 0.085, k: 1.8, sp: -0.75, a: 0.34, P: P2 as (a: number) => string },
+      { base: 0.62, amp: 0.115, k: 2.4, sp: 0.95, a: 0.48, P: P1 as (a: number) => string },
+      { base: 0.78, amp: 0.145, k: 3.1, sp: -1.20, a: 0.64, P: P2 as (a: number) => string },
+      { base: 0.94, amp: 0.175, k: 3.9, sp: 1.45, a: 0.82, P: P1 as (a: number) => string },
+    ];
+    const steps = 96;
+    layers.forEach((L, li) => {
+      // the far layers ride the treble, the near ones the bass
+      const drive = li < 2 ? S.high : li < 4 ? S.mid : S.low;
+      const amp = h * L.amp * (0.55 + 0.85 * S.all + 0.35 * drive);
+      const ph = velvetPhase * L.sp;
+      // x is never time-dependent: the shape travels in place, the camera
+      // does not move.
+      const yAt = (u: number) => h * L.base
+        - amp * Math.sin(u * Math.PI * L.k + ph + li * 1.7)
+        - amp * 0.32 * Math.sin(u * Math.PI * L.k * 2.3 - ph * 0.62);
+      // the hill
+      g2d.beginPath();
+      g2d.moveTo(0, h);
+      for (let i = 0; i <= steps; i++) g2d.lineTo((i / steps) * w, yAt(i / steps));
+      g2d.lineTo(w, h);
+      g2d.closePath();
+      const top = h * L.base - amp * 1.35;
+      const g = g2d.createLinearGradient(0, top, 0, h);
+      const a0 = L.a * (0.7 + 0.3 * S.all);
+      g.addColorStop(0, L.P(Math.min(1, a0 * 1.2)));
+      g.addColorStop(0.45, L.P(a0));
+      g.addColorStop(1, L.P(a0 * 0.5));
+      g2d.fillStyle = g;
+      g2d.fill();
+      // the rim of light along its crest
+      g2d.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const u = i / steps, x = u * w, y = yAt(u);
+        if (i === 0) g2d.moveTo(x, y); else g2d.lineTo(x, y);
+      }
+      g2d.strokeStyle = HOT(0.05 + 0.14 * S.all + 0.10 * L.a + 0.12 * drive);
+      g2d.lineWidth = Math.max(0.8 * dpr, 1.3 * dpr);
+      g2d.stroke();
+      // and the mist gathered in the hollow behind it
+      const my = h * L.base;
+      const mg = g2d.createLinearGradient(0, my - h * 0.22, 0, my + h * 0.03);
+      mg.addColorStop(0, scrim(0));
+      mg.addColorStop(1, scrim(0.14 + 0.10 * S.all));
+      g2d.fillStyle = mg;
+      g2d.fillRect(0, my - h * 0.22, w, h * 0.25);
+    });
+
+    // the dust turning over it — same clock, so it can never stutter either
+    for (let k = 0; k < 30; k++) {
+      const r1 = ((Math.sin(k * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const r2 = ((Math.sin(k * 78.233) * 12345.6789) % 1 + 1) % 1;
+      const x = ((r1 + velvetPhase * (0.006 + 0.014 * r2)) % 1) * w;
+      const y = ((r2 + Math.sin(velvetPhase * 0.22 + k) * 0.02) % 1) * h;
+      const tw = 0.2 + 0.8 * Math.pow(Math.abs(Math.sin(velvetPhase * 0.8 + k * 2.1)), 3);
+      g2d.fillStyle = `rgba(255,255,255,${tw * (0.06 + 0.16 * S.all)})`;
+      g2d.beginPath();
+      g2d.arc(x, y, Math.max(0.5 * dpr, (0.6 + 0.9 * tw) * dpr), 0, Math.PI * 2);
+      g2d.fill();
+    }
+  }
+
+
+
+
+
+
+  // into the dark, over the last of a fire's glow.
+  let ashFlakes: { x: number; y: number; vy: number; vx: number; r: number; ph: number; a: number }[] = [];
+  // ⚡ 2. CALM — the last of a fire: a low glow under everything, flakes
+  // turning over on their way down, embers that have not given up yet and
+  // still climb, smoke drifting across the light, and the drift already
+  // settled along the bottom.
+  let ashEmbers: { x: number; y: number; vy: number; vx: number; r: number; life: number; max: number }[] = [];
+  function drawAshes(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const HOT = hotInk(P1);
+    g2d.fillStyle = scrim(0.34);
+    g2d.fillRect(0, 0, w, h);
+
+    // the last of the glow, low and warm
+    const gr = Math.max(w, h) * (0.45 + 0.20 * S.low);
+    const gg = g2d.createRadialGradient(w * 0.5, h * 1.05, 0, w * 0.5, h * 1.05, gr);
+    gg.addColorStop(0, P1(0.16 + 0.14 * S.low));
+    gg.addColorStop(0.4, P2(0.06 + 0.06 * S.low));
+    gg.addColorStop(1, P2(0));
+    g2d.fillStyle = gg; g2d.fillRect(0, 0, w, h);
+
+    // the smoke, crossing the light
+    for (let k = 0; k < 6; k++) {
+      const u = ((S.t * (0.012 + 0.018 * Math.abs(Math.sin(k * 2.3))) * (0.4 + S.all) + k * 0.167) % 1.3) - 0.15;
+      const x = u * w;
+      const y = h * (0.28 + 0.42 * Math.abs(Math.sin(k * 1.7))) + Math.sin(S.t * 0.4 + k) * h * 0.05;
+      const rr = Math.min(w, h) * (0.20 + 0.22 * Math.abs(Math.sin(k * 3.1)) + 0.08 * S.all);
+      const g = g2d.createRadialGradient(x, y, 0, x, y, Math.max(0.001, rr));
+      g.addColorStop(0, scrim(0.05 + 0.05 * S.all));
+      g.addColorStop(1, scrim(0));
+      g2d.fillStyle = g;
+      g2d.beginPath(); g2d.arc(x, y, Math.max(0.001, rr), 0, Math.PI * 2); g2d.fill();
+    }
+
+    // the flakes, falling
+    const N = Math.max(20, Math.min(90, Math.round((w / dpr) / 16)));
+    while (ashFlakes.length < N) {
+      ashFlakes.push({
+        x: Math.random() * w, y: Math.random() * h,
+        vy: h * (0.012 + 0.030 * Math.random()), vx: (Math.random() - 0.5) * w * 0.006,
+        r: Math.max(0.7 * dpr, (0.8 + 2.0 * Math.random()) * dpr),
+        ph: Math.random() * Math.PI * 2, a: 0.15 + 0.45 * Math.random(),
+      });
+    }
+    if (ashFlakes.length > N) ashFlakes.length = N;
+    for (const f of ashFlakes) {
+      f.ph += S.dt * 0.7;
+      f.y += f.vy * S.dt * (0.4 + 1.3 * S.all);
+      f.x += (f.vx + Math.sin(f.ph) * w * 0.004) * S.dt;
+      if (f.y > h - f.r) { f.y = h - f.r; f.a -= 0.22 * S.dt; }
+      if (f.x < 0) f.x = w; else if (f.x > w) f.x = 0;
+      if (f.a <= 0) {
+        f.y = -4 * dpr; f.x = Math.random() * w;
+        f.a = 0.15 + 0.45 * Math.random();
+      }
+      const flick = 0.6 + 0.4 * Math.sin(f.ph * 2.3);
+      g2d.fillStyle = (Math.round(f.ph) % 2 ? P1 : P2)(f.a * flick * (0.4 + 0.7 * S.all));
+      g2d.beginPath(); g2d.arc(f.x, f.y, f.r, 0, Math.PI * 2); g2d.fill();
+      // the ones still alight, with a little heat in them
+      if (f.a > 0.35) {
+        const g = g2d.createRadialGradient(f.x, f.y, 0, f.x, f.y, Math.max(0.001, f.r * 4));
+        g.addColorStop(0, P1(f.a * 0.30 * flick * (0.4 + 0.7 * S.all)));
+        g.addColorStop(1, P1(0));
+        g2d.fillStyle = g;
+        g2d.beginPath(); g2d.arc(f.x, f.y, Math.max(0.001, f.r * 4), 0, Math.PI * 2); g2d.fill();
+      }
+    }
+
+    // the embers that have not given up, still climbing
+    if (ashEmbers.length < 22 && Math.random() < 0.4 * (0.3 + S.all)) {
+      ashEmbers.push({
+        x: w * (0.15 + 0.70 * Math.random()), y: h * (0.96 + 0.04 * Math.random()),
+        vy: -h * (0.04 + 0.10 * Math.random()) * (0.4 + S.all),
+        vx: (Math.random() - 0.5) * w * 0.01,
+        r: Math.max(0.6 * dpr, (0.7 + 1.3 * Math.random()) * dpr),
+        life: 0, max: 1.2 + 1.6 * Math.random(),
+      });
+    }
+    const alive: typeof ashEmbers = [];
+    for (const e of ashEmbers) {
+      e.life += S.dt;
+      if (e.life >= e.max) continue;
+      alive.push(e);
+      const u = e.life / e.max;
+      e.vy += h * 0.02 * S.dt;
+      e.x += (e.vx + Math.sin(e.life * 3 + e.y * 0.02) * w * 0.004) * S.dt;
+      e.y += e.vy * S.dt;
+      const a = (1 - u) * (0.25 + 0.55 * S.all);
+      const g = g2d.createRadialGradient(e.x, e.y, 0, e.x, e.y, Math.max(0.001, e.r * 3));
+      g.addColorStop(0, HOT(a * 0.9));
+      g.addColorStop(0.35, P1(a * 0.5));
+      g.addColorStop(1, P1(0));
+      g2d.fillStyle = g;
+      g2d.beginPath(); g2d.arc(e.x, e.y, Math.max(0.001, e.r * 3), 0, Math.PI * 2); g2d.fill();
+    }
+    ashEmbers = alive;
+
+    // the drift that has settled
+    const pg = g2d.createLinearGradient(0, h - h * 0.10, 0, h);
+    pg.addColorStop(0, P2(0));
+    pg.addColorStop(1, P2(0.14 + 0.10 * S.all));
+    g2d.fillStyle = pg; g2d.fillRect(0, h - h * 0.10, w, h * 0.10);
+  }
+
+  // ⚡ 2. CALM — underwater: light coming down in shafts through the
+  // surface, the swell rolling across in bands, caustics playing over it
+  // all, and bubbles going up through the lot of it.
+  let swimBubbles: { x: number; y: number; r: number; vy: number; ph: number }[] = [];
+  let swimPh: number[] = [];
+  function drawSwim(w: number, h: number) {
+    const dpr = dprOf();
+    const S = ambientSignals(false);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const HOT = hotInk(P1);
+    // the water, deep at the bottom
+    const bg = g2d.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, P1(0.10 + 0.08 * S.all));
+    bg.addColorStop(1, P2(0.26 + 0.14 * S.all));
+    g2d.fillStyle = bg; g2d.fillRect(0, 0, w, h);
+
+    // the swell, band over band
+    // (The five background light shafts that used to sit behind this were
+    // removed on request — the water reads cleaner without them.)
+    const bands = 9;
+    for (let k = 0; k < bands; k++) {
+      const u = (k + 0.5) / bands;
+      const yb = h * (0.10 + 0.90 * u);
+      const amp = h * (0.02 + 0.05 * u) * (0.4 + 1.1 * S.all);
+      const kf = 1.2 + k * 0.4;
+      // Integrated phase. The old form multiplied the ever-growing clock
+      // by the live energy, so every energy change teleported the swell by
+      // clock × delta — the stutter the user saw. Stepping the phase by
+      // dt × rate keeps the water fluid at any tempo.
+      if (swimPh.length <= k) swimPh.push(k * 1.7);
+      swimPh[k] += S.dt * (0.35 + 0.25 * u) * (0.4 + 1.0 * S.all) * (0.6 + 1.4 * S.all) * 2.2;
+      const sp = swimPh[k];
+      const pt = (v: number) => ({
+        x: v * w,
+        y: yb + amp * Math.sin(v * Math.PI * kf + sp) + amp * 0.4 * Math.sin(v * Math.PI * kf * 2.1 - sp * 1.3),
+      });
+      // the body of the wave
+      g2d.beginPath();
+      g2d.moveTo(0, yb + h);
+      for (let i = 0; i <= 70; i++) { const p = pt(i / 70); g2d.lineTo(p.x, p.y); }
+      g2d.lineTo(w, yb + h);
+      g2d.closePath();
+      const g = g2d.createLinearGradient(0, yb - amp, 0, h);
+      g.addColorStop(0, P1((0.16 + 0.14 * S.all) * (0.5 + 0.5 * u)));
+      g.addColorStop(1, P2((0.05 + 0.05 * S.all)));
+      g2d.fillStyle = g;
+      g2d.fill();
+      // the foam on the crest
+      g2d.beginPath();
+      for (let i = 0; i <= 70; i++) { const p = pt(i / 70); if (i === 0) g2d.moveTo(p.x, p.y); else g2d.lineTo(p.x, p.y); }
+      g2d.strokeStyle = HOT((0.16 + 0.26 * u) * (0.4 + 0.8 * S.all));
+      g2d.lineWidth = Math.max(0.7 * dpr, (0.6 + 1.6 * u) * dpr);
+      g2d.stroke();
+      // and the caustics playing over it
+      g2d.beginPath();
+      for (let i = 0; i <= 70; i++) {
+        const v = i / 70;
+        const p = pt(v);
+        const c = Math.pow(Math.abs(Math.sin(v * Math.PI * kf * 3.3 - sp * 2.1 + k)), 6);
+        if (c < 0.25) { g2d.moveTo(p.x, p.y); continue; }
+        g2d.moveTo(p.x, p.y);
+        g2d.lineTo(p.x, p.y - amp * 2.2 * c * u);
+      }
+      g2d.strokeStyle = HOT((0.05 + 0.10 * u) * (0.3 + 0.9 * S.all));
+      g2d.lineWidth = Math.max(0.5 * dpr, 1.2 * dpr);
+      g2d.stroke();
+    }
+
+    // the bubbles, going up
+    const want = Math.round(Math.max(14, Math.min(50, (w / dpr) * 0.06)));
+    while (swimBubbles.length < want) {
+      swimBubbles.push({
+        x: Math.random() * w, y: Math.random() * h,
+        r: Math.max(1 * dpr, Math.min(w, h) * (0.004 + 0.012 * Math.random())),
+        vy: -h * (0.02 + 0.05 * Math.random()), ph: Math.random() * Math.PI * 2,
+      });
+    }
+    if (swimBubbles.length > want) swimBubbles.length = want;
+    for (const b of swimBubbles) {
+      b.ph += S.dt * 1.6;
+      b.y += b.vy * S.dt * (0.4 + 1.0 * S.all);
+      b.x += Math.sin(b.ph) * w * 0.003 * S.dt;
+      if (b.y < -b.r * 2) { b.y = h + b.r * 2; b.x = Math.random() * w; }
+      g2d.strokeStyle = HOT(0.14 + 0.16 * S.all);
+      g2d.lineWidth = Math.max(0.4 * dpr, b.r * 0.30);
+      g2d.beginPath(); g2d.arc(b.x, b.y, b.r, 0, Math.PI * 2); g2d.stroke();
+      g2d.fillStyle = HOT(0.06 + 0.08 * S.all);
+      g2d.beginPath(); g2d.arc(b.x, b.y, b.r, 0, Math.PI * 2); g2d.fill();
+      g2d.fillStyle = HOT(0.20 + 0.20 * S.all);
+      g2d.beginPath(); g2d.arc(b.x - b.r * 0.3, b.y - b.r * 0.35, Math.max(0.3 * dpr, b.r * 0.28), 0, Math.PI * 2); g2d.fill();
+    }
+  }
+
+  // band of the spectrum. Every beat sends a ring out across them.
+  // pulled down further each time the music lands.
+  // a shadow that disagrees with it.
+  // each beat throwing a new one out from the middle.
+  // and shrinking, the whole surface breathing under it.
+  // and curving long after the source has moved on.
+  // music and some of them not coming back.
+  // and the beat decides when the next one goes.
+  // landing on the beat.
+  let chargeStreaks: { x: number; y: number; len: number; sp: number; a: number }[] = [];
+  // ⚡ 1. ENERGETIC — a charge: streaks caught in a vortex and flung outward,
+  // each with a bright head and a tail that falls away behind it, rings
+  // breaking out of the middle on every beat, and the focus it all runs
+  // from burning at the centre.
+  function drawCharge(w: number, h: number) {
+    const dpr = dprOf();
+    const S = punchSignals(64);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const HOT = hotInk(P1);
+    const bg = g2d.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(0.001, Math.hypot(w, h) * 0.55));
+    bg.addColorStop(0, P2(0.10 + 0.10 * S.all));
+    bg.addColorStop(1, scrim(0.45));
+    g2d.fillStyle = bg; g2d.fillRect(0, 0, w, h);
+    const cx = w / 2, cy = h / 2;
+    const N = Math.max(50, Math.min(160, Math.round((w / dpr) / 9)));
+    while (chargeStreaks.length < N) {
+      chargeStreaks.push({
+        x: Math.random() * w, y: Math.random() * h,
+        len: 0, sp: 0.4 + Math.random(), a: 0.3 + 0.7 * Math.random(),
+      });
+    }
+    if (chargeStreaks.length > N) chargeStreaks.length = N;
+    const rush = 0.35 + 1.8 * S.all + 1.2 * S.beat;
+    const twist = 0.35 + 0.55 * S.mid;          // how hard the vortex is turning
+    g2d.lineCap = "round";
+    for (const s of chargeStreaks) {
+      const dx = s.x - cx, dy = s.y - cy;
+      const d2 = Math.hypot(dx, dy) || 1;
+      const ux = dx / d2, uy = dy / d2;
+      // outward, and a little sideways, so the whole field turns
+      const step = s.sp * rush * Math.min(w, h) * 0.35 * S.dt;
+      s.x += (ux - uy * twist * 0.4) * step;
+      s.y += (uy + ux * twist * 0.4) * step;
+      if (s.x < 0 || s.x > w || s.y < 0 || s.y > h || d2 < Math.min(w, h) * 0.02) {
+        const a = Math.random() * Math.PI * 2, rr = Math.min(w, h) * 0.03 * Math.random();
+        s.x = cx + Math.cos(a) * rr; s.y = cy + Math.sin(a) * rr;
+      }
+      s.len = Math.min(w, h) * (0.02 + 0.10 * s.sp) * (0.4 + 1.4 * S.all + 1.0 * S.beat);
+      // the tail, falling away behind the head
+      const tx = s.x - (ux - uy * twist * 0.4) * s.len;
+      const ty = s.y - (uy + ux * twist * 0.4) * s.len;
+      const g = g2d.createLinearGradient(s.x, s.y, tx, ty);
+      g.addColorStop(0, HOT(s.a * (0.35 + 0.45 * S.all)));
+      g.addColorStop(0.35, P1(s.a * (0.30 + 0.45 * S.all)));
+      g.addColorStop(1, P1(0));
+      g2d.strokeStyle = g;
+      g2d.lineWidth = Math.max(0.6 * dpr, 1.5 * dpr);
+      g2d.beginPath(); g2d.moveTo(s.x, s.y); g2d.lineTo(tx, ty); g2d.stroke();
+    }
+    g2d.lineCap = "butt";
+    // the rings, breaking out of the middle
+    for (let k = 0; k < 3; k++) {
+      const u = (((S.t * 0.55) + k * 0.333) % 1);
+      const rr = u * Math.hypot(w, h) * 0.5;
+      g2d.strokeStyle = P1((1 - u) * (0.10 + 0.20 * S.beat) * (0.4 + 0.8 * S.all));
+      g2d.lineWidth = Math.max(0.8 * dpr, Math.min(w, h) * 0.014 * (1 - u));
+      g2d.beginPath(); g2d.arc(cx, cy, Math.max(0.001, rr), 0, Math.PI * 2); g2d.stroke();
+    }
+    // the focus it is all running from
+    const fr = Math.max(0.001, Math.min(w, h) * (0.10 + 0.12 * S.beat + 0.06 * S.low));
+    const g = g2d.createRadialGradient(cx, cy, 0, cx, cy, fr);
+    g.addColorStop(0, HOT(0.45 + 0.40 * S.beat));
+    g.addColorStop(0.4, P1((0.25 + 0.25 * S.beat) * (0.4 + 0.8 * S.all)));
+    g.addColorStop(1, P1(0));
+    g2d.fillStyle = g;
+    g2d.beginPath(); g2d.arc(cx, cy, fr, 0, Math.PI * 2); g2d.fill();
+    // and the spokes it throws on the beat
+    if (S.beat > 0.05) {
+      for (let k = 0; k < 10; k++) {
+        const ang = (k / 10) * Math.PI * 2 + S.t * 0.4;
+        const len = Math.min(w, h) * (0.04 + 0.20 * S.beat);
+        g2d.strokeStyle = HOT(S.beat * 0.28);
+        g2d.lineWidth = Math.max(0.6 * dpr, Math.min(w, h) * 0.008);
+        g2d.beginPath();
+        g2d.moveTo(cx + Math.cos(ang) * fr * 0.8, cy + Math.sin(ang) * fr * 0.8);
+        g2d.lineTo(cx + Math.cos(ang) * (fr * 0.8 + len), cy + Math.sin(ang) * (fr * 0.8 + len));
+        g2d.stroke();
+      }
+    }
+  }
+
+  // 9. STREET — a tag going up: strokes laid down one at a time, in time
+  // with the track, the paint still wet and running.
+
+  // =====================================================================
+  // RAIN SUITE — six professional scenes around the single idea of rain.
+  // All run on punchSignals(), so every one of them hears the beat.
+  // =====================================================================
+
+
+
+  // RAIN 3 — PUDDLE RIPPLES. A top-down sheet of wet asphalt; raindrops land
+  // at a rate that follows the music and throw expanding, interfering rings
+  // drawn additively, each ring tinted by its own slice of the spectrum.
+  let pudDrops: { x: number; y: number; r: number; v: number; life: number; band: number }[] = [];
+  function drawPuddles(w: number, h: number) {
+    const dpr = dprOf();
+    const S = punchSignals(28);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const HOT = hotInk(P1);
+    const bg = g2d.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, scrim(0.5));
+    bg.addColorStop(1, P2(0.08 + 0.06 * S.all));
+    g2d.fillStyle = bg; g2d.fillRect(0, 0, w, h);
+    const sh = g2d.createLinearGradient(0, 0, w, 0);
+    sh.addColorStop(0, P1(0));
+    sh.addColorStop(0.5, P1(0.05 + 0.08 * S.high));
+    sh.addColorStop(1, P1(0));
+    g2d.fillStyle = sh; g2d.fillRect(0, 0, w, h);
+    const rate = 2 + 14 * S.all;
+    if (Math.random() < rate * S.dt) pudDrops.push({ x: Math.random() * w, y: Math.random() * h, r: 0, v: Math.min(w, h) * (0.25 + 0.3 * Math.random()), life: 1, band: Math.random() });
+    if (S.hit) pudDrops.push({ x: Math.random() * w, y: Math.random() * h, r: 0, v: Math.min(w, h) * (0.5 + 0.4 * S.low), life: 1, band: S.low });
+    if (pudDrops.length > 40) pudDrops.splice(0, pudDrops.length - 40);
+    g2d.globalCompositeOperation = "lighter";
+    for (let i = pudDrops.length - 1; i >= 0; i--) {
+      const d = pudDrops[i];
+      d.r += d.v * S.dt;
+      d.life -= S.dt * (0.5 + 0.4 * (d.r / Math.min(w, h)));
+      if (d.life <= 0) { pudDrops.splice(i, 1); continue; }
+      const col = bandAt(S.d, d.band);
+      for (let ring = 0; ring < 3; ring++) {
+        const rr2 = d.r - ring * Math.min(w, h) * 0.02;
+        if (rr2 <= 0) continue;
+        const a = d.life * (0.30 - ring * 0.09) * (0.4 + 0.8 * col);
+        g2d.strokeStyle = (ring === 0 ? HOT : P1)(a);
+        g2d.lineWidth = Math.max(0.5 * dpr, (1.4 - ring * 0.4) * dpr * d.life);
+        g2d.beginPath();
+        g2d.ellipse(d.x, d.y, rr2, rr2 * 0.42, 0, 0, Math.PI * 2);
+        g2d.stroke();
+      }
+      g2d.fillStyle = HOT(0.4 * d.life * d.life);
+      g2d.beginPath(); g2d.arc(d.x, d.y, Math.max(0.4 * dpr, 1.6 * dpr * d.life), 0, Math.PI * 2); g2d.fill();
+    }
+    g2d.globalCompositeOperation = "source-over";
+  }
+
+
+
+
+
+
   function draw() {
     const w = canvas.width, h = canvas.height;
     if (!w || !h) return;
     clearFrame();
-    if (mode === "wave") {
+    if (mode === "Oscilloscope") {
       drawWave();
       return;
     }
     // Ambient & beat-driven scenes (they manage their own signals/particles).
-    if (mode === "aurora" || mode === "aurora2") return drawAurora(w, h, mode === "aurora2");
-    if (mode === "tide" || mode === "tide2") return drawTide(w, h, mode === "tide2");
-    if (mode === "ripples") return drawRipples(w, h);
-    if (mode === "petals") return drawPetals(w, h);
-    if (mode === "fireflies") return drawFireflies(w, h);
-    if (mode === "lantern") return drawLantern(w, h);
-    if (mode === "meadow") return drawMeadow(w, h);
-    if (mode === "bubbles") return drawBubbles(w, h);
-    if (mode === "sparks") return drawSparks(w, h);
-    if (mode === "glitch") return drawGlitch(w, h);
-    if (mode === "quake") return drawQuake(w, h);
-    if (mode === "shards") return drawShards(w, h);
+    if (mode === "Aurora" || mode === "Aurora II") return drawAurora(w, h, mode === "Aurora II");
+    if (mode === "Tide" || mode === "Tide II") return drawTide(w, h, mode === "Tide II");
+    if (mode === "Ripples") return drawRipples(w, h);
+    if (mode === "Petals") return drawPetals(w, h);
+    if (mode === "Fireflies") return drawFireflies(w, h);
+    if (mode === "Lantern") return drawLantern(w, h);
+    if (mode === "Wildflower Meadow") return drawMeadow(w, h);
+    if (mode === "Bubbles") return drawBubbles(w, h);
+    if (mode === "Sparks") return drawSparks(w, h);
+    if (mode === "Glitch") return drawGlitch(w, h);
+    if (mode === "Quake") return drawQuake(w, h);
+    if (mode === "Shards") return drawShards(w, h);
+
+
+    if (mode === "Warp Drive") return drawWarp(w, h);
+
+    if (mode === "Triumph") return drawTriumph(w, h);
+
+
+    if (mode === "Disco") return drawDisco(w, h);
+
+
+
+    if (mode === "Carnival") return drawCarnival(w, h);
+
+    if (mode === "Velvet") return drawVelvet(w, h);
+
+
+
+
+
+    if (mode === "Ashes") return drawAshes(w, h);
+
+
+    if (mode === "Waves") return drawSwim(w, h);
+
+
+    if (mode === "Charge") return drawCharge(w, h);
+
+    if (mode === "Puddle Ripples") return drawPuddles(w, h);
+
+
     // A skin can override the number of bars/columns via data-bars="N" on the
     // visualizer element; otherwise each mode uses its own sensible default.
-    const defaultN = mode === "bars" ? 16
-      : mode === "thin" ? 56
-      : mode === "line" ? 64
-      : mode === "spectrumWave" ? 72
-      : mode === "blocks" ? 22
-      : mode === "radial" ? 30
-      : mode === "dots" ? 36
+    const defaultN = mode === "Classic Bars" ? 16
+      : mode === "Thin Bars" ? 56
+      : mode === "Spectrum Line" ? 64
+      : mode === "Spectrum Wave" ? 72
+      : mode === "Block Equalizer" ? 22
+      : mode === "Radial Sunburst" ? 30
+      : mode === "Dot Matrix" ? 36
       : 24;
     const custom = parseInt(container?.dataset.bars || "", 10);
     const n = Number.isFinite(custom) && custom > 0 ? custom : defaultN;
     const data = getLevels(n);
-    if (mode === "bars") drawBars(data, w, h, 0.34);
-    else if (mode === "thin") drawBars(data, w, h, 0.32);
-    else if (mode === "line") drawLine(data, w, h);
-    else if (mode === "mirror") drawMirror(data, w, h);
-    else if (mode === "spectrumWave") drawSpectrumWave(data, w, h);
-    else if (mode === "blocks") drawBlocks(data, w, h);
-    else if (mode === "radial") drawRadial(data, w, h);
-    else if (mode === "dots") drawDots(data, w, h);
+    if (mode === "Classic Bars") drawBars(data, w, h, 0.34);
+    else if (mode === "Thin Bars") drawBars(data, w, h, 0.32);
+    else if (mode === "Spectrum Line") drawLine(data, w, h);
+    else if (mode === "Mirror Bars") drawMirror(data, w, h);
+    else if (mode === "Spectrum Wave") drawSpectrumWave(data, w, h);
+    else if (mode === "Block Equalizer") drawBlocks(data, w, h);
+    else if (mode === "Radial Sunburst") drawRadial(data, w, h);
+    else if (mode === "Dot Matrix") drawDots(data, w, h);
   }
 
   function loop() {
@@ -1957,7 +2982,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
   (window as any).__MELO_VISUALIZER_SET_PAUSED__ = setExternallyPaused;
 
-  // Live-update from the Settings → Visualizer tab.
   busOn("melo:viz-pref-changed", () => {
     fx = fxFromStorage();
     const enabled = getEnabledVizModes();
