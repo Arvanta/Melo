@@ -179,25 +179,21 @@ fn parse_track(p: &Path) -> Option<Track> {
 
 fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
     use tauri::Manager;
-    // 1. Next to current executable (e.g. C:\Program Files\Melo\skins\ or portable)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let p = parent.join("skins");
-            let _ = std::fs::create_dir_all(&p);
-            if p.exists() && p.is_dir() {
-                ensure_default_skins_on_disk(&p);
-                return p;
-            }
-        }
-    }
-    // 2. Standard AppData writable directory on Windows
+    // Always use the per-user AppData skins directory — never write next to
+    // the executable. On a per-machine install (C:\Program Files\Melo\) the
+    // Program Files folder is not user-writable without elevation, and the
+    // Tauri/NSIS updater stages new builds in temporary `up_*` folders next
+    // to the exe during upgrades (so writing skins there has, in the past,
+    // caused a stray skins folder to appear inside an updater staging
+    // directory). The AppData location is writable, survives upgrades, and
+    // is the canonical place for user customisation on Windows.
     if let Ok(app_data) = app.path().app_data_dir() {
         let p = app_data.join("skins");
         let _ = std::fs::create_dir_all(&p);
         ensure_default_skins_on_disk(&p);
         return p;
     }
-    // 3. Fallback relative
+    // Fallback relative path (dev / portable runs only).
     let p = PathBuf::from("skins");
     let _ = std::fs::create_dir_all(&p);
     ensure_default_skins_on_disk(&p);
