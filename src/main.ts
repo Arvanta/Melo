@@ -4,6 +4,7 @@ import { setupLibrary } from "./library";
 import { setupEqualizer } from "./equalizer";
 import { setupVisualizer, VIZ_MODES } from "./visualizer";
 import { setupLyrics } from "./lyrics";
+import { setupSkinLyricLine } from "./lyric-line";
 import { setupSkinEngine, applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry } from "./skin";
 import { withCover, applyDynamicAmbientTheme } from "./cover";
 import { busEmit, busOn, isTauri } from "./bus";
@@ -298,6 +299,10 @@ app.innerHTML = `
               </div>
             </div>
           </div>
+          <div class="settings-row">
+            <div><div class="label">${t("settings.general.lyricsSkinLine.label")}</div><div class="desc">${t("settings.general.lyricsSkinLine.desc")}</div></div>
+            <div class="switch" id="swLyricsSkinLine" data-key="lyricsSkinLine"></div>
+          </div>
         </div>
 
         <!-- PLAYBACK TAB -->
@@ -452,7 +457,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.8.0</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.8.1</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -560,6 +565,16 @@ app.innerHTML = `
             </button>
           </div>
           <div class="player-stage">
+            <!-- Current synced-lyric line — centred in the free area above
+                 the visualizer. Filled by src/lyric-line.ts only when
+                 Settings → General → "Show current lyric line in skins" is
+                 ON and the track has a synced .lrc, and only while the stage
+                 is in visualizer mode (the playlist/lyrics panels hide it).
+                 The .stage-lyric-band wrapper defines that free area and
+                 centres the line in it; styling + animation in app.css. -->
+            <div class="stage-lyric-band">
+              <div class="stage-lyric" data-melo="current-lyric"></div>
+            </div>
             <div class="visualizer-bars" id="vizBars" data-melo="visualizer"></div>
             <div class="player-stage-panel" data-melo="embedded-lyrics"></div>
             <div class="player-stage-panel" data-melo="embedded-playlist"></div>
@@ -1772,6 +1787,10 @@ if (isTauri && urlPanel) {
   setupSettings(showToast);
   initLocale();
   attachEmbeddedPanels();
+  // Optional skin slot for the *current* synced-lyric line (Settings →
+  // General → "Show current lyric line in skins"). No-op for skins that
+  // don't declare a current-lyric / next-lyric slot; see src/lyric-line.ts.
+  setupSkinLyricLine(audio, showToast);
 
   // Resume playback on reopen: restore the last-played track, paused, at
   // the position it was left at. Only runs once, shortly after boot, so the

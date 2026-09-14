@@ -132,6 +132,17 @@
     font-size: 13px; color: var(--skin-soft);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  /* Optional current-lyric slot (README §5.7). The engine hides these
+     elements while there's nothing to show, so they cost no space until a
+     synced .lrc is playing and the setting is on. */
+  .aurora-lyric { display: flex; flex-direction: column; gap: 1px; min-height: 0; }
+  .aurora-lyric [data-melo="current-lyric"] {
+    font-size: 12.5px; font-weight: 700;
+    color: var(--accent, var(--skin-accent));
+  }
+  .aurora-lyric [data-melo="next-lyric"] {
+    font-size: 10.5px; color: var(--skin-soft);
+  }
   .aurora-badges { display: flex; gap: 6px; flex-wrap: wrap; }
   .aurora-badges span {
     font-size: 10px; padding: 2px 8px; border-radius: 999px;
@@ -284,6 +295,17 @@
         </div>
         <div class="aurora-title" data-melo="title">No track loaded</div>
         <div class="aurora-artist" data-melo="artist">Add music to start playing</div>
+
+        <!-- Current synced-lyric line (optional slot — see README §5.7).
+             Melo fills the text and hides these elements itself; they only
+             ever appear when the user turns on Settings → General → "Show
+             current lyric line in skins" AND the track has an .lrc with
+             timestamps. Remove the two lines below and the skin behaves
+             exactly as before. -->
+        <div class="aurora-lyric">
+          <div data-melo="current-lyric"></div>
+          <div data-melo="next-lyric"></div>
+        </div>
 
         <div class="aurora-seek">
           <span class="time" data-melo="current-time">0:00</span>

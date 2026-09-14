@@ -202,7 +202,93 @@ playlist independently of the standalone Playlist window's own look;
 these only matter if your skin actually includes the `embedded-playlist`
 hook.
 
-### 5.7 App actions & windows
+### 5.7 Optional: current lyric line (a skin-sized lyric slot)
+
+Instead of (or in addition to) the full `embedded-lyrics` list above, a skin
+can show just the **current synced-lyric line** — one line of text, placed
+anywhere you like. It is driven by the Settings toggle
+**General → "Show current lyric line in skins"**
+(`melo-pref-lyricsSkinLine`, default **off**).
+
+| Role | Element type | Notes |
+|---|---|---|
+| `current-lyric` | text element (`div`, `span`, `p`, …) | The lyric line whose timestamp has passed. Melo writes its text. |
+| `next-lyric` | text element | The following line — handy for a two-line display. Optional. |
+
+Classic ids `skinCurrentLyric` / `skinNextLyric` work as fallbacks.
+
+Rules the engine follows:
+
+- **Opt-in per skin.** No `current-lyric` / `next-lyric` element in your
+  markup → nothing happens at all, and no lyrics are fetched (no Rust
+  lookup, no LRCLIB request). The *default* skin doesn't use these hooks;
+  its embedded lyrics panel already highlights the active line.
+- **Only a synced `.lrc` can drive it.** Lyrics without timestamps (plain
+  text) have no "current" line, so the slots stay hidden.
+- **Nothing to show → the slot is hidden by the engine.** It sets
+  `display:none` inline and adds the class `melo-lyric-empty`; your own
+  inline `display` value is restored as soon as a line appears. If you want
+  the slot to keep its space instead of collapsing, reserve it in a parent
+  element (or style the parent with `:not(:has(.melo-lyric-empty))`).
+- **Before the first timestamp** (intros) there is no current line yet —
+  `current-lyric` stays hidden while `next-lyric` already shows the first
+  upcoming line.
+
+What the engine writes on the element:
+
+| Where | Meaning |
+|---|---|
+| `textContent` | The line ("♪" for an empty/interlude line) |
+| `data-melo-lyric-time` | The line's start time in seconds |
+| `title` | The full line (for hover / truncated text) |
+| `--melo-lyric-progress` | `0` → `1` progress through the current line — use it for a progress bar or a karaoke-style fill |
+| class `melo-lyric-empty` | Present while the slot has nothing to show |
+| class `melo-lyric-tick` | Added (and re-armed) **every time the active line changes** — hook a CSS `animation` on it to make each new line slide/fade in. The class is removed, a reflow is forced, then re-added, so the animation replays even on back-to-back lines |
+| click | Clicking a slot seeks to the start of the current line |
+
+> The **default skin** uses this slot too (see `app.css` `.player-stage
+> .stage-lyric`): a 12px line anchored just above the visualizer that fades
+> and slides in and out. It is hidden entirely — no footprint at all —
+> unless the setting is on, the track has a synced LRC, and the stage is in
+> **visualizer mode** (the embedded playlist / lyrics panels hide it).
+
+On `<html>` two state classes are kept in sync, so you can reveal or hide
+whole regions in CSS:
+
+| Class | Present when |
+|---|---|
+| `melo-lyric-skin-on` | The setting is enabled by the user |
+| `melo-has-synced-lyrics` | A synced LRC is loaded for the current track |
+
+```html
+<!-- Big current line + dimmed next line, only rendered while it applies -->
+<div class="lyric-stack">
+  <div data-melo="current-lyric"></div>
+  <div data-melo="next-lyric"></div>
+</div>
+```
+
+```css
+.lyric-stack { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.lyric-stack [data-melo="current-lyric"] {
+  font-size: 13px; font-weight: 700; color: var(--skin-accent);
+}
+.lyric-stack [data-melo="next-lyric"] {
+  font-size: 11px; opacity: 0.55; color: var(--skin-text);
+}
+/* progress bar for the current line */
+.lyric-stack [data-melo="current-lyric"]::after {
+  content: ""; display: block; height: 2px; margin-top: 4px;
+  background: var(--skin-accent);
+  transform-origin: left;
+  transform: scaleX(var(--melo-lyric-progress, 0));
+  transition: transform 0.2s linear;
+}
+/* optional: dim the whole stack when the user turns the setting off */
+html:not(.melo-lyric-skin-on) .lyric-stack { display: none; }
+```
+
+### 5.8 App actions & windows
 
 | Role | What it does |
 |---|---|
@@ -218,7 +304,7 @@ hook.
 | `minimize` | Minimize the window |
 | `close` | Close the window |
 
-### 5.8 Draggable window region
+### 5.9 Draggable window region
 
 Add `data-tauri-drag-region` to any element to make it a window-drag handle
 (so the frameless window can be moved). Add `-webkit-app-region: no-drag;`
@@ -237,7 +323,8 @@ Skins written for older Melo versions use hard-coded `id`s instead of
 `trackCodec`, `trackSpecs`, `coverImg`, `coverFallback`, `vizBars`,
 `btnToggleLibrary`, `btnTogglePlaylist`, `btnToggleEq`, `btnToggleLyrics`,
 `btnOpenSettings`, `btnAddFiles`, `btnAddFolder`, `btnThemeToggle`,
-`btnAbout`.
+`btnAbout`, and — for the current-lyric slot of §5.7 —
+`skinCurrentLyric`, `skinNextLyric`.
 
 `data-melo` is recommended for new skins: it is position-independent and
 lets you use any element type you like.
@@ -272,8 +359,9 @@ skin does exactly this).
 
 `full-html-example.html` (shipped next to this guide) demonstrates all of the
 above: a custom-size window, `data-melo` hooks, text buttons instead of
-icons, a custom-positioned seek bar, a resized visualizer with 24 bars, and
-both theme variants via CSS variables.
+icons, a custom-positioned seek bar, a resized visualizer with 24 bars, both
+theme variants via CSS variables — and, since §5.7, a current-lyric /
+next-lyric slot under the track title.
 
 ---
 

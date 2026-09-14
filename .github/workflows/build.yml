@@ -41,6 +41,23 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Guard — refuse to overwrite an already-published version tag
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          Write-Host "Project version: $version (target tag: $tag)"
+          $remote = git ls-remote --tags origin "refs/tags/$tag" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::Could not read remote tags (no credentials / offline) — skipping the duplicate-tag guard."
+            exit 0
+          }
+          if ($remote) {
+            Write-Error "Tag $tag already exists on the remote. Bump the version in package.json, package-lock.json, src-tauri/Cargo.toml, src-tauri/Cargo.lock, src-tauri/tauri.conf.json, src/main.ts, src/lyrics.ts and README.md before building — refusing to rebuild or replace an existing release."
+            exit 1
+          }
+          Write-Host "$tag is a brand-new tag — safe to build."
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 

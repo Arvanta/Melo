@@ -289,6 +289,99 @@ html.melo-show-playlist .player-stage > .visualizer-bars,
 html.melo-show-lyrics .player-stage > .visualizer-bars { display: none; }
 html.melo-show-playlist .player-stage > [data-melo="embedded-playlist"],
 html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: block !important; }
+
+/* --- Current synced-lyric line (default skin) ---------------------------
+   Sits in the free space directly above the visualizer. It is filled by
+   src/lyric-line.ts ONLY when the user turns on Settings → General → "Show
+   current lyric line in skins" and the playing track has a synced .lrc.
+
+   Absolutely positioned on purpose: the line appears/disappears without
+   ever nudging the visualizer (a line in the flex flow would re-centre the
+   bars and make them bounce up and down between tracks).
+
+   `display: block !important` deliberately overrides the engine's inline
+   `display:none`: showing/hiding here is handled by the opacity +
+   translateY transition instead, so the line can fade and slide in/out
+   smoothly. Every state that should hide it (setting off, no synced LRC,
+   playlist/lyrics mode) leaves the element at opacity 0 with
+   `pointer-events: none`, i.e. invisible and non-interactive — and, being
+   absolutely positioned, with zero impact on the layout. */
+/* The band is the whole free area between the top of the stage and the top
+   edge of the 56px visualizer — which, because the visualizer is centred in
+   the stage, is exactly `top: 0` → `bottom: calc(50% + 28px)` at any stage
+   height. The line is centred inside that band by flex, so it always sits in
+   the middle of the empty space above the bars instead of hugging them. */
+.player-stage .stage-lyric-band {
+  position: absolute;
+  left: 0; right: 0;
+  top: 0;
+  bottom: calc(50% + 28px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  pointer-events: none;
+}
+.player-stage .stage-lyric {
+  position: relative;
+  width: 100%;
+  display: block !important;
+  /* bottom padding holds the progress bar, so the text + bar read as one
+     block and the pair is what gets centred in the band */
+  padding: 0 6px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  color: var(--accent);
+  text-shadow: 0 0 14px var(--accent-glow, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.34s cubic-bezier(0.22, 0.8, 0.2, 1);
+}
+/* Visible only when: the feature is on, the stage is in visualizer mode
+   (not the embedded playlist / lyrics), and there actually is a line. */
+html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
+  .player-stage .stage-lyric:not(.melo-lyric-empty) {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* Thin progress line under the text — 0 → 1 across the current lyric. */
+html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
+  .player-stage .stage-lyric:not(.melo-lyric-empty)::after {
+  content: "";
+  position: absolute;
+  left: 6px; right: 6px; bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.45;
+  transform: scaleX(var(--melo-lyric-progress, 0));
+  transform-origin: left center;
+  transition: transform 0.18s linear;
+}
+/* Every new line rises gently into place (the engine re-triggers the
+   `melo-lyric-tick` class each time the active line changes). */
+@keyframes meloLyricLineIn {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
+  .player-stage .stage-lyric.melo-lyric-tick:not(.melo-lyric-empty) {
+  animation: meloLyricLineIn 0.34s cubic-bezier(0.22, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-stage .stage-lyric,
+  .player-stage .stage-lyric::after { transition: none; }
+  html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
+    .player-stage .stage-lyric.melo-lyric-tick:not(.melo-lyric-empty) { animation: none; }
+}
 .visualizer-bars canvas { width: 100%; height: 100%; display: block; }
 .viz-menu {
   position: fixed; z-index: 3000; min-width: 180px;
@@ -695,10 +788,42 @@ body.show-stop-btn #btnStop { display: inline-flex; }
 .embedded-playlist-row.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .embedded-playlist-row .ep-meta { flex: 1; min-width: 0; }
 .embedded-playlist-row .t-title { font-size: 1em; }
+/* Default skin only: the embedded playlist has little horizontal room in the
+   player stage, so its title runs 0.8em there. Scoped to `.player-stage`
+   (the default card's container, absent from every skin's own markup) so
+   skins that embed the playlist keep the full-size 1em title they had
+   before — this rule is NOT global on purpose. */
+.player-stage .embedded-playlist-row .t-title { font-size: 0.8em; }
 .embedded-playlist-row .t-artist { font-size: 0.85em; color: var(--text-muted); }
 .embedded-playlist-empty { padding: 20px 8px; text-align: center; color: var(--text-muted); font-size: 12px; }
 .embedded-lyrics { overflow-y: auto; height: 100%; }
 .embedded-lyrics-title { font-size: 12px; font-weight: 700; color: var(--text-muted); padding: 0 8px 6px; }
+/* Default skin only — same reasoning as the playlist title above: the
+   default player stage holds the embedded lyrics in a much smaller box than
+   the standalone Lyrics window, where the active line used to inherit the
+   full 15.5px of .lyric-line.active and dominated the panel. 13px still
+   reads as clearly highlighted against the 11px base of
+   .player-stage .lyric-line. Scoped to `.player-stage` so skins that embed
+   lyrics (aria, haven, hira, koto, …) keep the previous inherited 15.5px,
+   and the standalone Lyrics window is untouched either way. */
+.player-stage .embedded-lyrics .lyric-line.active { font-size: 13px; }
+
+/* Optional skin slot: the *current* synced-lyric line (see
+   src/lyric-line.ts and skins/README.md §5.7). A skin decides where to put
+   the slot and how it looks; these are deliberately minimal defaults so an
+   unstyled slot is still readable. The engine hides the element itself
+   while there is nothing to show. */
+[data-melo="current-lyric"] {
+  font-size: 13px; font-weight: 700; line-height: 1.35;
+}
+[data-melo="next-lyric"] {
+  font-size: 11px; font-weight: 500; line-height: 1.35; opacity: 0.55;
+}
+[data-melo="current-lyric"],
+[data-melo="next-lyric"] {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer; user-select: none;
+}
 
 /* Skins decide the actual show/hide behavior for these two states in
    their own CSS (e.g. hide [data-melo="visualizer"] and show
@@ -851,10 +976,11 @@ body.panel-window {
     padding-right: 8px;
     gap: 7px;
   }
-  .panel-window .track-cover-mini {
-    width: 28px;
-    height: 28px;
-  }
+  /* Mini covers keep their full 32px at every width — even at the 360px
+     native minimum of the Playlist/Library windows the row still fits
+     comfortably (cover + number + time + × button leave ~200px for the
+     title/artist, which ellipsise anyway). Shrinking them here used to make
+     the artwork visibly resize at the 420px breakpoint. */
   .panel-window .track-row .num { min-width: 14px; }
   .panel-window .playlist-toolbar {
     gap: 5px !important;
@@ -876,23 +1002,16 @@ body.panel-window {
   }
 }
 
-/* At the playlist window's native minimum width (360px) the duration and
-   remove button must remain visible. No toolbar wrapping is needed now
-   that the search input has been moved down into the footer. */
-@media (max-width: 360px) {
-  .panel-window .playlist-item,
-  .panel-window .track-row {
-    padding-left: 6px !important;
-    padding-right: 6px !important;
-    gap: 6px !important;
-    margin-left: 3px !important;
-    margin-right: 3px !important;
-  }
-  .panel-window .track-row .num { min-width: 12px; }
-  .panel-window .track-cover-mini { width: 26px; height: 26px; }
-  .panel-window .btn[data-remove-track] { width: 20px; height: 20px; font-size: 13px; margin-left: 0; }
-  .panel-window .playlist-footer-actions { padding-left: 3px; padding-right: 3px; }
-}
+/* NOTE: there used to be an `@media (max-width: 360px)` block here that
+   shrank the mini covers to 26px and pulled the row padding/margins/gaps in
+   (`padding: 6px !important`, `margin: 3px !important`, `gap: 6px
+   !important`, `.num` 12px, × button 20px, footer padding 3px). Because it
+   sat exactly on the window's native minimum width, 360px looked different
+   from 361px — the rows visibly re-inset, the covers shrank and the boxes
+   "jumped" as the user dragged the window edge. The row fits at 360px with
+   the normal metrics (verified: ~156px of fixed content leaves ~200px for
+   the ellipsised title/artist), so the block was removed rather than
+   re-tuned. Do not re-add width-dependent shrinking here. */
 
 
 /* Rows inside scrollable flex lists must keep their intrinsic height. Without
