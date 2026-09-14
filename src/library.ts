@@ -473,6 +473,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // How many track-row columns fit the current panel width. Only the flat
   // track list uses multiple columns (grid layout); group rows (artists /
   // albums / genres) always stay single-column.
+  const TWO_COLUMN_THRESHOLD = 600;
   const GRID_MIN_COLUMN_WIDTH = 300;
   const GRID_GAP = 8;
   function libraryColumns(): number {
@@ -480,9 +481,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const width = trackList.clientWidth || 0;
     if (libView === "compact") return 1;
     const trackLike = libraryMode() === "tracks" || !!librarySearch || (libTab === "artists" && !!selectedArtist);
-    if (trackLike) return width >= 400 ? 2 : 1;
+    // Threshold consistent across ALL track-like views (flat search results,
+    // artist discography, album drill, genre drill, tiles-view tracks):
+    // single column below 600 px, two columns at 600 px and above.
+    if (trackLike) return width >= TWO_COLUMN_THRESHOLD ? 2 : 1;
     if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
-    return width >= GRID_MIN_COLUMN_WIDTH * 2 + GRID_GAP ? 2 : 1;
+    // Group rows (artists/albums/genres) in Details view use the same 600 px
+    // threshold — before they were using GRID_MIN_COLUMN_WIDTH*2+gap ≈ 608
+    // which was almost identical but not exactly the same value.
+    return width >= TWO_COLUMN_THRESHOLD ? 2 : 1;
   }
 
   function syncLibViewButtons() {
@@ -823,11 +830,34 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (request !== playlistRequest) return;
     page.items = page.items.map(normalizeTrack);
     recentTracks = page.items;
-    if (playlistEmpty) playlistEmpty.style.display = page.total ? "none" : "block";
-    playlistList.style.display = page.total ? "block" : "none";
-    if (!page.total) { playlistList.innerHTML = ""; return; }
+    const hasSearch = !!(playlistSearch?.value && playlistSearch.value.trim());
+    // Detach the empty-state element before we wipe innerHTML so it isn't
+    // destroyed — then re-append it in the right place afterwards. This lets
+    // the empty/no-results message live *inside* the flex:1 scroller, which
+    // keeps the footer pinned to the bottom regardless of content state.
+    if (playlistEmpty) playlistEmpty.remove();
+    if (playlistEmpty) {
+      if (page.total) {
+        playlistEmpty.style.display = "none";
+      } else {
+        playlistEmpty.style.display = "block";
+        playlistEmpty.innerHTML = hasSearch
+          ? "No matching tracks<br/>Try a different search term"
+          : "Playlist is empty<br/>Drag tracks from Library or drop audio files here";
+      }
+    }
+    playlistList.style.display = "block";
+    if (!page.total) {
+      playlistList.innerHTML = "";
+      if (playlistEmpty) playlistList.appendChild(playlistEmpty);
+      updatePlaylistSelectionUI();
+      return;
+    }
     const rows = page.items.map((track, i) => `<div class="track-row virtual-row ${track.id === currentTrackId ? "active" : ""}" data-pl-track="${esc(track.id)}" data-page-index="${i}" style="position:absolute;left:0;right:0;top:${(page.offset+i)*playlistRowHeight}px;height:${playlistRowHeight}px"><span class="num">${page.offset+i+1}</span>${track.cover?`<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`:`<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}<div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div><span class="t-dur">${fmtDur(track.duration)}</span><button class="btn small ghost" data-remove-track="${esc(track.id)}">×</button></div>`).join("");
     playlistList.innerHTML = `<div style="position:relative;height:${Math.max(viewport,page.total*playlistRowHeight)}px">${rows}</div>`;
+    // Append the (hidden) empty element back inside the scroller so the
+    // next empty-state render can find it there without reparenting.
+    if (playlistEmpty) playlistList.appendChild(playlistEmpty);
     bindLazyArtwork(playlistList);
     playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
       row.onclick = event => {

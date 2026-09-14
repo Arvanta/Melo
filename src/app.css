@@ -136,7 +136,7 @@ body {
 }
 .float-btn:hover { background: var(--track-bg); color: var(--text); }
 .float-btn.close:hover { background: #ef4444; color: white; }
-.float-body { flex: 1; overflow: auto; min-height: 0; display: flex; flex-direction: column; }
+.float-body { flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; display: flex; flex-direction: column; }
 .float-body::-webkit-scrollbar { width: 6px; height: 6px; }
 .float-body::-webkit-scrollbar-thumb { background: var(--track-bg); border-radius: 999px; }
 .resize-handle {
@@ -876,17 +876,22 @@ body.panel-window {
   }
 }
 
+/* At the playlist window's native minimum width (360px) the duration and
+   remove button must remain visible. No toolbar wrapping is needed now
+   that the search input has been moved down into the footer. */
 @media (max-width: 360px) {
-  .panel-window .track-row .t-dur { display: none; }
-  .panel-window .playlist-toolbar {
-    flex-wrap: wrap;
+  .panel-window .playlist-item,
+  .panel-window .track-row {
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+    gap: 6px !important;
+    margin-left: 3px !important;
+    margin-right: 3px !important;
   }
-  /* On very narrow windows the search box takes its own full-width row and
-     the remaining controls (playlist, +, sort) wrap onto the next one. */
-  .panel-window .playlist-toolbar .playlist-search-wrap {
-    flex: 1 1 100% !important;
-    width: 100% !important;
-  }
+  .panel-window .track-row .num { min-width: 12px; }
+  .panel-window .track-cover-mini { width: 26px; height: 26px; }
+  .panel-window .btn[data-remove-track] { width: 20px; height: 20px; font-size: 13px; margin-left: 0; }
+  .panel-window .playlist-footer-actions { padding-left: 3px; padding-right: 3px; }
 }
 
 
@@ -1040,3 +1045,482 @@ body.panel-window {
 .artist-album-chips { overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
 .artist-album-chips .chip { display: inline-flex; align-items: center; flex: 0 0 auto; }
 .artist-album-chips .chip-thumb { display: inline-grid; place-items: center; color: white; font-size: 9px; }
+
+
+/* =====================================================
+   LYRICS — status message (error / offline / not found)
+   ===================================================== */
+.lyrics-status {
+  text-align: center;
+  padding: 28px 16px;
+  margin: auto 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--track-bg) 55%, transparent);
+  border: 1px solid var(--card-border);
+}
+.lyrics-status-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-soft);
+  letter-spacing: 0.005em;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.lyrics-status-title::before {
+  content: "♪";
+  display: inline-grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.lyrics-status-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 260px;
+  opacity: 0.88;
+}
+
+/* Subtle pulse for "Searching online…" */
+@keyframes lyricsPulse {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 0.5; }
+}
+.lyrics-status.searching .lyrics-status-title::before {
+  content: "";
+  width: 14px; height: 14px;
+  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  background: transparent;
+  animation: lyricsSpin 0.9s linear infinite;
+}
+@keyframes lyricsSpin {
+  to { transform: rotate(360deg); }
+}
+.lyrics-status.searching .lyrics-status-title {
+  animation: lyricsPulse 1.6s ease-in-out infinite;
+}
+
+/* =====================================================================
+   LIBRARY & PLAYLIST — professional redesign (v0.8.0)
+   Backup kept at src/app.css.bak-v0.8.0 — revert there if disliked.
+   ===================================================================== */
+
+/* --- Tabs (Artists/Albums/Genres/Recent) --- */
+.tabs {
+  gap: 2px;
+  padding: 6px 8px 8px;
+  background: linear-gradient(to bottom, var(--card), color-mix(in srgb, var(--track-bg) 40%, transparent));
+}
+.tab {
+  position: relative;
+  padding: 7px 13px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-muted);
+  transition: color 0.15s, background 0.15s;
+}
+.tab:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--track-bg) 70%, transparent);
+}
+.tab.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  font-weight: 650;
+}
+
+/* --- Search row --- */
+.library-search-row {
+  padding: 10px 12px 8px !important;
+  gap: 7px;
+  background: linear-gradient(to bottom, var(--card), color-mix(in srgb, var(--track-bg) 20%, transparent));
+}
+.library-search-row .search-wrap {
+  padding: 0 !important;
+}
+.search-input {
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--track-bg);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  font-size: 12px;
+}
+.search-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.library-action {
+  border-radius: 9px !important;
+  transition: all 0.15s;
+  font-weight: 550;
+}
+.library-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+}
+.library-action.danger:hover {
+  background: rgba(229,72,77,0.1);
+  border-color: rgba(229,72,77,0.4);
+  color: #e5484d;
+}
+
+/* --- Stats row --- */
+.library-stats-row {
+  padding: 6px 14px !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted) !important;
+  background: color-mix(in srgb, var(--track-bg) 35%, transparent);
+}
+
+/* --- Track / group / playlist rows --- */
+.lib-item,
+.playlist-item,
+.track-row {
+  border-bottom: none !important;
+  border-radius: 9px;
+  margin: 2px 6px;
+  padding: 8px 10px !important;
+  transition: background 0.14s, transform 0.12s;
+  position: relative;
+}
+[data-theme="dark"] .lib-item,
+[data-theme="dark"] .playlist-item,
+[data-theme="dark"] .track-row {
+  border-bottom: none !important;
+}
+.lib-item:hover,
+.playlist-item:hover,
+.track-row:hover {
+  background: color-mix(in srgb, var(--track-bg) 85%, transparent) !important;
+}
+.lib-item.active,
+.playlist-item.active,
+.track-row.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.track-row.row-selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  outline-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Track mini-cover */
+.track-cover-mini {
+  border-radius: 7px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.lib-avatar {
+  border-radius: 9px !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.14);
+  overflow: hidden;
+}
+.lib-avatar.lib-avatar-album {
+  border-radius: 9px !important;
+}
+
+/* Group rows (artist/album/genre) — more visual weight */
+.lib-item:not(.lib-card):not(.track-row) {
+  padding: 10px 12px !important;
+  margin: 3px 6px;
+}
+.lib-item:not(.lib-card):not(.track-row) .t-title {
+  letter-spacing: -0.005em;
+}
+.lib-item .lib-count {
+  opacity: 1 !important;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+/* Pill-styled count badge only in Compact view. In Details view the count
+   stays as plain muted text (no tinted background) to keep the list
+   looking clean and type-set. */
+#trackList[data-lib-view="compact"] .lib-item .lib-count,
+#trackList[data-lib-view="compact"] .lib-count {
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-soft);
+}
+[data-theme="dark"] #trackList[data-lib-view="compact"] .lib-item .lib-count,
+[data-theme="dark"] #trackList[data-lib-view="compact"] .lib-count {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* Library cards (tiles view) */
+.lib-card {
+  margin: 4px !important;
+  padding: 8px !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.lib-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+}
+.lib-card .lib-avatar,
+.lib-card .track-cover-mini {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.14);
+}
+
+/* --- Crumb / breadcrumb --- */
+.lib-crumb {
+  padding: 10px 14px !important;
+  background: color-mix(in srgb, var(--track-bg) 25%, transparent);
+  border-bottom: 1px solid var(--card-border);
+}
+.lib-crumb .lib-crumb-btn {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-weight: 550;
+  padding: 3px 8px;
+  border-radius: 7px;
+  transition: background 0.12s, color 0.12s;
+}
+.lib-crumb .lib-crumb-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Chip row (artist albums) */
+.chip-row {
+  padding: 8px 10px;
+  gap: 5px;
+  background: color-mix(in srgb, var(--track-bg) 22%, transparent);
+}
+.chip {
+  padding: 5px 11px;
+  border-radius: 99px;
+  font-weight: 500;
+  font-size: 11px;
+  transition: all 0.15s;
+  border-color: transparent;
+}
+.chip:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+}
+.chip.active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+/* --- Playlist toolbar --- */
+.playlist-toolbar {
+  padding: 4px 4px 8px;
+  gap: 6px;
+  background: linear-gradient(to bottom, var(--card), color-mix(in srgb, var(--track-bg) 28%, transparent));
+}
+.playlist-toolbar .playlist-search-wrap {
+  height: 30px !important;
+}
+.playlist-toolbar .search-input {
+  font-size: 11.5px;
+  padding: 0 28px 0 11px !important;
+}
+.playlist-toolbar .settings-select,
+#playlistSortSelect {
+  border-radius: 9px !important;
+  border: 1px solid transparent;
+  background: var(--track-bg);
+  transition: all 0.15s;
+}
+.playlist-toolbar .settings-select:hover,
+#playlistSortSelect:hover {
+  border-color: var(--card-border);
+}
+#btn-new-playlist {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 9px !important;
+  background: var(--accent) !important;
+  color: white !important;
+  border-color: var(--accent) !important;
+  transition: all 0.15s;
+  font-weight: 700;
+}
+#btn-new-playlist:hover {
+  background: var(--accent-2) !important;
+  transform: scale(1.06);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+/* Playlist empty state — sits inside the flex:1 scroller and uses margin:
+   auto so it centers vertically without pushing the footer off the bottom. */
+#winPlaylistEmpty {
+  margin: auto 6px;
+  border-radius: 12px !important;
+  border-style: solid;
+  border-color: var(--card-border);
+  background: color-mix(in srgb, var(--track-bg) 60%, transparent) !important;
+  padding: 28px 16px !important;
+  line-height: 1.8 !important;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  /* Ensure it's at least a small centered card when the scroller is tall */
+  flex-shrink: 0;
+}
+#winPlaylistEmpty::before {
+  content: "♪";
+  display: block;
+  font-size: 26px;
+  color: var(--accent);
+  margin-bottom: 6px;
+  opacity: 0.8;
+}
+
+/* Playlist footer actions */
+.playlist-footer-actions {
+  padding: 8px 6px 6px;
+  gap: 6px;
+  border-top: 1px solid var(--card-border);
+  background: linear-gradient(to top, var(--card), color-mix(in srgb, var(--track-bg) 30%, transparent));
+}
+.playlist-footer-actions .btn {
+  border-radius: 9px;
+  font-weight: 550;
+  transition: all 0.15s;
+}
+.playlist-footer-actions .btn:hover {
+  /* No lift transform — keeps the button visually stable on hover. */
+}
+#btn-clear-playlist:hover {
+  background: rgba(229,72,77,0.1);
+  border-color: rgba(229,72,77,0.35);
+}
+#btn-export-playlist {
+  background: var(--accent) !important;
+  color: white !important;
+  border-color: var(--accent) !important;
+}
+#btn-export-playlist:hover {
+  background: var(--accent-2) !important;
+}
+
+/* Album head (artist drill sticky header) */
+.lib-album-head {
+  background: color-mix(in srgb, var(--card) 92%, transparent) !important;
+  backdrop-filter: blur(8px);
+  padding: 10px 12px 8px !important;
+  border-bottom: 1px solid var(--card-border) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+.lib-album-head .t-title {
+  letter-spacing: -0.005em;
+}
+.artist-detail-header {
+  box-shadow: 0 3px 12px rgba(0,0,0,0.04) !important;
+}
+
+/* View switch buttons */
+.lib-view-btn {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.lib-view-btn:hover {
+  transform: scale(1.05);
+}
+.lib-view-btn.active {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Clear buttons inside search */
+.search-clear {
+  width: 20px; height: 20px;
+  font-size: 14px;
+  border-radius: 50%;
+}
+.search-clear:hover {
+  background: var(--accent);
+  color: white;
+}
+
+/* Per-track remove (×) button inside playlist and library rows.
+   Hover only tints the glyph red — no background fill, no border, no transform. */
+.track-row .btn[data-remove-track],
+.playlist-item .btn[data-remove-track] {
+  width: 22px; height: 22px;
+  padding: 0 !important;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  transition: color 0.12s;
+  margin-left: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+}
+.track-row:hover .btn[data-remove-track],
+.playlist-item:hover .btn[data-remove-track],
+.track-row.row-selected .btn[data-remove-track] {
+  opacity: 1;
+}
+.track-row .btn[data-remove-track]:hover,
+.playlist-item .btn[data-remove-track]:hover {
+  color: #e5484d !important;
+  background: transparent !important;
+  border: none !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Redesigned lists — scroll jumps instantly (no smooth animation).
+   scroll-behavior was removed here on request: drilling into an artist
+   (scrollTop = 0) and pressing Back (restored saved position) now swap
+   the page content immediately instead of animating the scroll. */
+#trackList,
+#winPlaylistTracks {
+  padding: 2px 0 6px;
+  overflow-x: hidden;
+}
+/* Pad the list container so rows can stay flush-left without producing
+   a horizontal scrollbar (absolutely-positioned virtual rows use inset 0
+   so they automatically respect container padding, non-virtual rows keep
+   their own small margins). */
+.panel-library #trackList,
+#winPlaylistTracks,
+.panel-playlist #winPlaylistTracks {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+/* Remove horizontal margin from rows — padding on the container now
+   provides the gutter, which eliminates the ~12px horizontal overflow
+   that was forcing a permanent horizontal scrollbar. */
+#trackList > .lib-item,
+#trackList > .track-row,
+#winPlaylistTracks > .track-row,
+#winPlaylistTracks > .playlist-item,
+#trackList .virtual-list-space > .lib-item,
+#trackList .virtual-list-space > .track-row,
+#winPlaylistTracks .virtual-list-space > .track-row,
+#winPlaylistTracks .virtual-list-space > .playlist-item {
+  margin-left: 0;
+  margin-right: 0;
+}

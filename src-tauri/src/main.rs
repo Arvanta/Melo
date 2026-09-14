@@ -7,6 +7,7 @@ use lofty::tag::{Accessor, TagExt};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Track {
@@ -178,7 +179,6 @@ fn parse_track(p: &Path) -> Option<Track> {
 // ---- Skin Folder Resolver & Populator ----
 
 fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
-    use tauri::Manager;
     // Always use the per-user AppData skins directory — never write next to
     // the executable. On a per-machine install (C:\Program Files\Melo\) the
     // Program Files folder is not user-writable without elevation, and the
@@ -255,6 +255,63 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
 // ---- Tauri Commands ----
 
 #[tauri::command]
+fn get_lyrics_cache_dir(app: tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("lyrics-cache"))
+}
+
+fn cached_lrc_path(app: &tauri::AppHandle, track_path: &Path) -> Option<PathBuf> {
+    use sha2::{Digest, Sha256};
+    let key = track_path.to_string_lossy();
+    let mut h = Sha256::new();
+    h.update(key.as_bytes());
+    let hash = format!("{:x}", h.finalize());
+    get_lyrics_cache_dir(app.clone()).map(|d| d.join(format!("{}.lrc", &hash[..24])))
+}
+
+#[tauri::command]
+fn get_cached_lyrics(app: tauri::AppHandle, track_path: String) -> Option<String> {
+    let p = Path::new(&track_path);
+    // Same priority as get_track_lyrics but also checks the central cache.
+    // 1. Sidecar .lrc (already handled by get_track_lyrics, but check first for
+    //    speed so we don't need network).
+    let sidecar = p.with_extension("lrc");
+    if sidecar.exists() && sidecar.is_file() {
+        if let Ok(c) = std::fs::read_to_string(&sidecar) {
+            if !c.trim().is_empty() { return Some(c); }
+        }
+    }
+    // 2. Central cache (AppData/lyrics-cache/<hash>.lrc)
+    if let Some(cache_path) = cached_lrc_path(&app, p) {
+        if cache_path.exists() && cache_path.is_file() {
+            if let Ok(c) = std::fs::read_to_string(&cache_path) {
+                if !c.trim().is_empty() { return Some(c); }
+            }
+        }
+    }
+    // 3. Embedded tag (handled by get_track_lyrics)
+    None
+}
+
+#[tauri::command]
+fn save_lyrics_lrc(app: tauri::AppHandle, track_path: String, content: String, mode: String) -> Result<String, String> {
+    // mode: "cache" -> write to AppData/lyrics-cache/<hash>.lrc
+    //       "sidecar" -> write to <audiofile>.lrc (may fail on read-only media)
+    let p = Path::new(&track_path);
+    let target = match mode.as_str() {
+        "sidecar" => p.with_extension("lrc"),
+        _ => {
+            let cp = cached_lrc_path(&app, p).ok_or_else(|| "Could not resolve lyrics cache directory".to_string())?;
+            if let Some(parent) = cp.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            cp
+        }
+    };
+    std::fs::write(&target, content).map_err(|e| format!("Could not write lyrics file: {}", e))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn get_track_lyrics(path: String) -> Option<String> {
     let p = Path::new(&path);
     // 1. Check for .lrc file next to the audio file
@@ -267,7 +324,12 @@ fn get_track_lyrics(path: String) -> Option<String> {
         }
     }
 
-    // 2. Check embedded lyrics via lofty
+    // 2. Check central lyrics cache
+    // (App handle isn't available here; this function is called in contexts
+    // that don't have it, but get_cached_lyrics covers this path when called
+    // from the frontend.)
+
+    // 3. Check embedded lyrics via lofty
     if let Some(tagged) = lofty::probe::Probe::open(p).ok().and_then(|pr| pr.read().ok()) {
         let tag = tagged.primary_tag().or(tagged.first_tag());
         if let Some(t) = tag {
@@ -508,7 +570,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            use tauri::{Emitter, Manager};
+            use tauri::Emitter;
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
@@ -560,6 +622,8 @@ fn main() {
             library_db::delete_tracks,
             get_cli_tracks,
             get_track_lyrics,
+            get_cached_lyrics,
+            save_lyrics_lrc,
             list_installed_skins,
             read_skin_file,
             save_custom_skin_file,
@@ -575,7 +639,6 @@ fn main() {
 
             use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-            use tauri::Manager;
 
             let toggle_item = MenuItemBuilder::with_id("toggle", "Show / Hide Melo").build(app)?;
             let play_item = MenuItemBuilder::with_id("play_pause", "Play / Pause").build(app)?;

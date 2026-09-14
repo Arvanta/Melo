@@ -140,15 +140,11 @@ app.innerHTML = `
           <button class="float-btn close" data-close="win-playlist">×</button>
         </div>
       </div>
-      <div class="float-body" style="padding:8px; display:flex; flex-direction:column; gap:6px;">
-        <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap;">
-          <div class="playlist-search-wrap" style="flex:1 1 160px; position:relative; min-width:120px; height:26px;">
-            <input id="playlistSearchInput" class="search-input" placeholder="Search playlist..." style="width:100%; height:100%; font-size:11px; padding:0 28px 0 10px;" />
-            <button class="search-clear" id="playlistSearchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
-          </div>
-          <select id="playlistSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 6px; flex:1 1 120px; min-width:80px;" title="Current playlist"></select>
-          <button class="btn small ghost" id="btn-new-playlist" title="New playlist" style="height:26px; width:26px; padding:0; font-size:16px; line-height:1; justify-content:center; flex:0 0 auto;">+</button>
-          <select id="playlistSortSelect" class="settings-select" style="height:26px; font-size:11px; padding:2px 4px; width:92px; flex:0 0 auto;" title="Sort tracks">
+      <div class="float-body" style="padding:6px 4px 4px; display:flex; flex-direction:column; gap:0px;">
+        <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap; padding:0 4px;">
+          <select id="playlistSelect" class="settings-select" style="height:28px; font-size:11px; padding:2px 8px; flex:1 1 140px; min-width:80px;" title="Current playlist"></select>
+          <button class="btn small ghost" id="btn-new-playlist" title="New playlist" style="height:28px; width:28px; padding:0; font-size:16px; line-height:1; justify-content:center; flex:0 0 auto;">+</button>
+          <select id="playlistSortSelect" class="settings-select" style="height:28px; font-size:11px; padding:2px 4px; width:92px; flex:0 0 auto;" title="Sort tracks">
             <option value="default">Sort: Default</option>
             <option value="title-asc">Title (A-Z)</option>
             <option value="artist-asc">Artist (A-Z)</option>
@@ -157,18 +153,23 @@ app.innerHTML = `
             <option value="dur-desc">Longest</option>
           </select>
         </div>
-        <div id="winPlaylistTracks" class="drop-zone" style="flex:1; overflow:auto; display:flex; flex-direction:column; min-height:140px;"></div>
-        <div id="winPlaylistEmpty" style="display:none; border:1px dashed var(--card-border); border-radius:10px; padding:16px 10px; background:var(--track-bg); text-align:center; font-size:11px; color:var(--text-muted); line-height:1.8;">
-          Playlist is empty<br/>Drag tracks from Library or drop audio files here
+        <div id="winPlaylistTracks" class="drop-zone" style="flex:1; overflow:auto; display:flex; flex-direction:column; min-height:140px; margin-top:4px;">
+          <div id="winPlaylistEmpty" style="display:none; border:1px dashed var(--card-border); border-radius:10px; padding:16px 10px; background:var(--track-bg); text-align:center; font-size:11px; color:var(--text-muted); line-height:1.8; margin:auto 4px;">
+            Playlist is empty<br/>Drag tracks from Library or drop audio files here
+          </div>
         </div>
-        <div class="playlist-footer-actions" style="display:flex; gap:6px; flex-shrink:0;">
-          <button class="btn small" id="btn-clear-playlist" style="justify-content:center; color:#e5484d;" title="Remove all tracks from the current playlist">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
-            Clear
+        <div class="playlist-footer-actions" style="display:flex; gap:6px; flex-shrink:0; align-items:center; padding:8px 4px 4px;">
+          <div class="playlist-search-wrap" style="flex:1 1 auto; position:relative; min-width:100px; height:28px;">
+            <input id="playlistSearchInput" class="search-input" placeholder="Search playlist…" style="width:100%; height:100%; font-size:11px; padding:0 28px 0 10px;" />
+            <button class="search-clear" id="playlistSearchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
+          </div>
+          <button class="btn small" id="btn-export-playlist" title="Export playlist as M3U" style="height:28px; padding:0 12px; justify-content:center; gap:5px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
           </button>
-          <button class="btn small block" id="btn-export-playlist">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export M3U
+          <button class="btn small" id="btn-clear-playlist" style="height:28px; padding:0 12px; justify-content:center; color:#e5484d; gap:5px;" title="Remove all tracks from the current playlist">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/></svg>
+            Clear
           </button>
         </div>
       </div>
@@ -236,7 +237,7 @@ app.innerHTML = `
       </div>
       <div class="float-body" style="padding:10px; display:flex; flex-direction:column;">
         <div id="lyricsTrackTitle" style="font-size:11px; font-weight:700; color:var(--text-soft); padding-bottom:8px; border-bottom:1px solid var(--card-border); margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">No track playing</div>
-        <div id="lyricsStatus" style="display:none; text-align:center; padding:20px 10px; font-size:12px; color:var(--text-muted); line-height:1.6;"></div>
+        <div id="lyricsStatus" class="lyrics-status" style="display:none;"></div>
         <div id="lyricsContainer" class="lyrics-scroll-container" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:20px 8px; text-align:center;"></div>
       </div>
       <div class="resize-handle" data-resize="win-lyrics">◢</div>
@@ -277,6 +278,25 @@ app.innerHTML = `
           <div class="settings-row">
             <div><div class="label">${t("settings.general.resume.label")}</div><div class="desc">${t("settings.general.resume.desc")}</div></div>
             <div class="switch on" id="swResume" data-key="resume"></div>
+          </div>
+          <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+              <div><div class="label">Fetch lyrics online</div><div class="desc">Look up missing .lrc files on LRCLIB when a track has no local lyrics</div></div>
+              <div class="switch" id="swLyricsOnline" data-key="lyricsOnline"></div>
+            </div>
+            <div id="lyricsSaveRow" style="margin-left:0; margin-top:2px; display:flex; flex-direction:column; gap:4px; padding-left:4px; border-left:2px solid rgba(127,127,127,0.18); padding-left:10px;">
+              <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--text-soft);">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                  <input type="radio" name="lyricsSaveMode" value="cache" checked /> Save to lyrics cache (AppData)
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                  <input type="radio" name="lyricsSaveMode" value="sidecar" /> Save .lrc next to the music file
+                </label>
+              </div>
+              <div id="lyricsSaveNote" style="font-size:10.5px; color:var(--text-muted); opacity:0.8; display:none;">
+                Does <strong>not</strong> work on read-only folders (e.g. Program Files, CD/DVD drives, locked NAS/external drives).
+              </div>
+            </div>
           </div>
         </div>
 
@@ -432,7 +452,7 @@ app.innerHTML = `
         <!-- ABOUT TAB -->
         <div class="settings-section" data-panel="about">
           <div style="font-size:12px; color:var(--text-soft); line-height:1.8;">
-            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.7.2</div>
+            <div style="font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px;">Melo 0.8.0</div>
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
@@ -1293,6 +1313,38 @@ function setupSettings(toast: ToastFn) {
       busEmit("melo:pref-changed", { key, value: on });
     };
   });
+
+  // Online lyrics: when the main switch is off the save-mode radios and
+  // the sidecar warning are dimmed/disabled. The sidecar "read-only folders"
+  // note only appears when "save next to the music file" is selected.
+  const swLyricsOnline = document.getElementById("swLyricsOnline");
+  const lyricsSaveRow = document.getElementById("lyricsSaveRow");
+  const lyricsSaveNote = document.getElementById("lyricsSaveNote");
+  function syncLyricsSaveRow() {
+    const on = localStorage.getItem("melo-pref-lyricsOnline") === "1";
+    if (lyricsSaveRow) {
+      lyricsSaveRow.style.setProperty("opacity", on ? "1" : "0.45");
+      lyricsSaveRow.style.setProperty("pointer-events", on ? "auto" : "none");
+    }
+    lyricsSaveRow?.querySelectorAll<HTMLInputElement>("input[type=radio]").forEach(r => { r.disabled = !on; });
+    const sidecarChecked = !!lyricsSaveRow?.querySelector<HTMLInputElement>("input[value=sidecar]")?.checked;
+    if (lyricsSaveNote) lyricsSaveNote.style.display = (on && sidecarChecked) ? "block" : "none";
+  }
+  {
+    const saved = localStorage.getItem("melo-pref-lyricsSaveMode") || "cache";
+    const radios = lyricsSaveRow?.querySelectorAll<HTMLInputElement>("input[type=radio]");
+    radios?.forEach(r => {
+      r.checked = (r.value === saved);
+      r.addEventListener("change", () => {
+        if (r.checked) {
+          localStorage.setItem("melo-pref-lyricsSaveMode", r.value);
+          syncLyricsSaveRow();
+        }
+      });
+    });
+  }
+  syncLyricsSaveRow();
+  swLyricsOnline?.addEventListener("click", () => setTimeout(syncLyricsSaveRow, 0));
 
   // Crossfade: reuses the generic .switch[data-key="crossfade"] handler
   // above for on/off persistence + melo:pref-changed broadcast; here we

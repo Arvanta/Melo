@@ -64,18 +64,120 @@ export function setupLyrics(
   let activeIndex = -1;
   let playbackTime = 0;
 
-  async function fetchLyricsForTrack(track: Track): Promise<string | null> {
+  async function fetchLyricsForTrack(track: Track): Promise<{ text: string | null; status: string; statusNote?: string }> {
     if (track.lyrics && track.lyrics.trim().length > 0) {
-      return track.lyrics;
+      return { text: track.lyrics, status: "" };
     }
     if ((window as any).__TAURI__) {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const lrc: string | null = await invoke("get_track_lyrics", { path: track.path });
-        if (lrc) return lrc;
+        // Sidecar .lrc + embedded lyrics
+        const local: string | null = await invoke("get_track_lyrics", { path: track.path });
+        if (local && local.trim().length > 0) return { text: local, status: "" };
+        // Central cache
+        const cached: string | null = await invoke("get_cached_lyrics", { trackPath: track.path });
+        if (cached && cached.trim().length > 0) return { text: cached, status: "" };
       } catch {}
+
+      // Online lookup (only if user opted in via Settings)
+      const onlineEnabled = localStorage.getItem("melo-pref-lyricsOnline") === "1";
+      if (onlineEnabled) {
+        try {
+          const res = await fetchOnlineLyrics(track);
+          if (res.text && res.text.trim().length > 0) {
+            const mode = localStorage.getItem("melo-pref-lyricsSaveMode") || "cache";
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              await invoke("save_lyrics_lrc", { trackPath: track.path, content: res.text, mode });
+            } catch {}
+            return { text: res.text, status: "" };
+          }
+          // Pass the online-fetch status through to the UI
+          return { text: null, status: res.status, statusNote: res.statusNote };
+        } catch (e: any) {
+          return { text: null, status: "Network error", statusNote: "Could not reach LRCLIB. Check your internet connection and try again." };
+        }
+      }
     }
-    return null;
+    return { text: null, status: "No lyrics found", statusNote: "Place a matching .lrc file next to the song, or enable online lyrics in Settings." };
+  }
+
+  async function fetchOnlineLyrics(track: Track): Promise<{ text: string | null; status: string; statusNote?: string }> {
+    if (!track || !track.title) {
+      return { text: null, status: "No metadata", statusNote: "Track is missing a title tag — can't search online." };
+    }
+
+    // Try three times with progressively looser duration matching, matching
+    // how other LRCLIB clients (LRCGET, MusicBee, etc.) handle it:
+    //   1. exact duration (rounded to nearest second)
+    //   2. duration +2s
+    //   3. duration +5s
+    // A final 404 after all three = genuinely not in LRCLIB (or duration is
+    // so far off that we shouldn't risk pulling the wrong lyrics).
+    const baseDur = track.duration && track.duration > 0 ? Math.round(track.duration) : 0;
+    const attempts: Array<{ label: string; dur: number | null }> = [
+      { label: "exact",  dur: baseDur > 0 ? baseDur : null },
+      { label: "+2s",    dur: baseDur > 0 ? baseDur + 2 : null },
+      { label: "+5s",    dur: baseDur > 0 ? baseDur + 5 : null },
+    ];
+
+    let lastStatus: string = "Not on LRCLIB";
+    let lastNote: string = "No lyrics were submitted for this track yet. You can add one at lrclib.net.";
+
+    for (const attempt of attempts) {
+      const params = new URLSearchParams();
+      if (track.artist) params.set("artist_name", track.artist);
+      params.set("track_name", track.title);
+      if (track.album) params.set("album_name", track.album);
+      if (attempt.dur != null) params.set("duration", String(attempt.dur));
+      const url = `https://lrclib.net/api/get?${params.toString()}`;
+      let resp: Response;
+      try {
+        resp = await fetch(url, {
+          headers: {
+            "User-Agent": "Melo/0.8.0 (https://github.com/Arvanta/Melo)",
+            "Lrclib-Client": "Melo/0.8.0 (https://github.com/Arvanta/Melo)",
+          },
+        });
+      } catch {
+        return { text: null, status: "No connection", statusNote: "Could not reach LRCLIB — check your internet connection." };
+      }
+
+      if (resp.ok) {
+        let data: any;
+        try {
+          data = await resp.json();
+        } catch {
+          return { text: null, status: "Invalid response", statusNote: "LRCLIB returned unreadable data." };
+        }
+        if (data && typeof data === "object") {
+          const synced: string | undefined = data.syncedLyrics;
+          if (synced && typeof synced === "string" && synced.trim().length > 0) return { text: synced.trim(), status: "" };
+          const plain: string | undefined = data.plainLyrics;
+          if (plain && typeof plain === "string" && plain.trim().length > 0) return { text: plain.trim(), status: "" };
+          // Track exists but no lyrics submitted — no point retrying with a
+          // different duration; this is a definitive answer.
+          return { text: null, status: "No lyrics available", statusNote: "LRCLIB has this track in its database but no lyrics were submitted for it." };
+        }
+        return { text: null, status: "Empty response", statusNote: "LRCLIB returned no data for this track." };
+      }
+
+      if (resp.status === 429) {
+        return { text: null, status: "Rate limited", statusNote: "LRCLIB is rate-limiting requests. Wait a moment and try again." };
+      }
+      if (resp.status >= 500) {
+        return { text: null, status: `Server error (${resp.status})`, statusNote: "LRCLIB returned an error. Try again later." };
+      }
+      // 404 / other client error → fall through to next looser attempt
+      if (resp.status === 404) {
+        lastStatus = "Not on LRCLIB";
+        lastNote = "No lyrics were submitted for this track yet. You can add one at lrclib.net.";
+        continue;
+      }
+      lastStatus = `Server error (${resp.status})`;
+      lastNote = "LRCLIB returned an error. Try again later.";
+    }
+    return { text: null, status: lastStatus, statusNote: lastNote };
   }
 
   async function loadTrackLyrics(track: Track | null) {
@@ -83,15 +185,42 @@ export function setupLyrics(
       currentTrackId = null;
       currentParsed = { isSynced: false, lines: [], raw: "" };
       if (lyricsTitle) lyricsTitle.textContent = "No track playing";
+      setStatus("No track playing", "Open a song to see its lyrics here.", false);
       renderLyrics();
       return;
     }
     currentTrackId = track.id;
     if (lyricsTitle) lyricsTitle.textContent = `${track.title} — ${track.artist}`;
 
-    const text = await fetchLyricsForTrack(track);
-    currentParsed = parseLRC(text || "");
+    // Show a loading state while the online lookup (if enabled) is in flight.
+    const onlineEnabled = localStorage.getItem("melo-pref-lyricsOnline") === "1";
+    if (onlineEnabled) {
+      setStatus("Searching online…", "Looking up lyrics on LRCLIB…", true);
+    } else {
+      setStatus("Searching…", "Looking for local lyrics…", false);
+    }
+
+    const res = await fetchLyricsForTrack(track);
+    currentParsed = parseLRC(res.text || "");
+    if (!currentParsed.lines.length) {
+      setStatus(res.status || "No synced lyrics found", res.statusNote || "Place a matching .lrc file next to the song, or enable online lyrics in Settings.");
+    } else {
+      clearStatus();
+    }
     renderLyrics();
+  }
+
+  function setStatus(title: string, note?: string, searching = false) {
+    if (!lyricsStatus) return;
+    lyricsStatus.style.display = "flex";
+    lyricsStatus.classList.toggle("searching", searching);
+    lyricsStatus.innerHTML = `<div class="lyrics-status-title">${escapeHtml(title)}</div>${note ? `<div class="lyrics-status-note">${escapeHtml(note)}</div>` : ""}`;
+  }
+  function clearStatus() {
+    if (lyricsStatus) lyricsStatus.style.display = "none";
+  }
+  function escapeHtml(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
   function renderLyrics() {
@@ -100,14 +229,10 @@ export function setupLyrics(
     activeIndex = -1;
 
     if (!currentParsed.lines.length) {
-      if (lyricsStatus) {
-        lyricsStatus.style.display = "block";
-        lyricsStatus.innerHTML = `No synced lyrics found (.lrc)<br/><span style="font-size:10.5px; opacity:0.7;">Place a matching .lrc file in the song folder or add lyrics in the tag editor.</span>`;
-      }
-      return;
+      return; // status block is already shown by loadTrackLyrics
     }
 
-    if (lyricsStatus) lyricsStatus.style.display = "none";
+    clearStatus();
 
     currentParsed.lines.forEach((line, idx) => {
       const el = document.createElement("div");
