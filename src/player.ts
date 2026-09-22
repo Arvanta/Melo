@@ -12,24 +12,20 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   let trackTitle: HTMLElement, trackArtist: HTMLElement, trackAlbum: HTMLElement, trackCodec: HTMLElement, trackSpecs: HTMLElement;
   let coverImg: HTMLImageElement, coverFallback: HTMLElement;
 
-  // "audio" always points at whichever physical <audio> element is the
-  // currently active / UI-bound deck. Playback normally happens on
-  // `primaryAudio`; a second element is created lazily, only if/when
-  // Crossfade is actually used, and `audio` is reassigned to it the
-  // instant a crossfade finishes (see finishCrossfade()). Everything below
-  // (seek bar, volume, mute, keyboard shortcuts, media session, etc.)
-  // reads/writes through the `audio` variable, so it transparently follows
-  // whichever deck is currently playing.
+  // "audio" always points at the currently active / UI-bound physical
+  // <audio> deck. Playback normally runs on `primaryAudio`; a second
+  // element is created lazily only when Crossfade is used, and `audio` is
+  // reassigned the instant a crossfade finishes (finishCrossfade()).
+  // Everything below reads/writes through `audio`, so it transparently
+  // follows the playing deck.
   let audio: HTMLAudioElement = primaryAudio;
   let secondaryAudio: HTMLAudioElement | null = null;
 
-  // User volume (percent) as tracked by the slider. Kept separately from
+  // User volume (percent) as tracked by the slider, kept separately from
   // `audio.volume` (which goes to 0 during fade-out-on-pause) so a skin
-  // swap can restore the slider to the real value, not 0 or the template's 60.
-  //
-  // PERSISTED across app restarts (`melo-volume`): every skin template ships
-  // the markup default `value="60"`, so without a saved value the player
-  // silently reset to 60% on every launch no matter what the user had set.
+  // swap restores the real value. PERSISTED (`melo-volume`): every skin
+  // template ships the markup default value="60", so without a saved
+  // value the player would reset to 60% on every launch.
   const DEFAULT_VOLUME_PCT = 60;
   function readSavedVolumePct(): number {
     const raw = parseInt(localStorage.getItem("melo-volume") ?? "", 10);
@@ -59,6 +55,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
 
   let queue: Track[] = [];
   let currentIndex = 0;
+  // Generation token: any new play-tracks invalidates a pending full-queue
+  // hydration from an earlier fromQueue click.
+  let queueGen = 0;
   let isShuffle = false;
   let repeatMode: RepeatMode = "off";
   let isSeeking = false;
@@ -133,21 +132,37 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // ---------------------------------------------------------------------
   // Full-resolution cover art upgrade (no disk cache)
   // ---------------------------------------------------------------------
-  // The Library caches a 256×256 thumbnail per track (fast for lists), but
-  // skins with large cover art render it blurry. For the playing track we
-  // ALSO fetch the ORIGINAL embedded artwork — Rust reads the full bytes
-  // straight from the file's tags every time and returns them as a base64
-  // `data:` URL; nothing is written to disk, so no cache ever grows or
-  // leaves orphaned files behind. The thumb is shown instantly first, so
-  // there is no blank/fallback flash. The Map below is ONLY an in-memory
-  // cache for this session (re-fetching on a skin swap / track return
-  // would be a wasted IPC + tag parse); it dies with the app.
+  // The Library caches 256×256 thumbnails (fast for lists), but large
+  // skin covers render them blurry. For the playing track we ALSO fetch
+  // the ORIGINAL embedded artwork: Rust reads the tag bytes and returns
+  // a base64 `data:` URL; nothing is written to disk. The thumb shows
+  // instantly first (no blank flash). The Map below is a bounded
+  // in-memory LRU (cap=200) for this session only — it dies with the
+  // app.
+  const FULL_ART_CACHE_CAP = 200;
   const fullArtCache = new Map<string, string>();
+  function fullArtCacheGet(id: string): string | undefined {
+    const hit = fullArtCache.get(id);
+    if (hit !== undefined && fullArtCache.size > 1) {
+      fullArtCache.delete(id);
+      fullArtCache.set(id, hit);
+    }
+    return hit;
+  }
+  function fullArtCacheSet(id: string, url: string) {
+    fullArtCache.delete(id);
+    fullArtCache.set(id, url);
+    while (fullArtCache.size > FULL_ART_CACHE_CAP) {
+      const oldest = fullArtCache.keys().next().value;
+      if (oldest === undefined) break;
+      fullArtCache.delete(oldest);
+    }
+  }
   const fullArtPending = new Set<string>();
 
   async function upgradeCoverToFull(t: Track) {
     if (!isTauri || !t || !t.id || !coverImg) return;
-    const cached = fullArtCache.get(t.id);
+    const cached = fullArtCacheGet(t.id);
     if (cached) {
       if (coverImg.getAttribute("src") !== cached) {
         coverImg.src = cached;
@@ -162,7 +177,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       const { invoke } = await import("@tauri-apps/api/core");
       const dataUrl = await invoke<string | null>("get_track_artwork_full", { id: t.id });
       if (dataUrl) {
-        fullArtCache.set(t.id, dataUrl);
+        fullArtCacheSet(t.id, dataUrl);
         // Touch the DOM only if this track is STILL current — the user may
         // have switched tracks while the fetch was in flight.
         const cur = queue[currentIndex];
@@ -179,17 +194,15 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // ---------------------------------------------------------------------
   // Crossfade engine
   //
-  // A second <audio> element ("secondaryAudio") is created lazily the
-  // first time it's needed. Each element gets its own per-deck GainNode
-  // in the shared Web Audio graph (audio-graph.ts): both decks mix into
-  // the same EQ/analyser chain, so the equalizer and visualizer keep
-  // working unmodified and reflect whatever is actually audible.
+  // A second <audio> element ("secondaryAudio") is created lazily. Each
+  // deck gets its own GainNode in the shared Web Audio graph
+  // (audio-graph.ts): both mix into the same EQ/analyser chain, so the
+  // equalizer and visualizer keep working unmodified.
   //
-  // The fade curve itself is scheduled once via native AudioParam
-  // automation (setValueCurveAtTime) — the browser's audio thread runs it,
-  // not JS on every frame — so an active crossfade costs effectively zero
-  // extra CPU beyond decoding the second stream, which is unavoidable for
-  // any true crossfade.
+  // The fade curve is scheduled once via native AudioParam automation
+  // (setValueCurveAtTime) — the browser's audio thread runs it, not JS,
+  // so an active crossfade costs no extra CPU beyond decoding the
+  // second stream.
   // ---------------------------------------------------------------------
 
   let crossfadeActive = false;
@@ -282,12 +295,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // still get a (shorter) sensible crossfade instead of a jarring one.
     const effectiveDur = Math.min(crossfadeDurationSec(), Math.max(1, dur * 0.9));
     if (remaining > effectiveDur) return;
-    // Clamp to what's actually left to play right now. Without this, a
-    // manual seek into the last few seconds of a track (with a longer
-    // crossfade duration configured) would still schedule the fade/handoff
-    // for the full configured duration, so the outgoing deck would run out
-    // of audio and go silent seconds before the track info / UI actually
-    // switches over to the next track.
+    // Clamp to what's actually left to play: a manual seek into the last
+    // seconds (with a longer crossfade configured) would otherwise schedule
+    // the full fade, and the outgoing deck would go silent before the UI
+    // switches to the next track.
     const startDur = Math.max(0.15, Math.min(effectiveDur, remaining));
     startCrossfade(nxt, startDur);
   }
@@ -316,7 +327,12 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
 
     const onError = () => {
       incoming.removeEventListener("error", onError);
-      if (cfIncoming === incoming) cancelCrossfade();
+      if (cfIncoming !== incoming) return;
+      // The incoming track is unreadable. Cancel the fade and load it
+      // through the NORMAL path on the active deck — its error handler
+      // reports and auto-skips, exactly like a non-crossfaded broken track.
+      cancelCrossfade();
+      loadTrack(nxt, true);
     };
     incoming.addEventListener("error", onError, { once: true });
 
@@ -389,6 +405,16 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     applyTrackMetadata(queue[nxt], { resetProgress: false });
   }
 
+  function visibleTrackSpecs(t: Track): string {
+    const specs = (t.specs || "").trim();
+    const codec = (t.codec || "").trim();
+    if (!specs || !codec || specs.slice(0, codec.length).toLowerCase() !== codec.toLowerCase()) return specs;
+    // Older database rows stored the codec in specs as well. Strip only a
+    // leading codec plus its separator; unrelated values such as "Local File"
+    // remain untouched.
+    return specs.slice(codec.length).replace(/^\s*(?:[·•-]\s*)?/, "").trim();
+  }
+
   function applyTrackMetadata(t: Track, opts: { resetProgress: boolean }) {
     if (!trackTitle) bindDOM();
 
@@ -396,7 +422,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if (trackArtist) trackArtist.textContent = t.artist || "Unknown Artist";
     if (trackAlbum) trackAlbum.textContent = t.album || "";
     if (trackCodec) trackCodec.textContent = t.codec || "AUDIO";
-    if (trackSpecs) trackSpecs.textContent = t.specs || "";
+    if (trackSpecs) trackSpecs.textContent = visibleTrackSpecs(t);
 
     if (t.cover && coverImg) {
       coverImg.src = t.cover;
@@ -449,7 +475,11 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       const { cover: _cover, ...trackSnapshot } = t as any;
       localStorage.setItem("melo-current-track", JSON.stringify(trackSnapshot));
     } catch {}
-    window.dispatchEvent(new CustomEvent("lumi:trackChange", { detail: t }));
+    // Explicit `bubbles: false` — see bus.ts. `lumi:trackChange` is a legacy
+    // alias for `melo:track-changed`; only the lyric-line module listens
+    // (window-level), so bubbling would not help and could hit
+    // document-level handlers outside our namespace.
+    window.dispatchEvent(new CustomEvent("lumi:trackChange", { detail: t, bubbles: false }));
     busEmit("melo:track-changed", t);
     busEmit("melo:playback-state", { track: t, currentTime: audio.currentTime || 0, paused: audio.paused });
   }
@@ -481,11 +511,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if (autoplay) {
       play();
     } else {
-      // loadTrack() can be called with autoplay=false (e.g. "Resume
-      // playback on reopen" turned off) — the track is cued up paused, so
-      // the transport icons must reflect that (Play visible, Pause
-      // hidden). Without this, the icons keep whatever state they were
-      // last in (e.g. still showing Pause from before the app closed).
+      // loadTrack() with autoplay=false (e.g. resume-on-reopen off) cues the
+      // track paused, so the transport icons must reflect that (Play visible,
+      // Pause hidden) instead of keeping their last state.
       if (iconPlay) iconPlay.style.display = "block";
       if (iconPause) iconPause.style.display = "none";
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
@@ -509,6 +537,12 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if (p && p.key === "replayGainGlobal") applyReplayGain();
     if (p && p.key === "showStopBtn") syncStopButtonVisibility(!!p.value);
     if (p && p.key === "crossfade" && !p.value) cancelCrossfade();
+    // Dynamic theme toggled from any Settings window: apply it from the
+    // current track's artwork. applyDynamicAmbientTheme re-reads the stored
+    // preference itself and clears the tint when off.
+    if (p && p.key === "dynamicTheme") {
+      applyDynamicAmbientTheme(queue[currentIndex]?.cover || null);
+    }
   });
 
   // Secondary windows can be opened at any time. Reply with the current
@@ -551,11 +585,21 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
       if (fadeOn && wasFadedPause) { wasFadedPause = false; fadeVolumeTo(target, FADE_MS); }
       else audio.volume = target;
-    }).catch(() => {
-      if (!pendingPlay) {
+    }).catch((err: any) => {
+      // Only an autoplay-policy block ("NotAllowedError") is fixed by
+      // clicking — the one case this toast is honest for. A load failure
+      // (missing/moved file, asset-protocol refusal) rejects differently AND
+      // fires the element's `error` event, which reports and auto-skips; a
+      // click hint there would be misleading.
+      if (err?.name === "NotAllowedError" && !pendingPlay) {
         pendingPlay = true;
         toast("Click once inside player to begin audio playback");
       }
+      // Nothing started — the icons must show the PAUSED reality (Play), not
+      // the markup's default Pause icon.
+      if (iconPlay) iconPlay.style.display = "block";
+      if (iconPause) iconPause.style.display = "none";
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     });
   }
 
@@ -606,10 +650,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       return;
     }
     const nxt = computeNextIndex();
-    if (nxt === null) {
-      pause();
-      return;
-    }
+    // Next on the LAST track with repeat OFF is a no-op: the current track
+    // keeps playing — no pause, no toast.
+    if (nxt === null) return;
     loadTrack(nxt);
   }
 
@@ -646,21 +689,32 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     const stop = findHook<HTMLButtonElement>("btnStop", "stop");
     if (!stop) return;
     if (enabled) {
-      // Let the skin's OWN CSS take over: every Melo button style centers
-      // its icon with display:grid + place-items:center. Forcing
-      // inline-flex !important here overrode that (place-items is a grid
-      // property), so the stop icon sat misaligned in the button — most
-      // visible in the aria / graphite / mist docks.
+      // Let the skin's OWN CSS take over: Melo button styles center icons with
+      // display:grid + place-items:center. Forcing inline-flex !important
+      // overrode that (place-items is a grid property) and misaligned the
+      // stop icon.
       stop.style.removeProperty("display");
     } else {
       stop.style.setProperty("display", "none", "important");
     }
   }
 
+  // The transport icons must always mirror the audio element, never a
+  // stale markup default: skins ship the PAUSE icon visible, so a cold
+  // start that never reaches loadTrack() would sit on Pause with nothing
+  // playing.
+  function syncTransportIcons() {
+    const playing = !audio.paused;
+    if (iconPlay) iconPlay.style.display = playing ? "none" : "block";
+    if (iconPause) iconPause.style.display = playing ? "block" : "none";
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+  }
+
   function bindDOM() {
     btnPlay = findHook<HTMLButtonElement>("btnPlay", "play")!;
     iconPlay = findHook<HTMLElement>("iconPlay", "play-icon")!;
     iconPause = findHook<HTMLElement>("iconPause", "pause-icon")!;
+    syncTransportIcons();
     btnPrev = findHook<HTMLButtonElement>("btnPrev", "prev")!;
     btnNext = findHook<HTMLButtonElement>("btnNext", "next")!;
     btnShuffle = findHook<HTMLButtonElement>("btnShuffle", "shuffle")!;
@@ -732,13 +786,11 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     updateSeekBackground();
     updateVolBackground();
 
-    // A skin swap replaces every control node with the skin template's
-    // placeholder values — including the volume bar's default "60". Restore
-    // the slider from the user-volume tracker (NOT audio.volume, which can
-    // be 0 mid fade-out-on-pause) so the volume never jumps back to 60%
-    // when the skin changes. On the FIRST bind (app boot) the tracker itself
-    // comes from localStorage, which is what makes the volume survive a
-    // restart instead of snapping back to the markup default.
+    // A skin swap replaces every control node with template placeholders
+    // (including the volume bar's "60"). Restore the slider from the
+    // user-volume tracker (NOT audio.volume, which can be 0 mid-fade); on
+    // first bind the tracker comes from localStorage, which is what makes
+    // volume survive a restart.
     if (volBar) {
       volBar.value = String(userVolumePct);
       if (volPct) volPct.textContent = volBar.value + "%";
@@ -754,7 +806,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       if (trackArtist) trackArtist.textContent = t.artist || "Unknown Artist";
       if (trackAlbum) trackAlbum.textContent = t.album || "";
       if (trackCodec) trackCodec.textContent = t.codec || "AUDIO";
-      if (trackSpecs) trackSpecs.textContent = t.specs || "";
+      if (trackSpecs) trackSpecs.textContent = visibleTrackSpecs(t);
       if (t.cover && coverImg) {
         coverImg.src = t.cover;
         coverImg.style.display = "block";
@@ -767,10 +819,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       // (or fetch it) if this track already had it.
       upgradeCoverToFull(t);
 
-      // Re-sync the full transport UI from live playback state. A skin swap
-      // replaces every control node, so without this the seek bar / time
-      // labels keep the skin template's placeholder values (wrong total
-      // duration and wrong progress position) while a track is playing.
+      // Re-sync the full transport UI from live playback state: a skin swap
+      // replaces every control node, so the seek bar / time labels would keep
+      // template placeholders while a track is playing.
       if (seekBar) {
         const dur = Math.floor(audio.duration || t.duration || 240);
         seekBar.max = String(dur);
@@ -808,6 +859,30 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     volBar.dispatchEvent(new Event("input"));
   }, { passive: false });
 
+  // -------------------------------------------------------------------
+  // Broken-track handling: a load/decode failure is reported and
+  // skipped; the consecutive-failure counter (reset by any successful
+  // start) caps the skip chain, so a queue full of dead files stops with
+  // a clear message instead of looping forever. Repeat-one on a broken
+  // track also ends at the cap.
+  // -------------------------------------------------------------------
+  let consecutiveErrors = 0;
+
+  function handlePlaybackError() {
+    const t = queue[currentIndex];
+    consecutiveErrors++;
+    const cap = Math.min(10, Math.max(1, queue.length));
+    if (consecutiveErrors >= cap) {
+      pause();
+      toast(consecutiveErrors > 1
+        ? `Stopped — ${consecutiveErrors} tracks in a row couldn't play (files missing or moved)`
+        : (t ? `Couldn't play "${t.title}" — file may be missing or moved` : "Couldn't play the selected track"));
+      return;
+    }
+    toast(`Skipping "${t ? t.title : "track"}" — file may be missing or moved`);
+    next();
+  }
+
   function attachDeckListeners(el: HTMLAudioElement) {
     el.addEventListener("timeupdate", () => {
       if (el !== audio) return; // only the active deck drives UI + scheduling
@@ -833,6 +908,34 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       if (el !== audio || crossfadeActive) return; // stray/handled event
       next();
     });
+
+    // A successful start clears the skip chain: only CONSECUTIVE failures
+    // count toward the stop cap.
+    el.addEventListener("play", () => {
+      if (el === audio) consecutiveErrors = 0;
+      // The icons follow the REAL element state.
+      if (el === audio) {
+        if (iconPlay) iconPlay.style.display = "none";
+        if (iconPause) iconPause.style.display = "block";
+        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
+      }
+    });
+    el.addEventListener("pause", () => {
+      // Whatever pauses the deck (fade-pause, crossfade swap, stop, a paused
+      // restore) re-shows the Play icon.
+      if (el !== audio) return;
+      if (iconPlay) iconPlay.style.display = "block";
+      if (iconPause) iconPause.style.display = "none";
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+    });
+    // A failed load (file deleted/moved since the scan) reports and
+    // auto-skips to the next track. The crossfade path hands its
+    // "incoming" deck failures back here (startCrossfade), so behavior is
+    // uniform.
+    el.addEventListener("error", () => {
+      if (el !== audio) return;
+      handlePlaybackError();
+    });
   }
 
   let resumeSaveTimer: any = null;
@@ -851,7 +954,23 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   attachDeckListeners(primaryAudio);
 
   window.addEventListener("keydown", (e) => {
-    if ((e.target as HTMLElement).tagName === "INPUT") return;
+    // Space handling is type-aware: text inputs must type the space, but
+    // range/checkbox/radio inputs fall through to native handling (Space
+    // advances a slider by `step`). Buttons are NOT short-circuited —
+    // Enter/Space activate them natively (accessibility).
+    const target = e.target as HTMLElement | null;
+    if (target && target.tagName === "INPUT") {
+      const t = (target as HTMLInputElement).type;
+      // Text-like inputs: typing a Space must insert a character, never
+      // trigger play/pause.
+      if (t === "text" || t === "search" || t === "email" || t === "url" ||
+          t === "tel" || t === "password" || t === "number") {
+        return;
+      }
+      // Range, checkbox, radio, etc. fall through and we let the
+      // browser's native handling run (Space advances a range slider
+      // by `step`, toggles checkboxes/radios).
+    }
     if (e.code === "Space") {
       e.preventDefault();
       togglePlay();
@@ -911,12 +1030,159 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   };
   (window as any).__LUMI_REBIND__ = bindDOM;
 
+  // The queue can be sorted / drag-reordered from the Playlist window:
+  // the backend owns the persisted order and broadcasts the new sequence;
+  // the runtime queue must follow, or Next/Previous would play the OLD
+  // order. The current track keeps playing; currentIndex re-points at it.
+  busOn("melo:queue-reordered", (p: any) => {
+    if (!p || !Array.isArray(p.order) || !p.order.length || !queue.length) return;
+    // The broadcast carries BOTH sequences: `order` (queue ENTRY ids) and
+    // `tracks` (the track id each entry points at). The runtime queue is
+    // not always hydrated with entry ids (session imports), so resolution
+    // is: entry id first, then track id (first unconsumed match —
+    // deterministic even with duplicates). Unmappable runtime-only items
+    // keep their relative order at the END — nothing is silently dropped.
+    const byEntry = new Map<string, any>();
+    const byTrack = new Map<string, any[]>();
+    for (const t of queue) {
+      if (t?.playlistEntryId != null) byEntry.set(`e${t.playlistEntryId}`, t);
+      else if (t?.id != null) {
+        const list = byTrack.get(String(t.id)) || [];
+        list.push(t);
+        byTrack.set(String(t.id), list);
+      }
+    }
+    const next: any[] = [];
+    const used = new Set<any>();
+    const order: string[] = p.order;
+    const tracks: string[] | null = Array.isArray(p.tracks) ? p.tracks : null;
+    for (let i = 0; i < order.length; i++) {
+      let t = byEntry.get(`e${order[i]}`);
+      if (t) { next.push(t); used.add(t); continue; }
+      const trackId = tracks ? String(tracks[i] ?? "") : "";
+      const candidates = byTrack.get(trackId);
+      if (candidates) {
+        while (candidates.length) {
+          const cand = candidates.shift()!;
+          if (!used.has(cand)) { next.push(cand); used.add(cand); break; }
+        }
+      }
+    }
+    for (const t of queue) { if (!used.has(t)) next.push(t); }
+    // The CURRENT track keeps playing: re-point by OBJECT IDENTITY, which
+    // is unambiguous even when the queue contains duplicates.
+    const current = queue[currentIndex];
+    queue = next;
+    currentIndex = current ? Math.max(0, queue.indexOf(current)) : 0;
+    try { (window as any).__LUMI_SET_QUEUE__(queue); } catch {}
+    busEmit("melo:playback-state", { track: queue[currentIndex] || null, currentTime: audio.currentTime || 0, paused: audio.paused });
+  });
+
+  // Removing a track from the QUEUE view also removes it from the
+  // player's runtime queue. If it IS the playing track, it keeps playing
+  // but leaves the upcoming order; the index re-points at whatever
+  // follows.
+  busOn("melo:queue-entries-removed", (p: any) => {
+    if (!p || !Array.isArray(p.entryIds) || !p.entryIds.length) return;
+    const gone = new Set<string>(p.entryIds.map((v: any) => `e${v}`));
+    const keyOf = (t: any) => (t?.playlistEntryId != null ? `e${t.playlistEntryId}` : null);
+    const current = queue[currentIndex] || null;
+    const currentGone = current != null && gone.has(keyOf(current) ?? "");
+    const filtered = queue.filter(t => !gone.has(keyOf(t) ?? ""));
+    if (filtered.length === queue.length) return; // nothing of ours was removed
+    queue = filtered;
+    if (currentGone) {
+      currentIndex = queue.length ? Math.min(currentIndex, queue.length - 1) : 0;
+    } else if (current) {
+      const at = queue.indexOf(current);
+      currentIndex = at >= 0 ? at : Math.min(currentIndex, Math.max(0, queue.length - 1));
+    }
+    try { (window as any).__LUMI_SET_QUEUE__(queue); } catch {}
+    busEmit("melo:playback-state", { track: queue[currentIndex] || null, currentTime: audio.currentTime || 0, paused: audio.paused });
+  });
+
+  // Tracks APPENDED to the DB queue (import-append from the Playlist
+  // window) must join the runtime queue too — the queue views re-render
+  // from the DB, but Next/Previous/shuffle read this array, so without it
+  // the new tracks would never play. Appending never shifts currentIndex;
+  // the playing track is untouched. Entry-id dedupe makes a redelivery a
+  // no-op.
+  busOn("melo:queue-entries-added", (p: any) => {
+    if (!p || !Array.isArray(p.tracks) || !p.tracks.length) return;
+    const have = new Set(queue.filter((t: any) => t?.playlistEntryId != null).map((t: any) => `e${t.playlistEntryId}`));
+    const fresh = p.tracks.filter((t: any) => t?.playlistEntryId == null || !have.has(`e${t.playlistEntryId}`));
+    if (!fresh.length) return;
+    queue = queue.concat(fresh);
+    try { (window as any).__LUMI_SET_QUEUE__(queue); } catch {}
+  });
+
+  // "Clear Queue" in the Playlist window must also stop playback and
+  // empty the player's queue: this handler resets the whole playback
+  // state to the "No track loaded" boot state.
+  busOn("melo:queue-cleared", () => {
+    cancelCrossfade();
+    queue = [];
+    currentIndex = 0;
+    pendingPlay = false;
+    consecutiveErrors = 0;
+    try { audio.pause(); } catch {}
+    try { audio.removeAttribute("src"); audio.load(); } catch {}
+    try { localStorage.removeItem("melo-resume-state"); } catch {}
+    if (!trackTitle) bindDOM();
+    if (trackTitle) trackTitle.textContent = "No track loaded";
+    if (trackArtist) trackArtist.textContent = "Add music to start playing";
+    if (trackAlbum) trackAlbum.textContent = "";
+    if (trackCodec) trackCodec.textContent = "";
+    if (trackSpecs) trackSpecs.textContent = "";
+    if (coverImg) { coverImg.style.display = "none"; coverImg.removeAttribute("src"); }
+    if (coverFallback) { coverFallback.style.display = "grid"; coverFallback.textContent = "\u266A"; }
+    if (seekBar) { seekBar.value = "0"; updateSeekBackground(); }
+    if (curTime) curTime.textContent = "0:00";
+    if (durTime) durTime.textContent = "0:00";
+    if (iconPlay) iconPlay.style.display = "block";
+    if (iconPause) iconPause.style.display = "none";
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.playbackState = "none";
+      navigator.mediaSession.metadata = null;
+    }
+    try { (window as any).__LUMI_SET_QUEUE__(queue); } catch {}
+    busEmit("melo:playback-state", { track: null, currentTime: 0, paused: true });
+  });
+
   busOn("melo:play-tracks", (p: any) => {
     if (!p || !Array.isArray(p.tracks) || !p.tracks.length) return;
+    const gen = ++queueGen;
     cancelCrossfade();
+    consecutiveErrors = 0;
     queue = p.tracks;
     (window as any).__LUMI_SET_QUEUE__(queue);
     const idx = Math.max(0, Math.min(p.index || 0, queue.length - 1));
     loadTrack(idx, true);
+    // A fromQueue click carries only the ONE clicked record (instant
+    // start); grow the runtime queue to the full DB queue in place.
+    if (p.fromQueue) hydrateFullQueue(gen, p.tracks[0]);
   });
+
+  // Silent in-place upgrade of the runtime queue to the FULL DB play
+  // queue (single source of truth). The audio element is never touched
+  // — the same track keeps playing; only the array and index change, so
+  // Next/Previous/shuffle/crossfade span the real source. Paged in via
+  // LumiLibrary. A stale generation (user click-played again
+  // mid-hydrate) or an empty result keeps the small queue.
+  async function hydrateFullQueue(gen: number, focusTrack: Track) {
+    try {
+      const lib = (window as any).LumiLibrary;
+      const all: Track[] | undefined = await lib?.getQueueTracksAll?.();
+      if (gen !== queueGen || !all || !all.length) return;
+      // Queue rows are entry-keyed (duplicates allowed): the clicked
+      // occurrence is located by entry id; runtime-only items fall back to
+      // the track id.
+      const focus = focusTrack.playlistEntryId != null
+        ? all.findIndex(t => t.playlistEntryId === focusTrack.playlistEntryId)
+        : all.findIndex(t => t.id === focusTrack.id);
+      queue = all;
+      (window as any).__LUMI_SET_QUEUE__(queue);
+      if (focus >= 0) currentIndex = focus;
+    } catch { /* the small queue stays; playback is unaffected */ }
+  }
 }

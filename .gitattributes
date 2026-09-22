@@ -1,0 +1,5 @@
+# (round 15) checkouts must be byte-exact on every platform: the test
+# suite asserts source shapes, and git's default CRLF conversion on
+# Windows broke a newline-sensitive regex in CI (made newline-agnostic
+# here too, but byte-exact checkouts remove the whole failure class).
+* -text

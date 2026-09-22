@@ -1,4 +1,5 @@
 import { busEmit, busOn } from "./bus";
+import { getAppVersion } from "./version";
 import type { Track } from "./types";
 
 export interface LyricLine {
@@ -51,18 +52,15 @@ export function parseLRC(lrcText: string): { isSynced: boolean; lines: LyricLine
 // Shared lyrics resolution.
 //
 // Up to three consumers can ask for the same track's lyrics inside one
-// window: the Lyrics window, the skin-embedded lyrics panel, and the
-// optional skin "current lyric line" slot (src/lyric-line.ts). They all go
-// through resolveLyricsForTrack(), which memoizes results and de-duplicates
-// in-flight lookups — so one track never triggers two identical Rust
-// lookups, and (with online lyrics enabled) never two identical LRCLIB
-// requests.
+// window (Lyrics window, skin-embedded panel, skin current-line slot);
+// all go through resolveLyricsForTrack(), which memoizes results and
+// de-duplicates in-flight lookups — one track never triggers two
+// identical Rust lookups or LRCLIB requests.
 //
-// The cache key includes the two lyrics preferences, so flipping "Fetch
-// lyrics online" (or the save mode) re-resolves instead of replaying a
-// cached "no lyrics found". Negative results additionally expire after
-// NEGATIVE_TTL_MS, so dropping a .lrc next to a track mid-session is still
-// picked up without a restart.
+// The cache key includes both lyrics preferences, so flipping a toggle
+// re-resolves instead of replaying a cached "no lyrics found". Negative
+// results expire after NEGATIVE_TTL_MS, so a .lrc dropped next to a
+// track mid-session is picked up without a restart.
 // ---------------------------------------------------------------------
 export interface LyricsLookupResult {
   text: string | null;
@@ -71,7 +69,30 @@ export interface LyricsLookupResult {
 }
 
 const NEGATIVE_TTL_MS = 5 * 60 * 1000;
+// Hard per-request timeout so a hung connection can't leave the UI stuck
+// on "Searching online…" indefinitely.
+const LYRICS_REQUEST_TIMEOUT_MS = 8000;
+// Bounded LRU so a long-running session with many distinct tracks (or
+// frequent mode flips) can't grow this map without ceiling.
+const LYRICS_CACHE_CAP = 2000;
 const lyricsCache = new Map<string, { at: number; res: LyricsLookupResult }>();
+function lyricsCacheSet(key: string, value: { at: number; res: LyricsLookupResult }) {
+  lyricsCache.delete(key);
+  lyricsCache.set(key, value);
+  while (lyricsCache.size > LYRICS_CACHE_CAP) {
+    const oldest = lyricsCache.keys().next().value;
+    if (oldest === undefined) break;
+    lyricsCache.delete(oldest);
+  }
+}
+function lyricsCacheGet(key: string): { at: number; res: LyricsLookupResult } | undefined {
+  const hit = lyricsCache.get(key);
+  if (hit && lyricsCache.size > 1) {
+    lyricsCache.delete(key);
+    lyricsCache.set(key, hit);
+  }
+  return hit;
+}
 const lyricsInFlight = new Map<string, Promise<LyricsLookupResult>>();
 
 function lyricsCacheKey(track: Track): string {
@@ -100,7 +121,7 @@ export async function resolveLyricsForTrack(track: Track | null | undefined): Pr
   if (track.lyrics && track.lyrics.trim().length > 0) return { text: track.lyrics, status: "" };
 
   const key = lyricsCacheKey(track);
-  const hit = lyricsCache.get(key);
+  const hit = lyricsCacheGet(key);
   if (hit && (hit.res.text || Date.now() - hit.at < NEGATIVE_TTL_MS)) return hit.res;
 
   const pending = lyricsInFlight.get(key);
@@ -108,7 +129,7 @@ export async function resolveLyricsForTrack(track: Track | null | undefined): Pr
 
   const job = fetchLyricsUncached(track)
     .then((res) => {
-      lyricsCache.set(key, { at: Date.now(), res });
+      lyricsCacheSet(key, { at: Date.now(), res });
       return res;
     })
     .finally(() => {
@@ -139,7 +160,16 @@ async function fetchLyricsUncached(track: Track): Promise<LyricsLookupResult> {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
           await invoke("save_lyrics_lrc", { trackPath: track.path, content: res.text, mode });
-        } catch {}
+          // Cross-window de-duplication: the lyrics are on disk now, so any other
+          // window can drop its cached/negative result and read them locally
+          // instead of re-asking the network.
+          busEmit("melo:lyrics-resolved", { trackPath: track.path });
+        } catch (err) {
+          // Surface the save failure instead of swallowing it — the lyrics still
+          // display, but the user learns nothing was stored (e.g. read-only music
+          // folder in sidecar mode).
+          busEmit("melo:lyrics-save-failed", { trackPath: track.path, error: String(err) });
+        }
         return { text: res.text, status: "" };
       }
       return res;
@@ -153,22 +183,29 @@ async function fetchOnlineLyrics(track: Track): Promise<LyricsLookupResult> {
     return { text: null, status: "No metadata", statusNote: "Track is missing a title tag — can't search online." };
   }
 
-  // Try three times with progressively looser duration matching, matching
-  // how other LRCLIB clients (LRCGET, MusicBee, etc.) handle it:
+  // Try up to five times with a widening duration window, matching how
+  // other LRCLIB clients (LRCGET, MusicBee, etc.) handle it:
   //   1. exact duration (rounded to nearest second)
-  //   2. duration +2s
-  //   3. duration +5s
-  // A final 404 after all three = genuinely not in LRCLIB (or duration is
-  // so far off that we shouldn't risk pulling the wrong lyrics).
+  //   2. duration +2s, then duration -2s
+  //   3. duration +4s, then duration -4s
+  // A final 404 after all five = genuinely not in LRCLIB (or duration so
+  // far off that we shouldn't risk pulling the wrong lyrics).
   const baseDur = track.duration && track.duration > 0 ? Math.round(track.duration) : 0;
   const attempts: Array<{ label: string; dur: number | null }> = [
-    { label: "exact",  dur: baseDur > 0 ? baseDur : null },
-    { label: "+2s",    dur: baseDur > 0 ? baseDur + 2 : null },
-    { label: "+5s",    dur: baseDur > 0 ? baseDur + 5 : null },
+    { label: "exact", dur: baseDur > 0 ? baseDur : null },
+    { label: "+2s",   dur: baseDur > 0 ? baseDur + 2 : null },
+    { label: "-2s",   dur: baseDur > 2 ? baseDur - 2 : null },
+    { label: "+4s",   dur: baseDur > 0 ? baseDur + 4 : null },
+    { label: "-4s",   dur: baseDur > 4 ? baseDur - 4 : null },
   ];
 
   let lastStatus: string = "Not on LRCLIB";
   let lastNote: string = "No lyrics were submitted for this track yet. You can add one at lrclib.net.";
+
+  // Identify ourselves with the real runtime version, cached so this never
+  // adds per-request latency.
+  const version = await getAppVersion();
+  const userAgent = `Melo/${version} (https://github.com/Arvanta/Melo)`;
 
   for (const attempt of attempts) {
     const params = new URLSearchParams();
@@ -177,16 +214,21 @@ async function fetchOnlineLyrics(track: Track): Promise<LyricsLookupResult> {
     if (track.album) params.set("album_name", track.album);
     if (attempt.dur != null) params.set("duration", String(attempt.dur));
     const url = `https://lrclib.net/api/get?${params.toString()}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LYRICS_REQUEST_TIMEOUT_MS);
     let resp: Response;
     try {
       resp = await fetch(url, {
+        signal: controller.signal,
         headers: {
-          "User-Agent": "Melo/0.8.1 (https://github.com/Arvanta/Melo)",
-          "Lrclib-Client": "Melo/0.8.1 (https://github.com/Arvanta/Melo)",
+          "User-Agent": userAgent,
+          "Lrclib-Client": userAgent,
         },
       });
     } catch {
       return { text: null, status: "No connection", statusNote: "Could not reach LRCLIB — check your internet connection." };
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     if (resp.ok) {
@@ -359,6 +401,22 @@ export function setupLyrics(
   }
 
   audio.addEventListener("timeupdate", updateActiveLine);
+
+  // Settings propagation: when "fetch lyrics online" or the save mode
+  // changes in any window, drop cached lookups so the NEXT resolution
+  // runs under the new preferences. Cache-invalidation only — flipping a
+  // toggle never fires a network request by itself. Cache keys already
+  // embed both prefs, so this is belt-and-braces.
+  busOn("melo:pref-changed", (p: any) => {
+    if (p && (p.key === "lyricsOnline" || p.key === "lyricsSaveMode")) {
+      clearLyricsCache();
+    }
+  });
+  // Another window saved online lyrics for this track: forget our cached
+  // (possibly "not found") result so the next display hits disk.
+  busOn("melo:lyrics-resolved", (p: any) => {
+    if (p && typeof p.trackPath === "string") clearLyricsCache(p.trackPath);
+  });
 
   window.addEventListener("lumi:trackChange", (e: any) => {
     loadTrackLyrics(e.detail);

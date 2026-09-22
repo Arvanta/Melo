@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Melo — Mica 2</title>
+<style>
+/* ── MICA 2 — fix scroll, footer, transparency ── */
+:root,
+:root[data-theme="dark"],
+[data-theme="dark"] {
+  --mica-bg: #0f141c;
+  --mica-bg-2: #121a26;
+  --mica-surface: rgba(22, 31, 44, 0.72);
+  --mica-surface-solid: #1b2535;
+  --mica-surface-2: rgba(255,255,255,0.06);
+  --mica-surface-2-hover: rgba(255,255,255,0.10);
+  --mica-border: rgba(255,255,255,0.09);
+  --mica-border-strong: rgba(255,255,255,0.14);
+  --mica-border-soft: rgba(255,255,255,0.06);
+  --mica-text: #eef3fb;
+  --mica-text-soft: #b8c4d3;
+  --mica-text-muted: #7a8798;
+  --mica-text-faint: #5a6778;
+  --mica-shadow: 0 24px 64px rgba(0,0,0,0.45), 0 2px 10px rgba(0,0,0,0.25);
+  --mica-shadow-soft: 0 10px 28px rgba(0,0,0,0.35);
+  --mica-accent: var(--accent, #6aa9ff);
+  --mica-accent-soft: color-mix(in srgb, var(--mica-accent) 15%, transparent);
+  --mica-accent-strong: color-mix(in srgb, var(--mica-accent) 22%, transparent);
+  --mica-accent-glow: color-mix(in srgb, var(--mica-accent) 28%, transparent);
+  --mica-track: rgba(255,255,255,0.12);
+  --mica-danger: #ff6b7a;
+  --mica-radius: 16px;
+  --mica-radius-lg: 20px;
+  --mica-radius-pill: 999px;
+}
+:root[data-theme="light"],
+[data-theme="light"] {
+  --mica-bg: #eef3f9;
+  --mica-bg-2: #e3ebf5;
+  --mica-surface: rgba(255,255,255,0.78);
+  --mica-surface-solid: #ffffff;
+  --mica-surface-2: rgba(22, 40, 66, 0.06);
+  --mica-surface-2-hover: rgba(22, 40, 66, 0.10);
+  --mica-border: rgba(22, 40, 66, 0.10);
+  --mica-border-strong: rgba(22, 40, 66, 0.16);
+  --mica-border-soft: rgba(22, 40, 66, 0.06);
+  --mica-text: #1a2a41;
+  --mica-text-soft: #4f5f78;
+  --mica-text-muted: #7e8da3;
+  --mica-text-faint: #a0aec1;
+  --mica-shadow: 0 24px 64px rgba(39,61,89,0.18), 0 2px 10px rgba(39,61,89,0.10);
+  --mica-shadow-soft: 0 10px 28px rgba(39,61,89,0.14);
+  --mica-track: rgba(22,40,66,0.12);
+}
+* { box-sizing: border-box; min-width: 0; }
+html, body { margin: 0; min-height: 100%; }
+html { color-scheme: dark; }
+html[data-theme="light"] { color-scheme: light; }
+body {
+  color: var(--mica-text);
+  background: linear-gradient(180deg, var(--mica-bg), var(--mica-bg-2));
+  font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+body:not(.tauri-main):has(#melo-player) {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  background: #0e141e;
+}
+[data-theme="light"] body:not(.tauri-main):has(#melo-player) { background: #dfe8f3; }
+
+#melo-player,
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  position: relative;
+  width: 720px; height: 420px;
+  min-width: 500px; min-height: 230px;
+  overflow: hidden;
+  color: var(--mica-text);
+  background: var(--mica-surface-solid);
+  border: 1px solid var(--mica-border);
+  border-radius: var(--mica-radius-lg);
+  box-shadow: var(--mica-shadow), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+body.tauri-main,
+body.tauri-main .app-shell { min-width: 0 !important; }
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  width: 100% !important; height: 100vh !important;
+  min-width: 500px !important; min-height: 230px !important;
+  max-width: 1280px !important; max-height: 800px !important;
+  margin: 0 auto !important; border-radius: var(--mica-radius-lg) !important;
+  box-shadow: none !important;
+}
+
+/* Shell — solid by default */
+.mica-root {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr) 72px;
+  isolation: isolate;
+  background: var(--mica-surface-solid);
+}
+/* decorative blobs — hidden in solid, visible only in transparent mode */
+.mica-root::before,
+.mica-field::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; display: none;
+}
+.mica-root::before {
+  z-index: -1;
+  background:
+    radial-gradient(520px 320px at 18% 8%, color-mix(in srgb, var(--mica-accent) 12%, transparent), transparent 70%),
+    radial-gradient(420px 280px at 88% 92%, color-mix(in srgb, #8b9cff 12%, transparent), transparent 70%);
+}
+
+/* Topbar — solid default */
+.mica-topbar {
+  position: relative;
+  z-index: 100;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--mica-border-soft);
+  background: var(--mica-surface-solid);
+  -webkit-app-region: drag;
+  user-select: none;
+  min-width: 0;
+}
+.mica-brand-group { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 0 auto; -webkit-app-region: no-drag; position: relative; z-index: 110; }
+.mica-brand {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.18em; color: var(--mica-text);
+  white-space: nowrap;
+}
+.mica-mark {
+  width: 22px; height: 22px; display: grid; place-items: center;
+  border-radius: 7px; color: var(--mica-accent);
+  background: var(--mica-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--mica-accent) 22%, transparent);
+  flex: 0 0 22px;
+}
+.mica-mark svg { width: 13px; height: 13px; }
+.mica-brand small { display: none !important; }
+
+.mica-brand-menu { position: relative; z-index: 120; }
+.mica-brand-menu > input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.mica-brand-trigger {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px 4px 4px; border-radius: 8px; cursor: pointer;
+  transition: background .15s ease; user-select: none;
+}
+.mica-brand-trigger:hover { background: var(--mica-surface-2); }
+.mica-chevron { width: 12px; height: 12px; color: var(--mica-text-muted); transition: transform .18s ease; flex: 0 0 12px; }
+.mica-brand-menu > input:checked ~ .mica-brand-trigger .mica-chevron { transform: rotate(180deg); }
+.mica-menu {
+  position: absolute; top: 36px; left: 0; z-index: 200;
+  width: 180px; padding: 6px;
+  display: none; flex-direction: column; gap: 2px;
+  background: var(--mica-surface-solid);
+  border: 1px solid var(--mica-border);
+  border-radius: 12px;
+  box-shadow: var(--mica-shadow-soft), inset 0 1px 0 rgba(255,255,255,0.06);
+  animation: mica-pop .18s cubic-bezier(.2,.8,.2,1);
+}
+.mica-brand-menu > input:checked ~ .mica-menu { display: flex; }
+.mica-menu-item {
+  width: 100%; height: 32px; padding: 0 10px;
+  display: flex; align-items: center; gap: 9px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--mica-text-soft);
+  font: 600 11px/1 inherit; text-align: left; cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.mica-menu-item:hover { background: var(--mica-surface-2); color: var(--mica-text); }
+.mica-menu-item svg { width: 14px; height: 14px; color: var(--mica-text-muted); flex: 0 0 14px; }
+.mica-menu-item:hover svg { color: var(--mica-accent); }
+.mica-dismiss { position: fixed; inset: 0; z-index: 150; display: none; cursor: default; }
+.mica-brand-menu > input:checked ~ .mica-dismiss { display: block; }
+
+.mica-center { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; flex: 0 1 auto; min-width: 0; }
+.mica-seg {
+  display: flex; align-items: center; gap: 2px;
+  padding: 3px; border-radius: var(--mica-radius-pill);
+  background: var(--mica-surface-2);
+  border: 1px solid var(--mica-border-soft);
+}
+.mica-seg button {
+  min-width: 0; height: 22px; padding: 0 8px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  border: 0; border-radius: var(--mica-radius-pill);
+  background: transparent; color: var(--mica-text-muted);
+  font-size: 8px !important; font-weight: 700; line-height: 1; letter-spacing: 0.07em; text-transform: uppercase;
+  font-family: inherit;
+  cursor: pointer; transition: all .18s ease; white-space: nowrap;
+}
+.mica-seg button:hover { color: var(--mica-text); background: var(--mica-surface-2-hover); }
+.mica-seg button svg { width: 11px; height: 11px; flex: 0 0 11px; }
+html.melo-show-playlist [data-melo="toggle-embedded-playlist"],
+html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] {
+  background: var(--mica-surface-solid);
+  color: var(--mica-text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12), inset 0 0 0 1px var(--mica-border-strong);
+}
+html.melo-show-playlist [data-melo="toggle-embedded-playlist"] svg,
+html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] svg { color: var(--mica-accent); }
+
+.mica-actions { display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; flex: 0 0 auto; min-width: 0; }
+.mica-actions button, .mica-win button {
+  width: 30px; height: 28px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 8px; background: transparent; color: var(--mica-text-muted);
+  cursor: pointer; transition: all .16s ease; flex: 0 0 auto;
+}
+.mica-actions button:hover, .mica-win button:hover { background: var(--mica-surface-2); color: var(--mica-text); }
+.mica-actions button.active { background: var(--mica-accent-strong); color: var(--mica-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mica-accent) 26%, transparent); }
+.mica-actions button.active:hover { background: color-mix(in srgb, var(--mica-accent) 28%, transparent); }
+.mica-actions svg, .mica-win svg { width: 14px; height: 14px; }
+.mica-win { display: flex; gap: 2px; margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--mica-border-soft); flex: 0 0 auto; }
+.mica-win .close:hover { background: var(--mica-danger); color: #fff; }
+
+.mica-toggle-solid {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 28px; margin-left: 2px; cursor: pointer; flex: 0 0 32px;
+}
+.mica-toggle-solid input { position: absolute; opacity: 0; width: 0; height: 0; }
+.mica-toggle-track {
+  width: 28px; height: 16px; border-radius: 999px;
+  background: var(--mica-surface-2); border: 1px solid var(--mica-border);
+  position: relative; transition: all .18s ease;
+}
+.mica-toggle-track i {
+  position: absolute; top: 2px; left: 2px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--mica-text-muted); transition: all .18s ease;
+}
+.mica-toggle-solid:hover .mica-toggle-track { border-color: var(--mica-border-strong); }
+.mica-toggle-solid input:checked + .mica-toggle-track {
+  background: var(--mica-accent-soft); border-color: color-mix(in srgb, var(--mica-accent) 40%, transparent);
+}
+.mica-toggle-solid input:checked + .mica-toggle-track i { left: 14px; background: var(--mica-accent); }
+
+/* Stage — fully solid by default (no transparency leak) */
+.mica-stage {
+  position: relative; z-index: 1;
+  min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--mica-surface-solid);
+}
+.mica-field {
+  position: absolute; inset: 10px;
+  border-radius: var(--mica-radius);
+  overflow: hidden;
+  background: var(--mica-surface-solid);
+  border: 1px solid var(--mica-border-soft);
+}
+.mica-field::after {
+  background:
+    radial-gradient(420px 260px at 18% 18%, color-mix(in srgb, var(--mica-accent) 10%, transparent), transparent 70%),
+    radial-gradient(380px 240px at 86% 84%, color-mix(in srgb, #a78bfa 10%, transparent), transparent 70%);
+}
+.mica-viz {
+  position: absolute !important; inset: 0 !important;
+  width: auto !important; height: auto !important;
+  display: block !important; overflow: hidden !important; cursor: pointer;
+}
+.mica-viz canvas { width: 100% !important; height: 100% !important; display: block; opacity: 0.72; }
+
+/* Lyric — left, solid default, transparent mode more see-through */
+.mica-lyric-pill {
+  position: absolute; z-index: 5;
+  top: 12px; left: 12px; transform: none;
+  max-width: min(56%, 460px);
+  padding: 5px 12px;
+  display: inline-flex; align-items: center; gap: 8px;
+  border-radius: var(--mica-radius-pill);
+  background: var(--mica-surface-solid);
+  border: 1px solid var(--mica-border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+  color: var(--mica-text-soft);
+  font-size: 11px; font-weight: 500; line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0.96; cursor: pointer; user-select: none;
+  transition: all .22s ease;
+}
+.mica-lyric-pill.melo-lyric-empty { display: none !important; }
+.mica-lyric-pill.melo-lyric-tick { animation: mica-lyric-in .5s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes mica-lyric-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: .96; transform: translateX(0); }
+}
+
+/* Side panel — solid default, no double scroll */
+.mica-side-panel {
+  position: absolute; z-index: 6;
+  top: 10px; right: 10px; bottom: 10px; width: 340px;
+  display: flex; flex-direction: column;
+  border-radius: var(--mica-radius);
+  background: var(--mica-surface-solid);
+  border: 1px solid var(--mica-border);
+  box-shadow: var(--mica-shadow-soft), inset 0 1px 0 rgba(255,255,255,0.06);
+  transform: translateX(calc(100% + 16px));
+  opacity: 0; pointer-events: none;
+  transition: transform .32s cubic-bezier(.2,.8,.2,1), opacity .22s ease;
+  overflow: hidden;
+}
+html.melo-show-playlist .mica-side-panel,
+html.melo-show-lyrics .mica-side-panel { transform: translateX(0); opacity: 1; pointer-events: auto; }
+.mica-panel-head {
+  height: 38px; flex: 0 0 38px;
+  display: flex; align-items: center; justify-content: flex-start;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--mica-border-soft);
+}
+.mica-panel-head b {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--mica-text-soft);
+}
+.mica-panel-head b::after {
+  content: "QUEUE • LYRICS";
+}
+html.melo-show-playlist .mica-panel-head b::after {
+  content: "QUEUE";
+}
+html.melo-show-lyrics .mica-panel-head b::after {
+  content: "LYRICS";
+}
+.mica-panel-head span { display: none; }
+.mica-panel-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+/* FIX: no double horizontal scroll — outer hidden, inner auto-y only */
+.mica-panel-body [data-melo="embedded-playlist"],
+.mica-panel-body [data-melo="embedded-lyrics"] {
+  position: absolute; inset: 0;
+  display: none; overflow: hidden;
+  padding: 0;
+}
+html.melo-show-playlist .mica-panel-body [data-melo="embedded-playlist"],
+html.melo-show-lyrics .mica-panel-body [data-melo="embedded-lyrics"] { display: block; }
+
+/* inner app panels — single vertical scroll, no horizontal */
+.mica-panel-body .embedded-playlist,
+.mica-panel-body .embedded-lyrics {
+  height: 100% !important; max-height: 100% !important;
+  overflow-y: auto !important; overflow-x: hidden !important;
+  padding: 6px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--mica-accent) 50%, transparent) transparent;
+}
+.mica-panel-body .embedded-playlist::-webkit-scrollbar,
+.mica-panel-body .embedded-lyrics::-webkit-scrollbar { width: 5px; height: 5px; }
+.mica-panel-body .embedded-playlist::-webkit-scrollbar-thumb,
+.mica-panel-body .embedded-lyrics::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--mica-accent) 50%, transparent); border-radius: 999px;
+}
+.mica-panel-body .embedded-playlist::-webkit-scrollbar-track,
+.mica-panel-body .embedded-lyrics::-webkit-scrollbar-track { background: transparent; }
+.mica-panel-body .embedded-playlist-row { min-height: 32px; padding: 4px 8px; border-radius: 8px; transition: background .15s ease; }
+.mica-panel-body .embedded-playlist-row:hover { background: var(--mica-surface-2); }
+.mica-panel-body .embedded-playlist-row.active { background: var(--mica-accent-soft); color: var(--mica-accent); }
+.mica-panel-body .embedded-playlist-row.active .t-title { color: var(--mica-accent); font-weight: 650; }
+.mica-panel-body .track-cover-mini { border-radius: 6px; width: 28px !important; height: 28px !important; }
+.mica-panel-body .embedded-playlist-row .t-title { font-size: 12px !important; line-height: 1.3 !important; font-weight: 600 !important; }
+.mica-panel-body .embedded-playlist-row .t-artist,
+.mica-panel-body .embedded-playlist-row .t-album,
+.mica-panel-body .embedded-playlist-row .t-dur { font-size: 11px !important; line-height: 1.25 !important; }
+.mica-panel-body .embedded-playlist-mini .t-title { font-size: 12px !important; }
+.mica-panel-body .embedded-playlist-row { font-size: 12px !important; }
+.mica-panel-body .lyric-line { font-size: 12px; line-height: 1.55; padding: 4px 10px; border-radius: 8px; color: var(--mica-text-muted); white-space: normal; overflow-wrap: anywhere; }
+.mica-panel-body .lyric-line.active { background: var(--mica-accent-soft); color: var(--mica-text); font-weight: 600; }
+
+/* Bottom — progress + volume in one horizontal line, play button contained */
+.mica-bottom {
+  position: relative; z-index: 2;
+  display: grid; grid-template-columns: 240px minmax(0, 1fr);
+  align-items: center; gap: 12px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--mica-border-soft);
+  background: var(--mica-surface-solid);
+  min-width: 0;
+  height: 68px;
+}
+.mica-now {
+  display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; align-items: center;
+  min-width: 0;
+}
+.mica-art {
+  position: relative; width: 48px; height: 48px; flex: 0 0 48px;
+  border-radius: 9px; overflow: hidden;
+  background: var(--mica-surface-2); border: 1px solid var(--mica-border);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.16);
+}
+.mica-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mica-art-fallback {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--mica-accent);
+  background: radial-gradient(80% 80% at 30% 20%, var(--mica-accent-soft), transparent 70%), linear-gradient(160deg, var(--mica-surface-solid), var(--mica-bg));
+}
+.mica-art-fallback::before {
+  content: ""; position: absolute; width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--mica-accent) 32%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--mica-accent) 7%, transparent), 0 0 0 12px color-mix(in srgb, var(--mica-accent) 4%, transparent);
+}
+.mica-art-fallback svg { width: 16px; height: 16px; position: relative; z-index: 1; }
+.mica-meta { min-width: 0; overflow: hidden; }
+.mica-title { font-size: 12.5px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mica-artist-row { display: flex; align-items: center; gap: 5px; min-width: 0; margin-top: 2px; font-size: 10px; color: var(--mica-text-soft); }
+.mica-artist-row span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mica-artist-row [data-melo="artist"] { font-weight: 600; }
+.mica-artist-row [data-melo="album"] { color: var(--mica-text-muted); }
+.mica-artist-row [data-melo="album"]:empty { display: none; }
+.mica-artist-row .dot { width: 2.5px; height: 2.5px; border-radius: 50%; background: var(--mica-text-faint); flex: 0 0 auto; }
+.mica-artist-row:has([data-melo="album"]:empty) .dot { display: none; }
+.mica-badges { display: none !important; }
+
+.mica-transport {
+  min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  overflow: hidden; justify-content: center;
+}
+.mica-controls { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; }
+.mica-controls button {
+  width: 26px; height: 26px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 8px; background: transparent; color: var(--mica-text-soft);
+  cursor: pointer; transition: all .16s ease; flex: 0 0 auto;
+}
+.mica-controls button:hover { background: var(--mica-surface-2); color: var(--mica-text); }
+.mica-controls button:active { transform: scale(.92); }
+.mica-controls button.active { background: var(--mica-accent-soft); color: var(--mica-accent); }
+.mica-controls svg { width: 12px; height: 12px; }
+.mica-controls .play {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--mica-text); color: var(--mica-bg);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.18); margin: 0 2px;
+}
+.mica-controls .play:hover { background: var(--mica-accent); color: #fff; transform: scale(1.04); box-shadow: 0 5px 16px var(--mica-accent-glow); }
+.mica-controls .play:active { transform: scale(.94); }
+.mica-controls .play svg { width: 14px; height: 14px; }
+
+/* single horizontal line: progress + volume */
+.mica-progress-row {
+  width: 100%; display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.mica-progress-main {
+  flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.mica-time { min-width: 32px; font: 700 9px "Cascadia Mono", Consolas, monospace; color: var(--mica-text-muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.mica-time.end { text-align: right; }
+.mica-range {
+  flex: 1; -webkit-appearance: none; appearance: none;
+  height: 16px; background: transparent; cursor: pointer; outline: none; min-width: 0;
+}
+.mica-range::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 999px;
+  background: linear-gradient(to right, var(--mica-accent) 0%, var(--mica-accent) var(--progress, 0%), var(--mica-track) var(--progress, 0%), var(--mica-track) 100%);
+}
+.mica-range.vol-track::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--mica-accent) 0%, var(--mica-accent) var(--vol, 60%), var(--mica-track) var(--vol, 60%), var(--mica-track) 100%);
+}
+.mica-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--mica-track); }
+.mica-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--mica-accent); }
+.mica-range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px; margin-top: -3.5px; border-radius: 50%;
+  background: var(--mica-surface-solid); border: 2px solid var(--mica-accent); box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  opacity: 0; transition: opacity .18s ease;
+}
+.mica-range:hover::-webkit-slider-thumb, .mica-range:active::-webkit-slider-thumb { opacity: 1; }
+.mica-range::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; background: var(--mica-surface-solid); border: 2px solid var(--mica-accent); }
+
+.mica-vol-group {
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto; min-width: 0;
+  padding-left: 8px; border-left: 1px solid var(--mica-border-soft);
+}
+.mica-vol-icon {
+  width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px;
+  color: var(--mica-text-muted); cursor: pointer; transition: all .15s ease; flex: 0 0 24px;
+}
+.mica-vol-icon:hover { background: var(--mica-surface-2); color: var(--mica-text); }
+.mica-vol-icon.muted { color: var(--mica-danger); }
+.mica-vol-icon svg { width: 12px; height: 12px; }
+.mica-vol-group .mica-range { width: 72px; flex: 0 0 72px; }
+.mica-vol-pct { display: none !important; }
+
+/* Transparent mode — when ON, everything becomes translucent (like original mica) */
+html:has(#micaTransparent:checked),
+html:has(#micaTransparent:checked) body,
+body:has(#micaTransparent:checked) {
+  background: transparent !important;
+}
+html:has(#micaTransparent:checked) #melo-player,
+html:has(#micaTransparent:checked) body.tauri-main .player-card,
+html:has(#micaTransparent:checked) body.custom-skin-active .player-card,
+body:has(#micaTransparent:checked) #melo-player,
+body:has(#micaTransparent:checked).tauri-main .player-card {
+  background: color-mix(in srgb, var(--mica-bg) 72%, transparent) !important;
+  backdrop-filter: blur(22px) saturate(1.25);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  border-color: var(--mica-border) !important;
+}
+.mica-root:has(#micaTransparent:checked) { background: color-mix(in srgb, var(--mica-surface) 72%, transparent); backdrop-filter: blur(20px) saturate(1.2); -webkit-backdrop-filter: blur(20px) saturate(1.2); }
+.mica-root:has(#micaTransparent:checked)::before,
+.mica-root:has(#micaTransparent:checked) .mica-field::after { display: block; }
+.mica-root:has(#micaTransparent:checked) .mica-topbar,
+.mica-root:has(#micaTransparent:checked) .mica-bottom,
+.mica-root:has(#micaTransparent:checked) .mica-side-panel,
+.mica-root:has(#micaTransparent:checked) .mica-menu {
+  background: color-mix(in srgb, var(--mica-surface) 78%, transparent);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+}
+.mica-root:has(#micaTransparent:checked) .mica-stage { background: transparent; }
+.mica-root:has(#micaTransparent:checked) .mica-field {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--mica-surface) 86%, transparent), color-mix(in srgb, var(--mica-bg) 62%, transparent));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.mica-root:has(#micaTransparent:checked) .mica-side-panel {
+  background: color-mix(in srgb, var(--mica-surface) 86%, transparent);
+  backdrop-filter: blur(24px) saturate(1.25);
+  -webkit-backdrop-filter: blur(24px) saturate(1.25);
+}
+.mica-root:has(#micaTransparent:checked) .mica-menu {
+  background: color-mix(in srgb, var(--mica-surface-solid) 92%, transparent);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+.mica-root:has(#micaTransparent:checked) .mica-lyric-pill {
+  background: color-mix(in srgb, var(--mica-surface-solid) 44%, transparent);
+  border-color: color-mix(in srgb, var(--mica-border) 70%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  opacity: 0.88;
+}
+
+/* Responsive — keep footer low */
+@media (max-width: 820px) {
+  .mica-root { grid-template-rows: 48px minmax(0, 1fr) 68px; }
+  .mica-bottom { grid-template-columns: 200px minmax(0, 1fr); gap: 10px; padding: 6px 10px; height: 68px; }
+  .mica-now { grid-template-columns: 40px minmax(0, 1fr); gap: 8px; }
+  .mica-art { width: 40px; height: 40px; flex-basis: 40px; }
+  .mica-vol-group .mica-range { width: 60px; flex-basis: 60px; }
+}
+@media (max-width: 680px) {
+  .mica-root { grid-template-rows: 44px minmax(0, 1fr) 64px; }
+  .mica-topbar { padding: 0 8px 0 10px; gap: 6px; }
+  .mica-brand { font-size: 10px; }
+  .mica-seg button { height: 20px; padding: 0 7px; }
+  .mica-actions button { width: 26px; height: 24px; }
+  .mica-field { inset: 8px; }
+  .mica-lyric-pill { top: 8px; left: 8px; max-width: calc(100% - 16px); font-size: 10px; padding: 4px 10px; }
+  .mica-side-panel { top: 8px; right: 8px; bottom: 8px; width: calc(100% - 16px); max-width: none; }
+  .mica-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 8px; padding: 6px 8px; height: 64px; }
+  .mica-now { grid-template-columns: 36px minmax(0, 1fr); gap: 6px; }
+  .mica-art { width: 36px; height: 36px; flex-basis: 36px; }
+  .mica-title { font-size: 11px; }
+  .mica-artist-row { font-size: 9px; }
+  .mica-controls button { width: 24px; height: 24px; }
+  .mica-controls .play { width: 32px; height: 32px; }
+  .mica-progress-row { gap: 6px; }
+  .mica-vol-group { padding-left: 6px; gap: 4px; }
+  .mica-vol-group .mica-range { width: 52px; flex-basis: 52px; }
+  .mica-time { min-width: 24px; font-size: 8px; }
+}
+@media (max-width: 480px) {
+  .mica-root { grid-template-rows: 42px minmax(0, 1fr) 60px; }
+  .mica-topbar { padding: 0 6px 0 8px; }
+  .mica-brand small { display: none !important; }
+  .mica-actions button { width: 24px; height: 22px; }
+  .mica-win { margin-left: 3px; padding-left: 3px; }
+  .mica-toggle-solid { display: none; }
+  .mica-bottom { grid-template-columns: 1fr; gap: 4px; padding: 6px 8px; height: 60px; }
+  .mica-now { display: none; }
+  .mica-transport { gap: 4px; }
+  .mica-progress-row { gap: 6px; }
+}
+@media (max-width: 380px) {
+  #melo-player, body.tauri-main .player-card, body.custom-skin-active .player-card { border-radius: 0 !important; }
+  .mica-root { grid-template-rows: 40px minmax(0, 1fr) 56px; }
+  .mica-field { inset: 6px; border-radius: 12px; }
+  .mica-side-panel { border-radius: 12px; inset: 6px; width: auto; }
+  .mica-bottom { height: 56px; padding: 4px 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+@keyframes mica-pop {
+  from { opacity: 0; transform: translateY(-6px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+button:focus-visible, input:focus-visible, .mica-brand-trigger:focus-visible { outline: 2px solid var(--mica-accent); outline-offset: 2px; }
+.mica-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body data-window-width="720" data-window-height="420" data-min-width="500" data-min-height="230" data-max-width="1280" data-max-height="800" data-resizable="true">
+<div id="melo-player">
+  <div class="mica-root">
+    <header class="mica-topbar" data-tauri-drag-region>
+      <div class="mica-brand-group">
+        <div class="mica-brand-menu">
+          <input id="micaMenuToggle" type="checkbox">
+          <label class="mica-brand-trigger" for="micaMenuToggle" title="Menu">
+            <span class="mica-brand">
+              <span class="mica-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v12M8 6c5-2 8-1 8 1v8M8 18c5-2 8-1 8 1"/><circle cx="6" cy="18" r="2"/><circle cx="16" cy="15" r="2"/></svg></span>
+              MICA 2
+            </span>
+            <svg class="mica-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+          </label>
+          <div class="mica-menu">
+            <label class="mica-menu-item" for="micaMenuToggle" data-melo="add-files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>Add files</label>
+            <label class="mica-menu-item" for="micaMenuToggle" data-melo="add-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 10v6M9 13h6"/></svg>Add folder</label>
+            <label class="mica-menu-item" for="micaMenuToggle" data-melo="theme-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Toggle theme</label>
+          </div>
+          <label class="mica-dismiss" for="micaMenuToggle" aria-label="Close menu"></label>
+        </div>
+      </div>
+
+      <div class="mica-center">
+        <div class="mica-seg" role="tablist" aria-label="Stage">
+          <button type="button" data-melo="toggle-embedded-playlist" id="micaQueueBtn" title="Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg> Queue</button>
+          <button type="button" data-melo="toggle-embedded-lyrics" id="micaLyricsBtn" title="Lyrics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg> Lyrics</button>
+        </div>
+      </div>
+
+      <div class="mica-actions">
+        <button type="button" id="btnToggleLibrary" data-melo="toggle-library" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M10 6v14M15 8v12M20 10v10"/></svg></button>
+        <button type="button" id="btnTogglePlaylist" data-melo="toggle-playlist" title="Playlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button>
+        <button type="button" id="btnToggleEq" data-melo="toggle-eq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
+        <button type="button" id="btnToggleLyrics" data-melo="toggle-lyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg></button>
+        <button type="button" id="btnOpenSettings" data-melo="toggle-settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+        <label class="mica-toggle-solid" title="Transparent"><input id="micaTransparent" type="checkbox"><span class="mica-toggle-track"><i></i></span></label>
+        <div class="mica-win">
+          <button type="button" data-melo="minimize" aria-label="minimize" title="Minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+          <button type="button" class="close" data-melo="close" aria-label="close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+      </div>
+    </header>
+
+    <main class="mica-stage">
+      <div class="mica-field">
+        <div class="mica-viz" data-melo="visualizer" data-bars="42"></div>
+      </div>
+      <div class="mica-lyric-pill" data-melo="current-lyric" aria-live="polite" title="Click to seek"></div>
+      <div class="mica-hidden" data-melo="next-lyric" aria-hidden="true"></div>
+
+      <aside class="mica-side-panel">
+        <div class="mica-panel-head"><b></b></div>
+        <div class="mica-panel-body">
+          <div data-melo="embedded-playlist"></div>
+          <div data-melo="embedded-lyrics"></div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="mica-bottom">
+      <div class="mica-now">
+        <div class="mica-art">
+          <img data-melo="cover" alt="Cover" style="display:none">
+          <div class="mica-art-fallback" data-melo="cover-fallback" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="24" cy="24" r="14"/><circle cx="24" cy="24" r="5"/><path d="M24 10v7M38 24h-7M24 38v-7M10 24h7"/></svg></div>
+        </div>
+        <div class="mica-meta">
+          <div class="mica-title" data-melo="title">No track loaded</div>
+          <div class="mica-artist-row"><span data-melo="artist">Add music to begin</span><span class="dot"></span><span data-melo="album"></span></div>
+        </div>
+      </div>
+
+      <div class="mica-transport">
+        <div class="mica-controls">
+          <button type="button" data-melo="shuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg></button>
+          <button type="button" data-melo="prev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg></button>
+          <button type="button" data-melo="stop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+          <button type="button" class="play" data-melo="play" title="Play / Pause">
+            <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button type="button" data-melo="next" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg></button>
+          <button type="button" data-melo="repeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+        </div>
+        <div class="mica-progress-row">
+          <div class="mica-progress-main">
+            <span class="mica-time" data-melo="current-time">0:00</span>
+            <input class="mica-range" type="range" data-melo="seek" min="0" max="100" value="0" aria-label="Seek">
+            <span class="mica-time end" data-melo="duration">0:00</span>
+          </div>
+          <div class="mica-vol-group">
+            <span class="mica-vol-icon" data-melo="volume-icon" title="Mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M11 5 6 9H2v6h4l5 4V5zM15 9.5a4 4 0 0 1 0 5M18 7a8 8 0 0 1 0 10"/></svg></span>
+            <input class="mica-range vol-track" type="range" data-melo="volume" min="0" max="100" value="60" aria-label="Volume">
+          </div>
+        </div>
+      </div>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

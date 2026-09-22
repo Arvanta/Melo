@@ -249,8 +249,11 @@
   [data-melo="embedded-playlist"],
   [data-melo="embedded-lyrics"] {
     position: absolute; inset: 0;
-    overflow-y: auto; overscroll-behavior: contain;
-    padding: 2px 4px 4px 0;
+    /* the app-level inner panels (.embedded-playlist / .embedded-lyrics)
+       already scroll themselves — this hook must NOT scroll too, or every
+       embedded panel shows TWO vertical scrollbars */
+    overflow: hidden; overscroll-behavior: contain;
+    padding: 0;
   }
   /* custom scrollbar — embedded playlist & lyrics (hook + inner panels) */
   [data-melo="embedded-playlist"],
@@ -427,6 +430,30 @@
     .ar-vinyl { width: 130px; height: 130px; }
     .ar-title { font-size: 15px; }
   }
+
+  /* Optional current-line lyric slot (synced-LRC engine, Settings switch).
+     Aria: a quiet accent chip in the chips row; each new line is revealed
+     by a left-to-right wipe, like a line being typed onto glass. */
+  .ar-current-lyric {
+    display: block; flex: 0 1 auto; min-width: 0;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+    font-size: 8.5px; font-weight: 700; letter-spacing: .08em; line-height: 1.5;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    padding: 2px 9px; border-radius: 999px;
+  }
+  .ar-current-lyric::before {
+    content: ""; display: inline-block; width: 3px; height: 3px; margin-right: 6px;
+    border-radius: 50%; background: var(--accent); vertical-align: 2px;
+  }
+  .ar-current-lyric.melo-lyric-tick { animation: ar-lyric-wipe .65s cubic-bezier(.3, 1, .35, 1) both; }
+  @keyframes ar-lyric-wipe {
+    from { clip-path: inset(0 100% 0 0); }
+    to   { clip-path: inset(0 -6% 0 0); }
+  }
+  .ar-current-lyric.melo-lyric-empty { display: none !important; }
+  html.melo-show-lyrics .ar-current-lyric { display: none !important; }
 </style>
 </head>
 <body data-window-width="340" data-window-height="640" data-min-width="300" data-min-height="626" data-max-width="460" data-max-height="900" data-resizable="true">
@@ -467,6 +494,7 @@
         <div class="ar-chips">
           <span class="ar-chip hi" data-melo="codec" id="trackCodec"></span>
           <span class="ar-chip" data-melo="specs" id="trackSpecs"></span>
+          <div class="ar-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
         </div>
       </div>
 

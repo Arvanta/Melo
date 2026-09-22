@@ -12,7 +12,11 @@ export async function busEmit(name: string, payload?: any) {
       return;
     } catch {}
   }
-  window.dispatchEvent(new CustomEvent(name, { detail: payload }));
+  // Explicit `bubbles: false`: `busOn` listeners attach to `window` (the top
+  // of the target tree), so bubbling is pure overhead and a footgun — an
+  // unrelated document-level handler could pick the event up. Don't
+  // "fix" a missed event with `{ bubbles: true }`.
+  window.dispatchEvent(new CustomEvent(name, { detail: payload, bubbles: false }));
 }
 
 export function busOn(name: string, cb: (payload: any) => void) {

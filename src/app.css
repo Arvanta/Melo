@@ -1,15 +1,10 @@
 /* Inter, bundled locally — Melo makes no network requests at all.
- *
- * This is the VARIABLE build (wght axis 100..900), not the 5 static weights
- * that used to be pulled from Google Fonts. The UI and the shipped skins ask
- * for in-between weights (450, 620, 650, 680, 690, 750, 760, 780, 790, 820);
- * with static weights the browser had to snap or synthesise those, so they
- * never rendered as authored. One axis covers all of them exactly.
- *
+ * The VARIABLE build (wght 100..900): the UI and the shipped skins ask for
+ * in-between weights (450, 620, 650, 680, 750, 780, 820, …) that static
+ * weights would snap or synthesise. One axis covers all of them exactly.
  * File: public/fonts/inter-variable-latin.woff2 (47 KB, latin subset).
  * Licence: SIL Open Font License 1.1 — public/fonts/Inter-LICENSE.txt.
- * Characters outside the latin subset (symbols, emoji) fall back to the
- * system font, exactly as they did with the Google-hosted latin subset.
+ * Characters outside the latin subset fall back to the system font.
  */
 @font-face {
   font-family: 'Inter';
@@ -19,6 +14,26 @@
   src: url('/fonts/inter-variable-latin.woff2') format('woff2-variations');
 }
 
+/* z-index stack contract.
+ *
+ * A wide, deliberately-gapped ladder (1 → 10002) so any new layer slots in
+ * without renumbering:
+ *
+ *   1      library search-row `.library-action > *` (over the scan bar, z=0)
+ *   2      sticky album head inside the Library drill view (beats row hover)
+ *   10+    floating windows via bringToFront() (zCounter increments per click)
+ *   999    floating window while .dragging (always on top)
+ *   3000   visualizer mode context menu (right-click on bars)
+ *   4000   library right-click context menu (.ctx-menu)
+ *   4500   bulk-action bar (multi-selected tracks)
+ *   9999   toast notifications
+ *   10000  confirm-overlay (in-app destructive prompt)
+ *   10001  library-manage-overlay (above confirm)
+ *   10002  confirm-overlay.inside-manage (confirm opened FROM Manage)
+ *
+ * New layers go into the nearest gap — never reuse a value: bringToFront
+ * increments per click, so equal values would compete unpredictably.
+ */
 :root {
   --bg: #dbe6f0;
   --bg-gradient: radial-gradient(1200px 600px at 50% -10%, #e8eef6 0%, #dbe6f0 45%, #c8d6e8 100%);
@@ -103,9 +118,15 @@ body {
   min-width: 260px;
   min-height: 180px;
   transition: box-shadow 0.15s, opacity 0.18s;
-  will-change: left, top, width, height;
 }
 .float-win.hidden { display: none !important; }
+/* `will-change` permanently forces a compositor layer for the app's
+lifetime. Promote only while a drag/resize actually animates left/top/
+width/height; drop it again on mouseup. */
+.float-win.dragging,
+.float-win.resizing {
+  will-change: left, top, width, height;
+}
 .float-win.dragging { opacity: 0.92; box-shadow: 0 24px 60px rgba(0,0,0,0.22); z-index: 999 !important; }
 .float-win.resizing { user-select: none; }
 .float-win.active { box-shadow: 0 20px 50px rgba(30,50,80,0.22), 0 8px 20px rgba(30,50,80,0.14); }
@@ -156,10 +177,11 @@ body {
   flex-direction: column;
   align-items: stretch;
   gap: 0;
-  padding: 12px 20px 14px 20px;
+  /* Bottom padding 14 -> 19: the +5px window height lives here */
+  padding: 12px 20px 19px 20px;
   position: relative;
-  min-height: 240px;
-  height: 240px;
+  min-height: 245px;
+  height: 245px;
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -291,26 +313,21 @@ html.melo-show-playlist .player-stage > [data-melo="embedded-playlist"],
 html.melo-show-lyrics .player-stage > [data-melo="embedded-lyrics"] { display: block !important; }
 
 /* --- Current synced-lyric line (default skin) ---------------------------
-   Sits in the free space directly above the visualizer. It is filled by
-   src/lyric-line.ts ONLY when the user turns on Settings → General → "Show
-   current lyric line in skins" and the playing track has a synced .lrc.
+Sits in the free space above the visualizer; filled by src/lyric-line.ts
+ONLY when the setting is on and the track has a synced .lrc.
 
-   Absolutely positioned on purpose: the line appears/disappears without
-   ever nudging the visualizer (a line in the flex flow would re-centre the
-   bars and make them bounce up and down between tracks).
+Absolutely positioned on purpose: the line appears/disappears without
+nudging the visualizer (in the flex flow it would re-centre the bars and
+make them bounce between tracks).
 
-   `display: block !important` deliberately overrides the engine's inline
-   `display:none`: showing/hiding here is handled by the opacity +
-   translateY transition instead, so the line can fade and slide in/out
-   smoothly. Every state that should hide it (setting off, no synced LRC,
-   playlist/lyrics mode) leaves the element at opacity 0 with
-   `pointer-events: none`, i.e. invisible and non-interactive — and, being
-   absolutely positioned, with zero impact on the layout. */
-/* The band is the whole free area between the top of the stage and the top
-   edge of the 56px visualizer — which, because the visualizer is centred in
-   the stage, is exactly `top: 0` → `bottom: calc(50% + 28px)` at any stage
-   height. The line is centred inside that band by flex, so it always sits in
-   the middle of the empty space above the bars instead of hugging them. */
+`display: block !important` overrides the engine's inline `display:none` —
+show/hide is done via the opacity + translateY transition instead, so the
+line fades and slides. Every hidden state leaves it at opacity 0 with
+`pointer-events: none`: invisible, non-interactive, zero layout impact. */
+/* The band is the free area between the stage top and the top edge of the
+56px visualizer: because the visualizer is centred in the stage, that is
+exactly `top: 0` → `bottom: calc(50% + 28px)`. Flex centres the line
+inside the band, so it floats in the middle of the empty space. */
 .player-stage .stage-lyric-band {
   position: absolute;
   left: 0; right: 0;
@@ -364,7 +381,9 @@ html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
   opacity: 0.45;
   transform: scaleX(var(--melo-lyric-progress, 0));
   transform-origin: left center;
-  transition: transform 0.18s linear;
+  /* No CSS transition — the engine updates the variable every animation
+  frame while playing (already smooth); a transition only added lag. */
+  transition: none;
 }
 /* Every new line rises gently into place (the engine re-triggers the
    `melo-lyric-tick` class each time the active line changes). */
@@ -463,6 +482,13 @@ html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
 [data-theme="dark"] .playlist-item, [data-theme="dark"] .track-row { border-color: rgba(255,255,255,0.04); }
 .playlist-item:hover, .track-row:hover { background: var(--track-bg); }
 .playlist-item.active, .track-row.active { background: rgba(42,123,214,0.12); }
+/* Drag-to-reorder (Playlist window) */
+.track-row.dragging { opacity: 0.45; }
+/* Pointer-based row reorder: while a drag is armed the whole document
+shows the grabbing cursor (WebView2's native DnD put the "not allowed"
+glyph on every target). */
+body.row-reordering, body.row-reordering * { cursor: grabbing !important; user-select: none !important; }
+.track-row.drop-target { box-shadow: inset 0 2px 0 0 var(--accent, #2a7bd6); }
 .track-row .num { font-size: 11px; color: var(--text-muted); min-width: 18px; text-align: center; }
 .track-row .t-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-row .t-artist { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -475,7 +501,10 @@ html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
 .chip { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: var(--track-bg); color: var(--text-soft); border: 1px solid var(--card-border); cursor: pointer; white-space: nowrap; }
 .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
 .tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--card-border); overflow-x: auto; align-items: center; }
-.lib-view-switch { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
+.lib-switches { margin-left: auto; display: flex; align-items: center; gap: 18px; flex-shrink: 0; }
+.lib-view-switch, .lib-layout-switch { display: flex; gap: 2px; flex-shrink: 0; }
+.lib-layout-switch { padding-right: 18px; border-right: 1px solid var(--card-border); }
+.lib-view-btn:disabled, .lib-view-btn.disabled { opacity: .35; cursor: default; pointer-events: none; }
 .lib-view-btn {
   width: 24px; height: 24px; padding: 0; border-radius: 6px; border: none;
   background: transparent; color: var(--text-muted); display: grid; place-items: center; cursor: pointer;
@@ -546,6 +575,8 @@ html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
 .switch.on { background: var(--accent); border-color: var(--accent); }
 .switch::after { content:""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,0.2); transition: transform 0.18s; }
 .switch.on::after { transform: translateX(16px); }
+/* Keyboard focus ring for the accessible switches . */
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .settings-select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--track-bg); color: var(--text); font-size: 12px; outline: none; }
 
 .settings-row.disabled-row { opacity: 0.45; pointer-events: none; }
@@ -573,13 +604,15 @@ html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
 /* Drag & drop feedback */
 .track-row[draggable="true"], .playlist-item[draggable="true"] { cursor: grab; }
 .track-row[draggable="true"]:active { cursor: grabbing; }
-.drop-zone.drag-over, .player-card.drag-over {
+/* The drag-over tint + dashed outline were removed: drops happen with no
+visual feedback. The .drop-zone variant stays for the playlist's internal
+drag target. */
+.drop-zone.drag-over {
   outline: 2px dashed var(--accent);
   outline-offset: -3px;
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   border-radius: 12px;
 }
-.player-card.drag-over { outline-offset: -6px; }
 /* ===== Real OS-window panels (Tauri secondary windows) ===== */
 .panel-root {
   height: 100vh;
@@ -603,6 +636,18 @@ html.melo-lyric-skin-on:not(.melo-show-playlist):not(.melo-show-lyrics)
 .panel-title { display:flex; align-items:center; gap:8px; min-width:0; -webkit-app-region:drag; }
 .panel-titlebar .win-controls { display:flex; gap:3px; -webkit-app-region:no-drag; }
 .panel-titlebar .win-btn { width:30px; height:26px; }
+/* The copied `.panel-header` must fit INSIDE the 40px titlebar: its
+standalone padding + border made ~57px of content, and `overflow-x:hidden`
+forces overflow-y to compute as auto — a tiny vertical scrollbar appeared.
+Fit the header into the bar; the bar itself never scrolls. */
+.panel-titlebar { overflow: hidden; }
+.panel-window .panel-titlebar .panel-header {
+  padding: 0;
+  border-bottom: none;
+  background: none;
+  height: 100%;
+  min-width: 0;
+}
 .panel-body {
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
@@ -617,7 +662,7 @@ body.tauri-main .app-shell { padding: 0; gap: 0; height: 100vh; min-height: 100v
 body.tauri-main .player-card {
   border: 1px solid var(--card-border); border-radius: var(--radius); box-shadow: none;
   height: 100vh; min-height: 100vh; max-height: 100vh;
-  width: 100%; padding: 12px 20px 14px 20px; box-sizing: border-box; overflow: hidden;
+  width: 100%; padding: 12px 20px 19px 20px; box-sizing: border-box; overflow: hidden;
 }
 .skin-frame { width: 100%; height: 100%; border: none; border-radius: var(--radius); }
 .muted { color: var(--text-muted); }
@@ -714,6 +759,9 @@ body.show-stop-btn #btnStop { display: inline-flex; }
   color: var(--text); cursor: pointer; text-align: left;
 }
 .ctx-item:hover { background: var(--track-bg); }
+/* display:flex above overrides the UA [hidden] rule, which made context
+menus show BOTH remove variants at once. */
+.ctx-item[hidden] { display: none !important; }
 .ctx-item.danger { color: #e5484d; }
 .ctx-item.danger:hover { background: rgba(229,72,77,0.12); }
 
@@ -754,12 +802,14 @@ body.show-stop-btn #btnStop { display: inline-flex; }
   background: var(--track-bg);
 }
 .lyric-line.active {
-  font-size: 15.5px;
-  font-weight: 800;
+  /* The active line NEVER declares a font-size — it carries .lyric-line
+  too, so it gets exactly its siblings' size in EVERY context (13.5px in
+  the standalone Lyrics window, 11px in the player stage). Emphasis is
+  color plus ONE light weight step above the 500 base: 600. */
+  font-weight: 600;
   color: var(--accent);
-  text-shadow: 0 0 16px var(--accent-glow, rgba(42,123,214,0.35));
-  transform: scale(1.03);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.09);
 }
 .lyric-line.passed {
   color: var(--text-soft);
@@ -788,25 +838,20 @@ body.show-stop-btn #btnStop { display: inline-flex; }
 .embedded-playlist-row.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .embedded-playlist-row .ep-meta { flex: 1; min-width: 0; }
 .embedded-playlist-row .t-title { font-size: 1em; }
-/* Default skin only: the embedded playlist has little horizontal room in the
-   player stage, so its title runs 0.8em there. Scoped to `.player-stage`
-   (the default card's container, absent from every skin's own markup) so
-   skins that embed the playlist keep the full-size 1em title they had
-   before — this rule is NOT global on purpose. */
+/* Default skin only: the embedded playlist title runs 0.8em in the tight
+player stage. Scoped to `.player-stage` (absent from skin markup) so
+skins that embed the playlist keep their full-size 1em title — this rule
+is NOT global on purpose. */
 .player-stage .embedded-playlist-row .t-title { font-size: 0.8em; }
 .embedded-playlist-row .t-artist { font-size: 0.85em; color: var(--text-muted); }
 .embedded-playlist-empty { padding: 20px 8px; text-align: center; color: var(--text-muted); font-size: 12px; }
 .embedded-lyrics { overflow-y: auto; height: 100%; }
 .embedded-lyrics-title { font-size: 12px; font-weight: 700; color: var(--text-muted); padding: 0 8px 6px; }
-/* Default skin only — same reasoning as the playlist title above: the
-   default player stage holds the embedded lyrics in a much smaller box than
-   the standalone Lyrics window, where the active line used to inherit the
-   full 15.5px of .lyric-line.active and dominated the panel. 13px still
-   reads as clearly highlighted against the 11px base of
-   .player-stage .lyric-line. Scoped to `.player-stage` so skins that embed
-   lyrics (aria, haven, hira, koto, …) keep the previous inherited 15.5px,
-   and the standalone Lyrics window is untouched either way. */
-.player-stage .embedded-lyrics .lyric-line.active { font-size: 13px; }
+/* No stage font-size override for the embedded box: `inherit` resolved
+to the EMBED CONTAINER's size instead of the 11px sibling base and made
+the active line visibly larger. The active line declares no font-size
+anywhere and follows `.player-stage .lyric-line` (11px). */
+
 
 /* Optional skin slot: the *current* synced-lyric line (see
    src/lyric-line.ts and skins/README.md §5.7). A skin decides where to put
@@ -825,12 +870,11 @@ body.show-stop-btn #btnStop { display: inline-flex; }
   cursor: pointer; user-select: none;
 }
 
-/* Skins decide the actual show/hide behavior for these two states in
-   their own CSS (e.g. hide [data-melo="visualizer"] and show
-   [data-melo="embedded-playlist"] when html.melo-show-playlist is set).
-   These base rules just keep the panels invisible until a skin explicitly
-   opts in, so an active toggle button never shows an empty gap on a skin
-   that doesn't have the panel positioned/sized yet. */
+/* Skins decide the show/hide behavior for these two states in their own
+CSS (e.g. swap [data-melo="visualizer"] and
+[data-melo="embedded-playlist"] under html.melo-show-playlist). The base
+rules keep the panels invisible until a skin opts in, so an active
+toggle button never shows an empty gap. */
 html:not(.melo-show-playlist) [data-melo="embedded-playlist"] { display: none; }
 html:not(.melo-show-lyrics) [data-melo="embedded-lyrics"] { display: none; }
 
@@ -939,13 +983,24 @@ body.panel-window {
 .panel-window .track-row .btn {
   flex: 0 0 auto;
 }
+/* The playlist toolbar never wraps and every flexible piece can shrink:
+the fixed-width sort select + buttons + search used to force a layout
+"step" (wrap) below ~421px. The panel stays smooth to its 360px
+minimum. */
+.panel-window .playlist-toolbar {
+  flex-wrap: nowrap;
+}
 .panel-window .playlist-toolbar .playlist-search-wrap {
-  flex: 1 1 160px;
-  min-width: 120px;
+  flex: 1 1 100px;
+  min-width: 60px;
 }
 .panel-window .playlist-toolbar #playlistSelect {
-  flex: 1 1 120px;
-  min-width: 80px;
+  flex: 1 1 90px;
+  min-width: 56px;
+}
+.panel-window .playlist-toolbar #playlistSortSelect {
+  flex: 0 1 92px;
+  min-width: 62px;
 }
 .panel-window .playlist-toolbar #playlistSortSelect {
   flex: 0 0 auto;
@@ -958,60 +1013,56 @@ body.panel-window {
 }
 
 @media (max-width: 420px) {
-  .panel-window .panel-titlebar {
+  /* The PLAYLIST and LIBRARY panels are EXEMPT from this compact pass:
+  their layout must not change AT ALL near 421px (or at any other width). */
+  .panel-window:not(.panel-playlist):not(.panel-library) .panel-titlebar {
     padding-left: 9px;
   }
-  .panel-window .panel-titlebar .win-btn {
+  .panel-window:not(.panel-playlist):not(.panel-library) .panel-titlebar .win-btn {
     width: 27px;
   }
-  .panel-window .search-wrap {
+  .panel-window:not(.panel-playlist):not(.panel-library) .search-wrap {
     padding-left: 9px !important;
     padding-right: 9px !important;
   }
-  .panel-window .search-wrap svg { left: 18px; }
-  .panel-window .tabs { padding-left: 7px; padding-right: 7px; }
-  .panel-window .track-row,
-  .panel-window .lib-item {
+  .panel-window:not(.panel-playlist):not(.panel-library) .search-wrap svg { left: 18px; }
+  .panel-window:not(.panel-playlist):not(.panel-library) .tabs { padding-left: 7px; padding-right: 7px; }
+  .panel-window:not(.panel-playlist):not(.panel-library) .track-row,
+  .panel-window:not(.panel-playlist):not(.panel-library) .lib-item {
     padding-left: 8px;
     padding-right: 8px;
     gap: 7px;
   }
-  /* Mini covers keep their full 32px at every width — even at the 360px
-     native minimum of the Playlist/Library windows the row still fits
-     comfortably (cover + number + time + × button leave ~200px for the
-     title/artist, which ellipsise anyway). Shrinking them here used to make
-     the artwork visibly resize at the 420px breakpoint. */
-  .panel-window .track-row .num { min-width: 14px; }
-  .panel-window .playlist-toolbar {
+  /* Mini covers keep their full 32px at every width: even at the 360px
+  native minimum the row fits (~200px remain for the ellipsised
+  title/artist). Shrinking them made the artwork visibly resize at the
+  420px breakpoint. */
+  .panel-window:not(.panel-playlist):not(.panel-library) .track-row .num { min-width: 14px; }
+  .panel-window:not(.panel-playlist):not(.panel-library) .playlist-toolbar {
     gap: 5px !important;
   }
-  .panel-window .playlist-toolbar #playlistSortSelect {
+  .panel-window:not(.panel-playlist):not(.panel-library) .playlist-toolbar #playlistSortSelect {
     width: 88px !important;
     font-size: 10.5px !important;
   }
-  .panel-window .playlist-footer-actions .btn {
+  .panel-window:not(.panel-playlist):not(.panel-library) .playlist-footer-actions .btn {
     padding-left: 7px;
     padding-right: 7px;
   }
-  .panel-window .tag-editor-grid {
+  .panel-window:not(.panel-playlist):not(.panel-library) .tag-editor-grid {
     grid-template-columns: 1fr !important;
   }
-  .panel-window .settings-row {
+  .panel-window:not(.panel-playlist):not(.panel-library) .settings-row {
     flex-wrap: wrap;
     align-items: flex-start;
   }
 }
 
-/* NOTE: there used to be an `@media (max-width: 360px)` block here that
-   shrank the mini covers to 26px and pulled the row padding/margins/gaps in
-   (`padding: 6px !important`, `margin: 3px !important`, `gap: 6px
-   !important`, `.num` 12px, × button 20px, footer padding 3px). Because it
-   sat exactly on the window's native minimum width, 360px looked different
-   from 361px — the rows visibly re-inset, the covers shrank and the boxes
-   "jumped" as the user dragged the window edge. The row fits at 360px with
-   the normal metrics (verified: ~156px of fixed content leaves ~200px for
-   the ellipsised title/artist), so the block was removed rather than
-   re-tuned. Do not re-add width-dependent shrinking here. */
+/* NOTE: do NOT re-add width-dependent shrinking at 360px. An old
+`@media (max-width: 360px)` block sat exactly on the window's native
+minimum, so 360px looked different from 361px — rows re-inset, covers
+shrank and boxes jumped while dragging the window edge. The row fits at
+360px with the normal metrics. */
 
 
 /* Rows inside scrollable flex lists must keep their intrinsic height. Without
@@ -1074,12 +1125,8 @@ body.panel-window {
 .vol-icon:hover { color: var(--accent); }
 .vol-icon.muted { color: var(--text-muted); opacity: .65; }
 
-@media (max-width: 420px) {
-  .panel-window .library-search-row { padding: 8px !important; gap: 4px; }
-  .panel-window .library-search-row .search-wrap { padding: 0 !important; }
-  .panel-window .library-search-row .search-wrap svg { left: 9px !important; }
-  .panel-window .library-action { padding-left: 7px; padding-right: 7px; }
-}
+/* The second 420px block (library search row compacting) was DELETED:
+the Library panel is width-invariant, just like the Playlist panel. */
 
 
 /* In-app confirmation used by destructive Library actions. */
@@ -1088,6 +1135,9 @@ body.panel-window {
   display: grid; place-items: center; padding: 18px;
   background: rgba(5, 10, 20, .52); backdrop-filter: blur(3px);
 }
+/* Confirms opened FROM the Manage dialog must stack ABOVE it
+(z 10000 < manage 10001), not underneath. */
+.confirm-overlay.inside-manage { z-index: 10002; }
 .confirm-dialog {
   width: min(360px, 100%); padding: 16px;
   border-radius: 14px; border: 1px solid var(--card-border);
@@ -1096,13 +1146,18 @@ body.panel-window {
 .confirm-title { font-size: 14px; font-weight: 750; margin-bottom: 7px; }
 .confirm-message { font-size: 12px; line-height: 1.55; color: var(--text-soft); }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 15px; }
+.confirm-input { width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--track-bg); color: var(--text); font-size: 13px; outline: none; box-sizing: border-box; }
+.confirm-input:focus { border-color: var(--accent); }
 .btn.danger-confirm { background: #e5484d; color: #fff; border-color: #e5484d; }
 .btn.danger-confirm:hover { background: #c9363b; }
 
 
-/* Theme-aware custom scrollbars for Library, Playlist, and artist albums. */
+/* Theme-aware custom scrollbars for Library, Playlist, Lyrics (window
+and embedded panel) and artist albums. */
 #trackList,
 #winPlaylistTracks,
+#lyricsContainer,
+.embedded-lyrics,
 .artist-album-chips,
 .panel-library .panel-body,
 .panel-playlist .panel-body {
@@ -1111,11 +1166,15 @@ body.panel-window {
 }
 #trackList::-webkit-scrollbar,
 #winPlaylistTracks::-webkit-scrollbar,
+#lyricsContainer::-webkit-scrollbar,
+.embedded-lyrics::-webkit-scrollbar,
 .panel-library .panel-body::-webkit-scrollbar,
 .panel-playlist .panel-body::-webkit-scrollbar { width: 9px; height: 9px; }
 .artist-album-chips::-webkit-scrollbar { width: 6px; height: 6px; }
 #trackList::-webkit-scrollbar-track,
 #winPlaylistTracks::-webkit-scrollbar-track,
+#lyricsContainer::-webkit-scrollbar-track,
+.embedded-lyrics::-webkit-scrollbar-track,
 .artist-album-chips::-webkit-scrollbar-track,
 .panel-library .panel-body::-webkit-scrollbar-track,
 .panel-playlist .panel-body::-webkit-scrollbar-track {
@@ -1124,6 +1183,8 @@ body.panel-window {
 }
 #trackList::-webkit-scrollbar-thumb,
 #winPlaylistTracks::-webkit-scrollbar-thumb,
+#lyricsContainer::-webkit-scrollbar-thumb,
+.embedded-lyrics::-webkit-scrollbar-thumb,
 .artist-album-chips::-webkit-scrollbar-thumb,
 .panel-library .panel-body::-webkit-scrollbar-thumb,
 .panel-playlist .panel-body::-webkit-scrollbar-thumb {
@@ -1136,6 +1197,8 @@ body.panel-window {
 .artist-album-chips::-webkit-scrollbar-thumb { border-width: 1px; }
 #trackList::-webkit-scrollbar-thumb:hover,
 #winPlaylistTracks::-webkit-scrollbar-thumb:hover,
+#lyricsContainer::-webkit-scrollbar-thumb:hover,
+.embedded-lyrics::-webkit-scrollbar-thumb:hover,
 .artist-album-chips::-webkit-scrollbar-thumb:hover,
 .panel-library .panel-body::-webkit-scrollbar-thumb:hover,
 .panel-playlist .panel-body::-webkit-scrollbar-thumb:hover {
@@ -1233,9 +1296,8 @@ body.panel-window {
 }
 
 /* =====================================================================
-   LIBRARY & PLAYLIST — professional redesign (v0.8.0)
-   Backup kept at src/app.css.bak-v0.8.0 — revert there if disliked.
-   ===================================================================== */
+LIBRARY & PLAYLIST — professional redesign (v0.8.0)
+===================================================================== */
 
 /* --- Tabs (Artists/Albums/Genres/Recent) --- */
 .tabs {
@@ -1528,14 +1590,8 @@ body.panel-window {
   background: rgba(229,72,77,0.1);
   border-color: rgba(229,72,77,0.35);
 }
-#btn-export-playlist {
-  background: var(--accent) !important;
-  color: white !important;
-  border-color: var(--accent) !important;
-}
-#btn-export-playlist:hover {
-  background: var(--accent-2) !important;
-}
+/* The Export button looks exactly like the Import/Clear buttons next to
+it (no accent-blue paint). */
 
 /* Album head (artist drill sticky header) */
 .lib-album-head {
@@ -1610,13 +1666,14 @@ body.panel-window {
   box-shadow: none !important;
 }
 
-/* Redesigned lists — scroll jumps instantly (no smooth animation).
-   scroll-behavior was removed here on request: drilling into an artist
-   (scrollTop = 0) and pressing Back (restored saved position) now swap
-   the page content immediately instead of animating the scroll. */
+/* Redesigned lists — scroll jumps instantly (scroll-behavior removed):
+drilling in (scrollTop = 0) and Back (restored position) swap content
+without animating the scroll. */
 #trackList,
 #winPlaylistTracks {
-  padding: 2px 0 6px;
+  /* Top padding 0px: a 2px band let the scrolled rows under the sticky
+  header peek through. */
+  padding: 0px 0 6px;
   overflow-x: hidden;
 }
 /* Pad the list container so rows can stay flush-left without producing
@@ -1643,3 +1700,512 @@ body.panel-window {
   margin-left: 0;
   margin-right: 0;
 }
+
+/* Library Manage: one explicit, in-window route for root selection, scan
+   control and Clear Library. It intentionally replaces the former two
+   toolbar actions and native drag-to-import feedback. */
+.manage-action::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; z-index: 0;
+  width: var(--scan-progress, 0%); background: color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: width .18s linear;
+}
+.manage-action.scanning { border-color: var(--accent); }
+/* Per-file scan error list inside the Manage dialog */
+.library-scan-errors-title { font-size: 11px; font-weight: 700; color: #e5484d; margin: 2px 0 4px; }
+.library-scan-error-row {
+  font-size: 10.5px; color: var(--text-soft); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; direction: ltr; text-align: left;
+  padding: 2px 6px; border-radius: 6px;
+}
+.library-scan-error-row:hover { background: var(--track-bg); }
+.library-manage-overlay {
+  position: fixed; inset: 0; z-index: 10001; display: grid; place-items: center;
+  padding: 14px; background: rgba(5, 10, 20, .48); backdrop-filter: blur(3px);
+}
+.library-manage-dialog {
+  width: min(440px, 100%); max-height: min(520px, calc(100vh - 28px));
+  display: flex; flex-direction: column; gap: 12px; padding: 15px;
+  box-sizing: border-box; overflow: hidden; border-radius: 14px;
+  border: 1px solid var(--card-border); background: var(--card); color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+.library-manage-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.library-manage-head .confirm-title { margin-bottom: 4px; }
+.library-manage-note { max-width: 360px; font-size: 11px; line-height: 1.45; color: var(--text-soft); }
+.library-roots-list {
+  min-height: 72px; max-height: 250px; overflow: auto; border: 1px solid var(--card-border);
+  border-radius: 10px; background: var(--track-bg);
+}
+.library-root-row { display: flex; align-items: center; gap: 6px; min-height: 35px; padding: 5px 6px 5px 10px; border-bottom: 1px solid var(--card-border); }
+.library-root-row:last-child { border-bottom: 0; }
+.library-root-path { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-soft); }
+.root-remove { flex: 0 0 auto; width: 26px; height: 26px; justify-content: center; padding: 0; color: #e5484d; }
+.library-roots-empty { display: grid; min-height: 70px; place-items: center; padding: 8px; font-size: 11.5px; color: var(--text-muted); text-align: center; }
+.library-manage-status { min-height: 17px; font-size: 11.5px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.library-manage-actions { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 7px; align-items: center; }
+.library-manage-actions .btn { min-height: 29px; justify-content: center; }
+.library-manage-actions .btn:disabled, .root-remove:disabled { opacity: .48; cursor: not-allowed; }
+@media (max-width: 390px) {
+  .library-manage-overlay { padding: 8px; }
+  .library-manage-dialog { padding: 12px; gap: 10px; }
+  .library-manage-actions { grid-template-columns: 1fr 1fr; }
+  .library-manage-actions > span { display: none; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Accessibility : visible keyboard focus for list rows, */
+/* and a remove button that is perceivable without hovering.           */
+/* ------------------------------------------------------------------ */
+.track-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+.track-row .btn[data-remove-entry] {
+  opacity: 0.55;
+}
+.track-row:hover .btn[data-remove-entry],
+.track-row:focus-within .btn[data-remove-entry],
+.track-row .btn[data-remove-entry]:focus-visible {
+  opacity: 1;
+}
+
+/* The row × in playlists AND the play queue must look IDENTICAL and
+hover changes ONLY the glyph color — never a background (the base
+.btn:hover fill must not fire for these glyph buttons). Both sit at
+0.55 opacity and reveal on row hover. */
+.track-row .btn[data-remove-entry],
+.track-row .btn[data-remove-queue-entry] {
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  transition: color 0.12s;
+}
+.track-row .btn[data-remove-entry]:hover,
+.track-row .btn[data-remove-queue-entry]:hover,
+.track-row .btn[data-remove-entry]:focus-visible,
+.track-row .btn[data-remove-queue-entry]:focus-visible {
+  color: #e5484d !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.track-row .btn[data-remove-queue-entry] {
+  opacity: 0.55; /* same resting strength as the playlist x */
+}
+.track-row:hover .btn[data-remove-queue-entry],
+.track-row:focus-within .btn[data-remove-queue-entry],
+.track-row .btn[data-remove-queue-entry]:focus-visible {
+  opacity: 1;
+}
+
+/* "Showing X of N" footer of the embedded playlist strip. */
+.embedded-playlist-more {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: center;
+}
+.embedded-playlist-more:hover,
+.embedded-playlist-more:focus-visible {
+  color: var(--text);
+}
+
+/* Compact playlist view: the virtual list measures rows itself; these
+   rules only shrink the painted content so a 36px row stays legible. */
+#winPlaylistTracks[data-pl-view="compact"] .track-row .track-cover-mini { width: 22px; height: 22px; border-radius: 4px; }
+#winPlaylistTracks[data-pl-view="compact"] .track-row .t-title { font-size: 11px; line-height: 1.2; }
+#winPlaylistTracks[data-pl-view="compact"] .track-row .t-artist { font-size: 9.5px; line-height: 1.2; }
+
+/* The Library grouping menu must paint above the track pane. The generic
+   tabs bar is horizontally scrollable, which otherwise clips/lowers an
+   absolute popup below the following boxes. */
+#libraryTabs {
+  position: relative;
+  z-index: 100;
+  overflow: visible !important;
+}
+#libraryTabs .library-artist-mode-picker { z-index: 110; }
+#libraryTabs .library-artist-mode-menu { z-index: 1000; }
+#winPlaylistTracks[data-pl-view="compact"] .track-row .num { font-size: 10px; }
+
+/* Completed-scan banner at the bottom of Manage. */
+.library-scan-result {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  margin-top: 12px; padding: 9px 11px;
+  border: 1px solid rgba(96,205,125,0.35); border-radius: 9px;
+  background: rgba(96,205,125,0.10);
+  font-size: 12px; color: var(--text);
+}
+.library-scan-result.error {
+  border-color: rgba(229,72,77,0.35);
+  background: rgba(229,72,77,0.10);
+}
+.library-scan-result[hidden] { display: none; }
+/* The scan summary must be FULLY readable: it wraps onto as many lines
+as needed instead of being ellipsis-truncated. */
+.library-scan-result-text { min-width: 0; overflow: visible; white-space: normal; line-height: 1.5; }
+.library-scan-result .btn { flex-shrink: 0; align-self: center; }
+
+/* Library search-field selector (All/Artist/Album/Track). */
+.library-search-field {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 74px;
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* The virtual library crumb is hard-sized 38px by the renderer (rows
+start at top:38): its content must fit INSIDE that box — smaller
+padding, centered, clipped — or the first row sits lower with a
+peek-through sliver. */
+/* The crumb must be EXACTLY 38px tall (border-box): rows and sticky
+album heads are placed at top:38, so a shorter box (~33px) opens a
+few-px band where scrolled rows peek through. */
+.lib-crumb.virtual-crumb {
+  height: 38px !important;
+  box-sizing: border-box !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  line-height: 1.2;
+}
+.lib-crumb.virtual-crumb .btn { height: 24px; padding-top: 0; padding-bottom: 0; }
+
+/* Placeholder rows painted for the instant a fast scroll outruns the next
+   page of the virtual Library list; replaced by the real rows on arrival. */
+.lib-skeleton { pointer-events: none; opacity: 0.55; cursor: default; }
+.lib-skeleton .lib-avatar { background: var(--track-bg); color: transparent; }
+.lib-skeleton .lib-skel-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.lib-skeleton .lib-skel-lines i { display: block; height: 9px; border-radius: 5px; background: var(--track-bg); }
+.lib-skeleton .lib-skel-lines i:first-child { width: 58%; }
+.lib-skeleton .lib-skel-lines i:last-child { width: 34%; height: 7px; }
+.lib-card.lib-skeleton .lib-skel-lines { align-items: center; }
+.lib-card.lib-skeleton .lib-skel-lines i { width: 70%; }
+
+/* Library > Playlists: an explicit two-pane browser. */
+.library-playlist-split {
+  display: grid;
+  grid-template-columns: minmax(150px, 34%) minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--card);
+}
+.library-playlist-sidebar {
+  min-width: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--card-border);
+  padding: 8px 6px;
+  background: color-mix(in srgb, var(--card) 88%, var(--track-bg));
+}
+.library-playlist-sidebar-title {
+  padding: 4px 8px 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .09em;
+}
+.library-playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+.library-playlist-item:hover { background: var(--track-hover); }
+.library-playlist-item.active { background: var(--accent); color: var(--accent-contrast, #fff); }
+.library-playlist-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.library-playlist-item-count { color: var(--text-muted); font-size: 10px; flex: 0 0 auto; }
+.library-playlist-item.active .library-playlist-item-count { color: inherit; opacity: .82; }
+.library-playlist-auto { font-size: 8px; letter-spacing: .04em; opacity: .72; flex: 0 0 auto; }
+.library-playlist-content { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.library-playlist-content-head {
+  display: flex; align-items: baseline; gap: 8px; min-height: 36px;
+  padding: 9px 12px 6px; border-bottom: 1px solid var(--card-border);
+}
+.library-playlist-content-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-playlist-content-head span { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+.library-playlist-track-list { min-height: 0; flex: 1; overflow-y: auto; padding: 4px 6px 12px; }
+.library-playlist-track-list .track-row { min-height: 48px; cursor: pointer; }
+.library-playlist-track-list .track-row:hover { background: var(--track-hover); }
+.library-playlist-track-list .track-row .btn { display: none; }
+.library-playlists-empty { padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 12px; }
+@media (max-width: 540px) {
+  .library-playlist-split { grid-template-columns: minmax(125px, 39%) minmax(0, 1fr); }
+  .library-playlist-content-head { padding-left: 8px; padding-right: 8px; }
+  .library-playlist-track-list { padding-left: 2px; padding-right: 2px; }
+}
+
+/* Artist / Album Artist is a single persisted choice rather than two tabs. */
+.library-tab-select {
+  appearance: auto;
+  -webkit-appearance: auto;
+  min-width: 112px;
+  padding-right: 24px;
+  color: var(--text-soft);
+  background: var(--card);
+}
+.library-tab-select:hover,
+.library-tab-select:focus { color: var(--text); background: var(--track-bg); }
+.library-tab-select option { color: var(--text); background: var(--card); }
+
+/* The nested Playlist-tab scroller should be vertical only. Generic panel
+   row rules give rows width:100% plus horizontal margins, which can create a
+   needless bottom scrollbar inside this already constrained column. */
+.library-playlist-track-list { overflow-x: hidden; }
+.library-playlist-track-list .track-row {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* Custom Artist / Album Artist picker: the native select popup varied by OS
+   and looked disconnected from the Library chrome. */
+.library-artist-mode-picker {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 8;
+}
+.library-tab-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 124px;
+  justify-content: space-between;
+  border: 1px solid transparent;
+}
+.library-tab-trigger:hover,
+.library-artist-mode-picker.open .library-tab-trigger {
+  color: var(--text);
+  background: var(--track-bg);
+  border-color: var(--card-border);
+}
+.library-artist-mode-arrow {
+  flex: 0 0 auto;
+  transition: transform .16s ease;
+}
+.library-artist-mode-picker.open .library-artist-mode-arrow { transform: rotate(180deg); }
+.library-artist-mode-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 166px;
+  padding: 5px;
+  border: 1px solid var(--card-border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--card) 94%, var(--track-bg));
+  box-shadow: 0 12px 28px rgba(0,0,0,.22), 0 2px 7px rgba(0,0,0,.12);
+  backdrop-filter: blur(14px);
+  animation: library-picker-pop .14s ease-out;
+}
+.library-artist-mode-menu[hidden] { display: none; }
+.library-artist-mode-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-soft);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.library-artist-mode-menu button:hover,
+.library-artist-mode-menu button:focus-visible { color: var(--text); background: var(--track-bg); outline: none; }
+.library-artist-mode-menu button.selected {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  font-weight: 650;
+}
+@keyframes library-picker-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Split the picker into a normal tab label and a dedicated arrow target:
+   clicking the label returns to the selected grouping; only the arrow opens
+   the choice menu. */
+.library-artist-mode-picker { display: inline-flex; align-items: stretch; gap: 1px; }
+.library-tab-current,
+.library-tab-arrow { border-radius: 8px; }
+.library-tab-current { min-width: 106px; text-align: left; }
+.library-tab-arrow { width: 28px; min-width: 28px; padding: 6px 5px; display: inline-flex; align-items: center; justify-content: center; }
+.library-tab-current:hover,
+.library-tab-arrow:hover,
+.library-artist-mode-picker.open .library-tab-current,
+.library-artist-mode-picker.open .library-tab-arrow {
+  color: var(--text); background: var(--track-bg); border-color: var(--card-border);
+}
+
+/* Equalizer preset picker: keep the native select as an accessibility/state
+   mirror, but present a themed popup instead of the OS-default option list. */
+.eq-preset-native { display: none !important; }
+.eq-preset-picker { position: relative; flex: 0 0 auto; z-index: 20; }
+.eq-preset-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-width: 150px; height: 28px; padding: 4px 9px 4px 10px;
+  border: 1px solid var(--card-border); border-radius: 8px;
+  background: var(--track-bg); color: var(--text); font: inherit; font-size: 11px;
+  cursor: pointer; text-align: left;
+}
+.eq-preset-trigger:hover,
+.eq-preset-picker.open .eq-preset-trigger { border-color: var(--accent); background: var(--card); }
+.eq-preset-trigger svg { transition: transform .16s ease; flex: 0 0 auto; }
+.eq-preset-picker.open .eq-preset-trigger svg { transform: rotate(180deg); }
+.eq-preset-menu {
+  position: absolute; left: 0; top: calc(100% + 5px); min-width: 190px;
+  max-height: 236px; overflow-y: auto; padding: 5px;
+  border: 1px solid var(--card-border); border-radius: 11px;
+  background: color-mix(in srgb, var(--card) 95%, var(--track-bg));
+  box-shadow: 0 12px 28px rgba(0,0,0,.24), 0 2px 7px rgba(0,0,0,.12);
+  backdrop-filter: blur(14px); animation: eq-picker-pop .14s ease-out;
+}
+.eq-preset-menu[hidden] { display: none; }
+.eq-preset-menu button {
+  display: flex; align-items: center; width: 100%; min-height: 30px;
+  padding: 6px 9px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--text-soft); font: inherit; font-size: 11px; text-align: left; cursor: pointer;
+}
+.eq-preset-menu button:hover,
+.eq-preset-menu button:focus-visible { color: var(--text); background: var(--track-bg); outline: none; }
+.eq-preset-menu button.selected { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); font-weight: 650; }
+.eq-preset-menu::-webkit-scrollbar { width: 5px; }
+.eq-preset-menu::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 999px; }
+@keyframes eq-picker-pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+/* Give the Equalizer controls and Lyric title a comfortable visual gutter. */
+#win-equalizer .float-body { padding-left: 18px !important; padding-right: 18px !important; }
+#win-equalizer .float-body > div:first-child { padding-left: 3px; padding-right: 3px; }
+#win-lyrics .float-body { padding-left: 18px !important; padding-right: 18px !important; }
+#win-lyrics #lyricsTrackTitle {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 30px; box-sizing: border-box;
+  padding: 6px 8px 10px !important;
+  text-align: center;
+  line-height: 1.35;
+}
+
+
+/* ---------------------------------------------------------------------
+   Library album-sheet layout (track display, Details / Tiles)
+   --------------------------------------------------------------------- */
+.lib-sheets { container-type: inline-size; container-name: lib-sheets; padding: 4px 14px 18px; }
+.lib-sheet { display: flex; align-items: flex-start; gap: 18px; padding: 16px 0 18px; min-width: 0; }
+.lib-sheet + .lib-sheet { border-top: 1px solid var(--card-border); }
+/* Fixed 180×180 slot. The artwork is contained (never stretched or cropped):
+   it fills the height, and a narrower image leaves the rest of the slot empty. */
+.lib-sheet-cover {
+  flex: 0 0 180px; width: 180px; height: 180px;
+  background-repeat: no-repeat !important;
+  background-size: contain !important;
+  background-position: left top !important;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.28));
+}
+.lib-sheet-cover:not([style*="background-image"]) {
+  display: grid; place-items: center; font-size: 42px; color: var(--text-muted);
+  background: var(--track-bg); border-radius: 6px; filter: none;
+}
+.lib-sheet-main { flex: 1 1 0; min-width: 0; }
+.lib-sheet-title {
+  font-size: 15px; font-weight: 700; line-height: 1.3; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lib-sheet-meta {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin: 2px 0 8px; font-size: 11px; color: var(--text-muted);
+}
+.lib-sheet-sub { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lib-sheet-mins { flex: 0 0 auto; }
+.lib-sheet-tracks { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 12px; }
+/* Two columns (filled top-to-bottom) once each column has ~260 px; otherwise one. */
+@container lib-sheets (min-width: 760px) {
+  .lib-sheet-tracks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(var(--rows), auto);
+    grid-auto-flow: column;
+  }
+}
+.lib-sheet-row {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  height: 30px; box-sizing: border-box; padding: 0 8px; font-size: 12px; line-height: 18px; cursor: pointer;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  transition: background .12s;
+}
+[data-theme="dark"] .lib-sheet-row { border-color: rgba(255,255,255,0.05); }
+.lib-sheet-row:hover { background: var(--track-bg); }
+.lib-sheet-row.row-selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.lib-sheet-row .ls-num { flex: 0 0 22px; text-align: right; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lib-sheet-row .ls-title { flex: 0 1 auto; max-width: 70%; min-width: 0; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-sheet-row .ls-artist { flex: 1 1 0; min-width: 0; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-sheet-row .ls-dur { flex: 0 0 auto; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lib-sheet-row .ls-add {
+  flex: 0 0 auto; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--text-muted); font-size: 13px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; opacity: 0; pointer-events: none;
+}
+.lib-sheet-row:hover .ls-add, .lib-sheet-row .ls-add:focus-visible { opacity: 1; pointer-events: auto; }
+.lib-sheet-row .ls-add:hover { background: var(--card-border); color: var(--text); }
+.lib-sheet-note { padding: 12px 0 0; text-align: center; font-size: 11px; color: var(--text-muted); }
+/* Narrow panels: keep a smaller cover beside the tracks only if there is room. */
+@container lib-sheets (max-width: 420px) {
+  .lib-sheet { flex-direction: column; gap: 10px; }
+}
+
+/* Equalizer / Lyric: the secondary panel windows render the window body's
+   innerHTML straight into .panel-body (there is no .float-body), so the
+   gutters have to live on .panel-body itself. */
+.panel-equalizer .panel-body,
+.panel-lyrics .panel-body { padding: 12px 18px 14px !important; gap: 8px; }
+.panel-equalizer .panel-body > *,
+.panel-lyrics .panel-body > * { max-width: 100%; }
+.panel-equalizer .panel-body .eq-grid { margin-left: 0; margin-right: 0; }
+.panel-lyrics .panel-body #lyricsTrackTitle {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  min-height: 34px; box-sizing: border-box; line-height: 1.35;
+  padding: 6px 10px 10px !important; margin-bottom: 8px;
+}
+
+
+/* Library: the track that is playing right now */
+.track-row.now-playing,
+.lib-sheet-row.now-playing {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.track-row.now-playing:hover,
+.lib-sheet-row.now-playing:hover { background: color-mix(in srgb, var(--accent) 19%, transparent); }
+.track-row.now-playing.row-selected,
+.lib-sheet-row.now-playing.row-selected { background: color-mix(in srgb, var(--accent) 24%, transparent) !important; }
+.track-row.now-playing .t-title,
+.lib-sheet-row.now-playing .ls-title { color: var(--accent); font-weight: 650; }
+.track-row.now-playing .num,
+.lib-sheet-row.now-playing .ls-num { color: var(--accent); font-weight: 700; }

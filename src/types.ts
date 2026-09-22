@@ -2,6 +2,8 @@ export type Track = {
   id: string;
   title: string;
   artist: string;
+  /** Album-level grouping artist; falls back to artist when the tag is absent. */
+  albumArtist?: string;
   album: string;
   genre: string;
   year: number;
@@ -13,6 +15,10 @@ export type Track = {
   source?: "scan" | "import";
   replayGain?: number; // dB
   lyrics?: string;
+  // Identity of one occurrence in a duplicate-capable playlist / queue.
+  playlistEntryId?: number;
+  playCount?: number;
+  lastPlayedAt?: number | null;
 };
 
 export type Playlist = {

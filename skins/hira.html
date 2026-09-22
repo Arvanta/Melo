@@ -313,6 +313,31 @@
     }
     .hi-viz-row { display: none !important; }
   }
+
+  /* Optional current-line lyric slot (synced-LRC engine, Settings switch).
+     Hira: lives IN the brand row, right after the "Melo · Hira" label with
+     a small gap (flex sibling; the embed buttons stay pinned right), hung
+     off a thin vertical accent rule; the rule is STATIC and each new
+     line simply fades in. */
+  .hi-current-lyric {
+    display: block; flex: 0 1 auto; min-width: 0;
+    margin-left: 10px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+    font-size: 10.5px; font-weight: 500; letter-spacing: .02em; line-height: 1.5;
+    color: var(--accent);
+    padding-left: 9px;
+    border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  /* The vertical accent rule must stay PUT — no transform on the slot
+     element (a slide would move the rule with the text). The entrance is a
+     plain text fade: only the `color` animates (transparent -> accent). */
+  .hi-current-lyric.melo-lyric-tick { animation: hi-lyric-fade .4s ease-out both; }
+  @keyframes hi-lyric-fade {
+    from { color: transparent; }
+    to   { color: var(--accent); }
+  }
+  .hi-current-lyric.melo-lyric-empty { display: none !important; }
+  html.melo-show-lyrics .hi-current-lyric { display: none !important; }
 </style>
 </head>
 <body data-window-width="720" data-window-height="188" data-min-width="640" data-min-height="170" data-max-width="920" data-max-height="240" data-resizable="true">
@@ -343,6 +368,7 @@
           </div>
         </details>
         <span class="hi-skin">· Hira</span>
+        <div class="hi-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
         <div class="hi-embed-btns">
           <button type="button" data-melo="toggle-embedded-playlist" title="Playlist">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3M16 6H3M12 18H3"/></svg>
@@ -387,8 +413,8 @@
   </div>
 
   <aside class="hi-rail">
-    <button class="win-btn close" aria-label="close" title="Close">×</button>
-    <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
+    <button class="win-btn close" data-melo="close" aria-label="close" title="Close">×</button>
+    <button class="win-btn" data-melo="minimize" aria-label="minimize" title="Minimize">—</button>
     <div class="hi-spacer" data-tauri-drag-region></div>
     <button id="btnToggleLibrary" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
     <button id="btnTogglePlaylist" title="Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg></button>

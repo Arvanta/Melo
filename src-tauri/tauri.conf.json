@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Melo",
-  "version": "0.8.1",
+  "version": "1.0.0",
   "identifier": "com.melo.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -15,9 +15,9 @@
         "label": "main",
         "title": "Melo",
         "width": 960,
-        "height": 240,
-        "minWidth": 240,
-        "minHeight": 120,
+        "height": 245,
+        "minWidth": 500,
+        "minHeight": 230,
         "resizable": true,
         "decorations": false,
         "transparent": true,
@@ -26,11 +26,11 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: http://asset.localhost https://asset.localhost; media-src 'self' asset: blob: http://asset.localhost https://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://lrclib.net;",
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "**"
+          "$APPDATA/artwork-cache/**/*"
         ]
       }
     },
@@ -65,6 +65,16 @@
         "description": "Audio File",
         "role": "Viewer",
         "mimeType": "audio/*"
+      },
+      {
+        "ext": [
+          "m3u",
+          "m3u8"
+        ],
+        "name": "M3U Playlist",
+        "description": "M3U Playlist (opens in Melo: tracks are queued for playback)",
+        "role": "Viewer",
+        "mimeType": "audio/x-mpegurl"
       }
     ],
     "windows": {

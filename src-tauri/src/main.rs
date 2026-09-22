@@ -14,6 +14,7 @@ pub struct Track {
     id: String,
     title: String,
     artist: String,
+    album_artist: String,
     album: String,
     genre: String,
     year: u32,
@@ -54,6 +55,8 @@ const DEFAULT_SKIN_HAVEN: &str = include_str!("../../skins/haven.html");
 const DEFAULT_SKIN_HIRA: &str = include_str!("../../skins/hira.html");
 const DEFAULT_SKIN_KOTO: &str = include_str!("../../skins/koto.html");
 const DEFAULT_SKIN_LUMEN: &str = include_str!("../../skins/lumen.html");
+const DEFAULT_SKIN_MICA: &str = include_str!("../../skins/mica.html");
+const DEFAULT_SKIN_MICA_2: &str = include_str!("../../skins/mica-2.html");
 const DEFAULT_SKIN_MICROLINE_V: &str = include_str!("../../skins/microline-v.html");
 const DEFAULT_SKIN_MIST: &str = include_str!("../../skins/mist.html");
 
@@ -105,6 +108,7 @@ fn parse_track(p: &Path) -> Option<Track> {
             id: path.clone(),
             title,
             artist: "Unknown Artist".to_string(),
+            album_artist: "Unknown Artist".to_string(),
             album: "Unknown Album".to_string(),
             genre: "Unknown".to_string(),
             year: 0,
@@ -131,6 +135,10 @@ fn parse_track(p: &Path) -> Option<Track> {
     let artist = tag
         .and_then(|t| t.artist().map(|s| s.to_string()))
         .unwrap_or_else(|| "Unknown Artist".to_string());
+    let album_artist = tag
+        .and_then(|t| t.get_string(&lofty::tag::ItemKey::AlbumArtist).map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| artist.clone());
 
     let album = tag
         .and_then(|t| t.album().map(|s| s.to_string()))
@@ -158,12 +166,19 @@ fn parse_track(p: &Path) -> Option<Track> {
             .and_then(|s| s.trim().trim_end_matches(" dB").parse::<f32>().ok())
     });
 
+    // Artwork is intentionally `None` here: `parse_track` is the cheap
+    // tag-only probe used at boot (CLI "open with" / single-instance
+    // forwarding, where decoding every embedded image would stall startup)
+    // and by `get_cli_tracks` (the frontend only needs title/artist/
+    // duration). Real artwork arrives lazily via `get_track_artwork_full`
+    // when the user lands on the track.
     let cover = None;
 
     Some(Track {
         id: p.to_string_lossy().to_string(),
         title,
         artist,
+        album_artist,
         album,
         genre,
         year,
@@ -180,13 +195,10 @@ fn parse_track(p: &Path) -> Option<Track> {
 
 fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
     // Always use the per-user AppData skins directory — never write next to
-    // the executable. On a per-machine install (C:\Program Files\Melo\) the
-    // Program Files folder is not user-writable without elevation, and the
-    // Tauri/NSIS updater stages new builds in temporary `up_*` folders next
-    // to the exe during upgrades (so writing skins there has, in the past,
-    // caused a stray skins folder to appear inside an updater staging
-    // directory). The AppData location is writable, survives upgrades, and
-    // is the canonical place for user customisation on Windows.
+    // the executable: Program Files is not user-writable, and the NSIS
+    // updater stages builds in temporary `up_*` folders next to the exe.
+    // AppData is writable, survives upgrades, and is the canonical place
+    // for user customisation.
     if let Ok(app_data) = app.path().app_data_dir() {
         let p = app_data.join("skins");
         let _ = std::fs::create_dir_all(&p);
@@ -201,6 +213,17 @@ fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 fn ensure_default_skins_on_disk(skins_dir: &Path) {
+    // One-time seeding: bundled skins are written on the very first run only.
+    // A marker file records the seeding, so skins the user deletes are NEVER
+    // resurrected and the dropdown reflects the folder's real contents
+    // (skins newly bundled in an update are not auto-installed either —
+    // deliberate). Existing installs without a marker get one final seeding
+    // pass (incl. the retired-skin cleanup), then the marker is written.
+    let marker = skins_dir.join(".melo-seeded");
+    if marker.exists() {
+        return;
+    }
+
     // Remove retired skins left by older installs so they don't linger in
     // the skins folder / dropdown: Minimal Compact (compact-pill) and
     // its legacy light/dark splits, the old example-custom placeholder,
@@ -242,6 +265,8 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
         ("hira.html", DEFAULT_SKIN_HIRA),
         ("koto.html", DEFAULT_SKIN_KOTO),
         ("lumen.html", DEFAULT_SKIN_LUMEN),
+        ("mica.html", DEFAULT_SKIN_MICA),
+        ("mica-2.html", DEFAULT_SKIN_MICA_2),
         ("microline-v.html", DEFAULT_SKIN_MICROLINE_V),
         ("mist.html", DEFAULT_SKIN_MIST),
     ] {
@@ -250,6 +275,9 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
             let _ = std::fs::write(f, content);
         }
     }
+
+    // Seeding complete — from now on the skins folder belongs to the user.
+    let _ = std::fs::write(&marker, "Melo seeded this folder once; user deletions are respected.");
 }
 
 // ---- Tauri Commands ----
@@ -272,8 +300,7 @@ fn cached_lrc_path(app: &tauri::AppHandle, track_path: &Path) -> Option<PathBuf>
 fn get_cached_lyrics(app: tauri::AppHandle, track_path: String) -> Option<String> {
     let p = Path::new(&track_path);
     // Same priority as get_track_lyrics but also checks the central cache.
-    // 1. Sidecar .lrc (already handled by get_track_lyrics, but check first for
-    //    speed so we don't need network).
+    // 1. Sidecar .lrc — checked first for speed (no network needed).
     let sidecar = p.with_extension("lrc");
     if sidecar.exists() && sidecar.is_file() {
         if let Ok(c) = std::fs::read_to_string(&sidecar) {
@@ -324,9 +351,8 @@ fn get_track_lyrics(path: String) -> Option<String> {
         }
     }
 
-    // 2. Check central lyrics cache
-    // (App handle isn't available here; this function is called in contexts
-    // that don't have it, but get_cached_lyrics covers this path when called
+    // 2. Central lyrics cache. (No App handle here — this function runs in
+    // contexts without one; get_cached_lyrics covers this path when called
     // from the frontend.)
 
     // 3. Check embedded lyrics via lofty
@@ -381,53 +407,52 @@ fn list_installed_skins(app: tauri::AppHandle) -> Result<Vec<SkinFileInfo>, Stri
     Ok(list)
 }
 
+fn skin_leaf_filename(value: &str) -> Result<&str, String> {
+    let path = Path::new(value);
+    let leaf = path.file_name().and_then(|name| name.to_str())
+        .filter(|leaf| *leaf == value && !leaf.is_empty())
+        .ok_or_else(|| "Skin filename must not include a path".to_string())?;
+    let lower = leaf.to_ascii_lowercase();
+    if !(lower.ends_with(".html") || lower.ends_with(".htm")) {
+        return Err("Skin must be an .html or .htm file".into());
+    }
+    Ok(leaf)
+}
+
 #[tauri::command]
 fn read_skin_file(filename_or_path: String, app: tauri::AppHandle) -> Result<String, String> {
-    let path = Path::new(&filename_or_path);
-    if path.is_absolute() && path.exists() {
-        return std::fs::read_to_string(path).map_err(|e| e.to_string());
-    }
-
+    // A skin is trusted UI markup, never a general-purpose file reader: only
+    // a leaf HTML filename inside Melo's skins directory may load. No
+    // embedded fallback — if the file is gone (user deleted it), the read
+    // fails and the frontend falls back to Default. Deletions are permanent.
+    let filename = skin_leaf_filename(&filename_or_path)?;
     let skins_dir = get_skins_dir(&app);
-    let target = skins_dir.join(&filename_or_path);
+    let target = skins_dir.join(filename);
     if target.exists() {
         return std::fs::read_to_string(&target).map_err(|e| e.to_string());
     }
-
-    // Check embedded fallback if filename matches
-    match filename_or_path.as_str() {
-        "full-html-example.html" | "full-html-example" => Ok(DEFAULT_SKIN_FULL_EXAMPLE.to_string()),
-        "slate.html" | "slate" => Ok(DEFAULT_SKIN_SLATE.to_string()),
-        "silk-orbit.html" | "silk-orbit" => Ok(DEFAULT_SKIN_SILK_ORBIT.to_string()),
-        "microline.html" | "microline" => Ok(DEFAULT_SKIN_MICROLINE.to_string()),
-        // Bundled community skins
-        "aria.html" | "aria" => Ok(DEFAULT_SKIN_ARIA.to_string()),
-        "graphite.html" | "graphite" => Ok(DEFAULT_SKIN_GRAPHITE.to_string()),
-        "halcyon.html" | "halcyon" => Ok(DEFAULT_SKIN_HALCYON.to_string()),
-        "haven.html" | "haven" => Ok(DEFAULT_SKIN_HAVEN.to_string()),
-        "hira.html" | "hira" => Ok(DEFAULT_SKIN_HIRA.to_string()),
-        "koto.html" | "koto" => Ok(DEFAULT_SKIN_KOTO.to_string()),
-        "lumen.html" | "lumen" => Ok(DEFAULT_SKIN_LUMEN.to_string()),
-        "microline-v.html" | "microline-v" => Ok(DEFAULT_SKIN_MICROLINE_V.to_string()),
-        "mist.html" | "mist" => Ok(DEFAULT_SKIN_MIST.to_string()),
-        // Retired skins: no longer shipped. Fall through to the error so
-        // the frontend can surface the failure and drop the saved id.
-        "compact-pill.html" | "compact-pill" | "compact-pill-light.html" | "compact-pill-light"
-        | "compact-pill-dark.html" | "compact-pill-dark" | "ivory.html" | "ivory" =>
-            Err(format!("Retired skin: {}", filename_or_path)),
-        _ => Err(format!("Skin file not found: {}", filename_or_path)),
-    }
+    Err(format!("Skin file not found: {}", filename_or_path))
 }
 
 #[tauri::command]
 fn save_custom_skin_file(filename: String, content: String, app: tauri::AppHandle) -> Result<String, String> {
+    // Match `read_skin_file`: reject traversal and write only a leaf HTML
+    // file below the per-app skins directory.
+    let safe_filename = skin_leaf_filename(&filename)?;
+    // Never create 0-byte skin files: an empty payload is a failed import,
+    // and an empty file would show up in the dropdown but never load.
+    if content.trim().is_empty() {
+        return Err("Skin content is empty — nothing to save".to_string());
+    }
+    // Defense-in-depth for the import guard: real skins are a few dozen KB at
+    // most; reject oversized payloads before they touch the disk.
+    const MAX_SKIN_BYTES: usize = 512 * 1024;
+    if content.len() > MAX_SKIN_BYTES {
+        return Err("Skin content is too large (limit 512 KB)".to_string());
+    }
     let skins_dir = get_skins_dir(&app);
-    let safe_filename = if filename.ends_with(".html") || filename.ends_with(".htm") {
-        filename
-    } else {
-        format!("{}.html", filename)
-    };
-    let target = skins_dir.join(&safe_filename);
+    std::fs::create_dir_all(&skins_dir).map_err(|e| e.to_string())?;
+    let target = skins_dir.join(safe_filename);
     std::fs::write(&target, content).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
 }
@@ -438,11 +463,16 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     let _ = std::fs::create_dir_all(&skins_dir);
     let abs_path = skins_dir.canonicalize().unwrap_or(skins_dir);
     let mut path_str = abs_path.to_string_lossy().to_string();
-    if path_str.starts_with(r"\\?\") {
-        path_str = path_str[4..].to_string();
-    }
     #[cfg(target_os = "windows")]
     {
+        // Windows canonicalize() may prefix the path with the NT extended-length
+        // marker `\\?\` (>260 chars or long-path opt-in). Explorer accepts it,
+        // but downstream consumers (PowerShell snippets, the asset-protocol
+        // scope) don't — strip it here so the rest of the codebase sees plain
+        // UTF-8 paths.
+        if path_str.starts_with(r"\\?\") {
+            path_str = path_str[4..].to_string();
+        }
         let win_path = path_str.replace('/', "\\");
         std::process::Command::new("explorer.exe")
             .arg(&win_path)
@@ -459,15 +489,13 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// CLI / "open with" file paths collected for the frontend. The primary
-/// instance's own command-line arguments are pushed at startup by `main()`;
-/// paths forwarded from companion instances (Windows Explorer launches one
-/// process per selected file unless MultiSelectModel=Player is registered)
-/// are pushed by the single-instance callback. The frontend drains this
-/// buffer by calling `get_cli_tracks` (which clears it) several times during
-/// boot, so paths that arrived before the webview finished loading are not
-/// lost even if the `melo:open-files` event was emitted while no JS listener
-/// existed yet (Tauri drops events with no listener).
+/// CLI / "open with" paths collected for the frontend. The primary
+/// instance's own argv is pushed at startup by `main()`; companion-instance
+/// paths are pushed by the single-instance callback (Explorer launches one
+/// process per selected file unless MultiSelectModel=Player is registered).
+/// The frontend drains this buffer via `get_cli_tracks` (which clears it)
+/// several times during boot, so paths that arrived before the webview
+/// loaded are not lost (Tauri drops events with no listener).
 static PENDING_CLI_PATHS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 fn push_cli_path(path: &str) {
@@ -476,9 +504,70 @@ fn push_cli_path(path: &str) {
         return;
     }
     let mut buf = PENDING_CLI_PATHS.lock().unwrap_or_else(|e| e.into_inner());
-    if buf.len() < 512 && !buf.iter().any(|x| x == path) {
+    if buf.len() < 512 {
+        if buf.iter().any(|x| x == path) {
+            return;
+        }
         buf.push(path.to_string());
+    } else {
+        // Hard cap so a multi-thousand-file "Open With" can't OOM the boot
+        // buffer. The extra path is dropped — logged once so it is visible in
+        // the captured stderr stream.
+        eprintln!(
+            "[melo] PENDING_CLI_PATHS at cap (512); dropping companion path: {}",
+            path
+        );
     }
+}
+// Companion-instance argument contract: `push_cli_path` is the single
+// sink for EVERY externally-received path — (1) the initial argv in
+// main(), (2) the single-instance plugin closure (a second melo.exe was
+// launched). Both call sites filter identically (must look like a file,
+// supported extension, no leading '-'). `push_cli_path` itself only
+// filters and dedups; parsing happens in `get_cli_tracks`, polled by
+// the frontend during boot and after `melo:open-files`.
+// `parse_args_and_push` centralises skip-program-name / filter / push /
+// return-parsed-tracks for both callers.
+fn parse_args_and_push(args: &[String]) -> Vec<Track> {
+    let mut tracks = Vec::new();
+    for arg in args.iter().skip(1) {
+        if arg.starts_with('-') {
+            continue;
+        }
+        let p = Path::new(arg);
+        if !p.exists() || !p.is_file() {
+            continue;
+        }
+        // Double-clicking an .m3u/.m3u8 in Explorer (Open With → Melo) queues the
+        // playlist's TRACKS: entries resolve against the file's own folder and
+        // every existing, supported entry flows through the regular CLI
+        // pipeline (import-and-play, queue replace, in file order).
+        if library_db::is_m3u_file(p) {
+            match library_db::resolve_m3u_paths(p) {
+                Ok(entries) => {
+                    for e in entries {
+                        if e.is_file() && supported_ext(&e) {
+                            let s = e.to_string_lossy().to_string();
+                            push_cli_path(&s);
+                            if let Some(t) = parse_track(Path::new(&s)) {
+                                tracks.push(t);
+                            }
+                        }
+                    }
+                }
+                Err(err) => eprintln!("[melo] skipping unresolvable playlist {arg}: {err}"),
+            }
+            continue;
+        }
+        if !supported_ext(p) {
+            continue;
+        }
+        push_cli_path(arg);
+        if let Some(t) = parse_track(p) {
+            tracks.push(t);
+        }
+    }
+    tracks
 }
 
 #[tauri::command]
@@ -535,91 +624,88 @@ fn write_tags(path: String, tags: TagWriteRequest) -> Result<(), String> {
 
     Ok(())
 }
-
-#[tauri::command]
-fn open_url(url: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn get_audio_devices() -> Result<Vec<String>, String> {
-    Ok(vec!["Default".to_string()])
-}
-
 fn main() {
     // Remember this instance's own "open with" paths up front so the
-    // frontend can pick them up at boot via get_cli_tracks (it polls and
-    // drains this buffer several times during startup).
-    for arg in std::env::args().skip(1) {
-        push_cli_path(&arg);
-    }
+    // frontend can drain them at boot via get_cli_tracks. For the primary
+    // instance the parsed tracks are discarded — the boot polls surface the
+    // buffered paths.
+    let _ = parse_args_and_push(&std::env::args().collect::<Vec<_>>());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             use tauri::Emitter;
             if let Some(window) = app.get_webview_window("main") {
+                // If the user (or another instance) double-clicked an audio
+                // file while Melo was hidden in the tray, bring the main
+                // window back — same behaviour as the "Show / Hide" menu.
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
 
-            let mut tracks = Vec::new();
-            for arg in args.into_iter().skip(1) {
-                if !arg.starts_with("-") {
-                    let p = Path::new(&arg);
-                    if p.exists() && p.is_file() && supported_ext(p) {
-                        // Buffer the path for the boot-time get_cli_tracks
-                        // polls: when the app was closed, this event can be
-                        // emitted before the webview has any JS listener and
-                        // would otherwise be dropped (multi-file "Open With").
-                        push_cli_path(&arg);
-                        if let Some(t) = parse_track(p) {
-                            tracks.push(t);
-                        }
-                    }
-                }
-            }
+            // For companion launches we both buffer the paths (in case the
+            // webview is mid-startup and the event would be dropped) and
+            // emit parsed tracks immediately so the running session plays
+            // them without waiting for the next get_cli_tracks poll.
+            let tracks = parse_args_and_push(&args);
             if !tracks.is_empty() {
                 let _ = app.emit("melo:open-files", &tracks);
             }
         }))
         .plugin(tauri_plugin_fs::init())
+        // Persists the user-approved folder scopes selected by Manage so
+        // `asset:` can expose only those roots after an app restart.
+        .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            library_db::start_library_scan,
+            library_db::start_managed_library_scan,
             library_db::cancel_library_scan,
+            library_db::list_library_roots,
+            library_db::add_library_roots,
+            library_db::remove_library_root,
             library_db::library_stats,
             library_db::library_groups,
             library_db::library_tracks,
             library_db::list_playlists,
+            library_db::record_track_play,
             library_db::create_playlist,
+            library_db::rename_playlist,
+            library_db::delete_playlist,
+            library_db::duplicate_playlist,
+            library_db::sweep_missing_playlist_tracks,
             library_db::playlist_tracks,
             library_db::add_tracks_to_playlist,
-            library_db::remove_track_from_playlist,
+            library_db::remove_playlist_entry,
+            library_db::remove_playlist_entries,
             library_db::clear_playlist,
-            library_db::replace_playlist_tracks,
-            library_db::replace_playlist_from_scan,
+            library_db::reorder_playlist_entry,
+            library_db::queue_tracks,
+            library_db::replace_queue_tracks,
+            library_db::append_queue_tracks,
+            library_db::replace_queue_from_playlist,
+            library_db::replace_queue_from_library,
+            library_db::clear_queue,
+            library_db::sort_queue,
+            library_db::move_queue_track,
+            library_db::move_queue_entries,
+            library_db::remove_queue_entries,
+            library_db::move_playlist_entries,
             library_db::clear_library_database,
             library_db::import_audio_files,
+            library_db::list_dir_audio_files,
+            library_db::expand_drop_paths,
+            library_db::import_m3u_file,
+            library_db::cleanup_orphan_data,
             library_db::ensure_track_artwork,
+            library_db::ensure_track_artwork_batch,
             library_db::get_track_artwork_full,
             library_db::get_track_by_id,
+            library_db::get_tracks_by_ids,
+            library_db::write_text_file,
             library_db::delete_tracks,
+            library_db::delete_library_group,
+            library_db::open_track_folder,
             get_cli_tracks,
             get_track_lyrics,
             get_cached_lyrics,
@@ -629,8 +715,6 @@ fn main() {
             save_custom_skin_file,
             open_skins_folder,
             write_tags,
-            get_audio_devices,
-            open_url
         ])
         .setup(|app| {
             let library_state = library_db::LibraryState::new(app.handle())
@@ -670,15 +754,11 @@ fn main() {
                         use tauri::Emitter;
                         match event.id().as_ref() {
                             "toggle" => {
-                                if let Some(window) = app.get_webview_window("main") {
-                                    if window.is_visible().unwrap_or(false) {
-                                        let _ = window.hide();
-                                    } else {
-                                        let _ = window.show();
-                                        let _ = window.unminimize();
-                                        let _ = window.set_focus();
-                                    }
-                                }
+                                // Don't toggle the main window from Rust: the frontend owns the
+                                // hide/restore policy (it hides every panel alongside main and restores
+                                // them at their saved positions). Emitting an event lets the main
+                                // document decide.
+                                let _ = app.emit("melo:tray-toggle-all", ());
                             }
                             "play_pause" => {
                                 let _ = app.emit("melo:tray-action", "play_pause");
@@ -699,17 +779,11 @@ fn main() {
                         }
                     })
                     .on_tray_icon_event(|tray, event| {
+                        // Left-click on the tray icon: same as the "Show / Hide Melo" menu item
+                        // — emit and let the frontend decide.
                         if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.unminimize();
-                                    let _ = window.set_focus();
-                                }
-                            }
+                            use tauri::Emitter;
+                            let _ = tray.app_handle().emit("melo:tray-toggle-all", ());
                         }
                     })
                     .build(app)?;

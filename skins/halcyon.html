@@ -521,6 +521,32 @@
   [data-theme="light"] body:not(.tauri-main):has(#melo-player) {
     background: radial-gradient(120% 130% at 18% 0%, #fdfaf6, #f0efec 55%, #e4e8e8);
   }
+
+  /* Optional current-line lyric slot (synced-LRC engine, Settings switch).
+     Halcyon: a calm chip in the chips row; each new line surfaces like a
+     slow breath — blurred and low, then settling into focus. */
+  .hc-current-lyric {
+    display: block; flex: 0 1 auto; min-width: 0;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+    font-size: 9px; font-weight: 600; letter-spacing: .06em; line-height: 1.6;
+    text-transform: none;
+    color: var(--accent);
+    background: var(--hc-well);
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--hc-line));
+    padding: 2.5px 9px; border-radius: 999px;
+  }
+  .hc-current-lyric::before {
+    content: ""; display: inline-block; width: 4px; height: 4px; margin-right: 6px;
+    border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow, transparent); vertical-align: 2px;
+  }
+  .hc-current-lyric.melo-lyric-tick { animation: hc-lyric-breathe 1.15s cubic-bezier(.23, 1, .32, 1) both; }
+  @keyframes hc-lyric-breathe {
+    from { opacity: 0; filter: blur(5px); transform: translateY(5px); }
+    to   { opacity: 1; filter: blur(0);   transform: none; }
+  }
+  .hc-current-lyric.melo-lyric-empty { display: none !important; }
+  html.melo-show-lyrics .hc-current-lyric { display: none !important; }
 </style>
 </head>
 <body data-window-width="900" data-window-height="320"
@@ -617,6 +643,7 @@
           <div class="hc-chips">
             <span class="hc-chip accent" data-melo="codec" id="trackCodec"></span>
             <span class="hc-chip" data-melo="specs" id="trackSpecs"></span>
+            <div class="hc-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
           </div>
         </div>
 
@@ -691,5 +718,5 @@
     </div>
   </div>
 </div>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3922fa59f0089d8',t:'MTc4OTA4MjY2NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<!-- No external scripts: skins stay local/trusted only. --></body>
 </html>

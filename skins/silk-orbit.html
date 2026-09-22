@@ -250,6 +250,38 @@
     .so-footer button { height: 29px; }
     .cover-wrap { min-height: 0; }
   }
+
+  /* Optional current-line lyric slot (synced-LRC engine, Settings switch).
+     Silk: light travels across the text once per line (a sheen sweep), and
+     a silk thread underneath fills live with --melo-lyric-progress — the
+     engine's 0-to-1 progress through the current line. */
+  .so-current-lyric {
+    display: block; flex: 0 1 auto; min-width: 0; position: relative;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+    font-size: 9.5px; font-weight: 650; letter-spacing: .02em; line-height: 1.5;
+    background: linear-gradient(110deg,
+      var(--accent) 38%,
+      color-mix(in srgb, var(--accent) 30%, var(--so-text)) 50%,
+      var(--accent) 62%);
+    background-size: 240% 100%; background-position: 120% 0;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    padding-bottom: 3px;
+  }
+  .so-current-lyric.melo-lyric-tick { animation: so-lyric-sheen 1.15s cubic-bezier(.33, 1, .68, 1) both; }
+  @keyframes so-lyric-sheen {
+    from { background-position: 120% 0; }
+    to   { background-position: -120% 0; }
+  }
+  .so-current-lyric::after {
+    content: ""; position: absolute; left: 0; bottom: 0; height: 1px; width: 100%;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 75%, transparent), color-mix(in srgb, var(--accent) 20%, transparent));
+    transform: scaleX(var(--melo-lyric-progress, 0));
+    transform-origin: left center;
+    transition: transform .16s linear;
+  }
+  .so-current-lyric.melo-lyric-empty { display: none !important; }
+  html.melo-show-lyrics .so-current-lyric { display: none !important; }
 </style>
 </head>
 <body data-window-width="620" data-window-height="380" data-min-width="520" data-min-height="340" data-max-width="780" data-max-height="520" data-resizable="true">
@@ -260,8 +292,8 @@
       MELO <small>SILK ORBIT</small>
     </div>
     <div class="win-controls">
-      <button class="win-btn" aria-label="minimize" title="Minimize">—</button>
-      <button class="win-btn close" aria-label="close" title="Close">×</button>
+      <button class="win-btn" data-melo="minimize" aria-label="minimize" title="Minimize">—</button>
+      <button class="win-btn close" data-melo="close" aria-label="close" title="Close">×</button>
     </div>
   </div>
 
@@ -281,6 +313,7 @@
       <div class="track-format">
         <span class="badge-flac" id="trackCodec">—</span>
         <span id="trackSpecs"></span>
+        <div class="so-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
       </div>
 
       <div class="so-viz" id="vizBars"></div>

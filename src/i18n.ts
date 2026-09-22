@@ -49,7 +49,9 @@ export async function setLocale(code: string): Promise<void> {
   currentCode = code;
   current = cache[code] || cache.en;
   localStorage.setItem("melo-pref-language", code);
-  document.dispatchEvent(new CustomEvent("melo:locale-changed", { detail: code }));
+  // Explicit `bubbles: false` — see bus.ts: keeps an accidental `true`
+  // from turning an internal locale-change ping into a page-wide event.
+  document.dispatchEvent(new CustomEvent("melo:locale-changed", { detail: code, bubbles: false }));
 }
 
 /** Translate a dotted key; falls back to English, then to the key itself. */

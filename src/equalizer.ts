@@ -32,6 +32,10 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
 
   const eqEnable = document.getElementById("eqEnable") as HTMLInputElement | null;
   const eqPreset = document.getElementById("eqPreset") as HTMLSelectElement | null;
+  const eqPresetPicker = document.getElementById("eqPresetPicker");
+  const eqPresetButton = document.getElementById("eqPresetButton") as HTMLButtonElement | null;
+  const eqPresetLabel = document.getElementById("eqPresetLabel");
+  const eqPresetMenu = document.getElementById("eqPresetMenu");
   const btnEqReset = document.getElementById("btnEqReset") as HTMLButtonElement | null;
   const eqBandsEl = document.getElementById("eqBands") as HTMLElement | null;
   const eqCanvas = document.getElementById("eqCanvas") as HTMLCanvasElement | null;
@@ -53,6 +57,50 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
   let savedPreset = localStorage.getItem("melo-eq-preset") || matchesPreset(displayGains);
   let enabled = localStorage.getItem("melo-eq-enabled") !== "0";
 
+  function syncPresetPicker() {
+    if (!eqPreset || !eqPresetLabel || !eqPresetMenu) return;
+    const option = eqPreset.options[eqPreset.selectedIndex];
+    eqPresetLabel.textContent = option?.text || "Flat";
+    eqPresetMenu.querySelectorAll<HTMLElement>("[data-preset]").forEach(item => {
+      const selected = item.dataset.preset === eqPreset.value;
+      item.classList.toggle("selected", selected);
+      item.setAttribute("aria-selected", selected ? "true" : "false");
+    });
+  }
+  function closePresetMenu() {
+    if (!eqPresetMenu || !eqPresetButton) return;
+    eqPresetMenu.hidden = true;
+    eqPresetButton.setAttribute("aria-expanded", "false");
+    eqPresetPicker?.classList.remove("open");
+  }
+  function setPresetValue(value: string) {
+    if (!eqPreset) return;
+    eqPreset.value = value;
+    syncPresetPicker();
+  }
+  eqPresetButton?.addEventListener("click", event => {
+    event.stopPropagation();
+    if (!eqPresetMenu) return;
+    const opening = eqPresetMenu.hidden;
+    eqPresetMenu.hidden = !opening;
+    eqPresetButton.setAttribute("aria-expanded", String(opening));
+    eqPresetPicker?.classList.toggle("open", opening);
+  });
+  eqPresetMenu?.querySelectorAll<HTMLButtonElement>("[data-preset]").forEach(item => {
+    item.addEventListener("click", event => {
+      event.stopPropagation();
+      setPresetValue(item.dataset.preset || "flat");
+      closePresetMenu();
+      eqPreset?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  });
+  document.addEventListener("click", event => {
+    if (!(event.target as HTMLElement).closest("#eqPresetPicker")) closePresetMenu();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closePresetMenu();
+  });
+
   // ---------- ENGINE (main window only) ----------
   function ensureContext() {
     if (audioCtx) return;
@@ -73,7 +121,9 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
 
   function engineGains(vals: number[]) {
     ensureContext();
-    displayGains = [...vals];
+    // Callers own the `displayGains = [...vals]` copy (slider / preset / reset
+    // assign it before calling); the engine only pushes `vals` into the
+    // filter chain.
     if (enabled) {
       vals.forEach((v, i) => {
         if (filters[i]) filters[i].gain.value = v;
@@ -115,7 +165,7 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
         updateValLabel(sliders[p.idx]);
       }
       if (eqPreset) {
-        eqPreset.value = matchesPreset(displayGains);
+        setPresetValue(matchesPreset(displayGains));
       }
       drawCurve();
     } else if (p.type === "gains") {
@@ -128,7 +178,7 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
         });
       }
       if (eqPreset && p.preset) {
-        eqPreset.value = p.preset;
+        setPresetValue(p.preset);
       }
       drawCurve();
     } else if (p.type === "enable") {
@@ -220,7 +270,7 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
         drawCurve();
 
         const matched = matchesPreset(displayGains);
-        if (eqPreset) eqPreset.value = matched;
+        if (eqPreset) setPresetValue(matched);
 
         localStorage.setItem("melo-eq-gains", JSON.stringify(displayGains));
         localStorage.setItem("melo-eq-preset", matched);
@@ -232,7 +282,8 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
   }
 
   if (eqPreset) {
-    eqPreset.value = savedPreset;
+    setPresetValue(savedPreset);
+    syncPresetPicker();
     eqPreset.addEventListener("change", () => {
       const vals = presets[eqPreset.value] || presets.flat;
       if (sliders.length) {
@@ -263,7 +314,7 @@ export function setupEqualizer(audio: HTMLAudioElement, toast: (m: string) => vo
         });
       }
       displayGains = [...flatVals];
-      if (eqPreset) eqPreset.value = "flat";
+      if (eqPreset) setPresetValue("flat");
 
       localStorage.setItem("melo-eq-gains", JSON.stringify(displayGains));
       localStorage.setItem("melo-eq-preset", "flat");

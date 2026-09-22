@@ -285,6 +285,31 @@
     font-size: clamp(20px, 2.7vw, 24px); font-weight: 600; letter-spacing: -.022em; line-height: 1.25;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  /* Optional current-line lyric slot — powered by Melo's synced-LRC engine.
+     It lives in the existing codec/specification row: no additional line or
+     progress rule is introduced. It is hidden only while full Lyrics is open. */
+  .hv-current-lyric {
+    display: block; flex: 1 1 118px; min-width: 0;
+    overflow: hidden; padding: 2px 8px; white-space: nowrap; text-overflow: ellipsis;
+    color: color-mix(in srgb, var(--accent) 90%, var(--hv-soft)); cursor: pointer;
+    font-size: 10px; font-weight: 600; line-height: 1.2;
+    letter-spacing: .012em; text-transform: none;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--accent) 4%, transparent));
+    border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--hv-glass-line));
+    border-radius: 999px;
+    box-shadow: inset 0 1px 0 var(--hv-glass-hi), 0 3px 10px -9px var(--accent-glow);
+    text-shadow: 0 1px 8px color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+  .hv-current-lyric::before {
+    content: ""; display: inline-block; width: 4px; height: 4px; margin: 0 6px 1px 0;
+    border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 7px var(--accent-glow); vertical-align: middle;
+  }
+  /* Haven's own quiet per-line motion: the text only settles into its
+     normal warmth. The metadata chip itself never moves, blurs or fades. */
+  .hv-current-lyric.melo-lyric-tick { animation: hv-lyric-stillness 1s ease-out both; }
+  .hv-current-lyric.melo-lyric-empty { display: none !important; }
+  html.melo-show-lyrics .hv-current-lyric { display: none !important; }
   .hv-sub {
     margin-top: 4px; min-width: 0;
     display: flex; align-items: center; gap: 7px;
@@ -454,12 +479,26 @@
     0%, 100% { height: 30%; }
     50%      { height: 100%; }
   }
+  @keyframes hv-lyric-stillness {
+    0% {
+      color: color-mix(in srgb, var(--accent) 55%, var(--hv-soft));
+      text-shadow: 0 1px 1px transparent;
+    }
+    65% {
+      color: var(--accent);
+      text-shadow: 0 1px 11px var(--accent-glow);
+    }
+    100% {
+      color: color-mix(in srgb, var(--accent) 90%, var(--hv-soft));
+      text-shadow: 0 1px 8px color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+  }
   @keyframes hv-pop {
     from { opacity: 0; transform: translateY(-4px) scale(.98); }
     to   { opacity: 1; transform: none; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .hv-halo, .hv-menu-pop, .hv-live i { animation: none !important; }
+    .hv-halo, .hv-menu-pop, .hv-live i, .hv-current-lyric { animation: none !important; }
   }
 </style>
 </head>
@@ -552,6 +591,9 @@
           <span class="hv-live" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="hv-chip" data-melo="codec"></span>
           <span data-melo="specs"></span>
+          <!-- Optional synced-LRC hook. Melo fills it only when the dedicated
+               Settings switch is enabled; do not add static placeholder text. -->
+          <div class="hv-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
         </div>
       </div>
 

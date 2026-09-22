@@ -329,6 +329,52 @@ Skins written for older Melo versions use hard-coded `id`s instead of
 `data-melo` is recommended for new skins: it is position-independent and
 lets you use any element type you like.
 
+### 6.1 Complete `data-melo` reference (audit #36)
+
+This is a single source of truth for every `data-melo` value the
+runtime actually inspects. Grouped by purpose; use the role column
+verbatim in `data-melo="<value>"`.
+
+#### Window controls
+
+| Role | Element type | Notes |
+|---|---|---|
+| `window-control-minimize` | `<button>` | Minimizes the OS window. `aria-label="minimize"` required. |
+| `window-control-close` | `<button>` | Closes the OS window. `aria-label="close"` required. |
+
+The two `window-control-*` buttons are also styled by `app.css` as
+uniform vector glyphs (a `—` bar for minimize, an `×` for close) so
+skins that don't supply custom icons still get a consistent look.
+
+#### Titlebar / header actions
+
+| Role | Element type | Notes |
+|---|---|---|
+| `add-files` | clickable | Opens the "Add files" dialog. |
+| `add-folder` | clickable | Opens the "Add folder" dialog. |
+| `theme-toggle` | clickable | Switches light ↔ dark. |
+
+#### Stage panels (embedded playlist / lyrics / viz toggle)
+
+| Role | Element type | Notes |
+|---|---|---|
+| `visualizer` | container | The visualizer surface; replaced by `embedded-playlist`/`embedded-lyrics` when the user toggles them on. Hidden via CSS `display:none` when not active. |
+| `embedded-playlist` | container | Optional in-skin playlist; shown only when the user toggles playlist mode (`html.melo-show-playlist` on `<html>`). |
+| `embedded-lyrics` | container | Optional in-skin synced-lyrics panel; shown only when the user toggles lyrics mode (`html.melo-show-lyrics`). |
+| `toggle-embedded-viz` | clickable | Switches the stage to the visualizer (gets `.active` while selected). |
+| `toggle-embedded-lyrics` | clickable | Switches the stage to `embedded-lyrics` (gets `.active`). |
+| `toggle-embedded-playlist` | clickable | Switches the stage to `embedded-playlist` (gets `.active`). |
+
+#### Current synced lyric (opt-in slot, audit #17 / #19)
+
+| Role | Element type | Notes |
+|---|---|---|
+| `current-lyric` | inline element | The active synced-lyric line. Hidden unless the user has turned on **Settings → General → "Show current lyric line in skins"** AND the playing track has a synced `.lrc`. Engine toggles `melo-lyric-empty` and writes `data-melo-lyric-time` + `--melo-lyric-progress`. |
+| `next-lyric` | inline element | The line immediately following the active one. Same opt-in gate as `current-lyric`. |
+
+The classic IDs `skinCurrentLyric` / `skinNextLyric` still resolve to
+the same slot (see §6) so old skins keep working.
+
 ---
 
 ## 7. Theming variables

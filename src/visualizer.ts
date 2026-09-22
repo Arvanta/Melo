@@ -8,7 +8,8 @@ export type VizMode =
   | "Warp Drive" | "Triumph" | "Disco" | "Carnival"
   | "Velvet"
   | "Ashes" | "Waves" | "Charge"
-  | "Puddle Ripples";
+  | "Puddle Ripples"
+  | "Frequency Terrain" | "Kaleidoscope";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "Classic Bars", label: "Classic Bars" },
@@ -48,6 +49,8 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "Waves", label: "Waves" },
   { id: "Charge", label: "Charge" },
   { id: "Puddle Ripples", label: "Puddle Ripples" },
+  { id: "Frequency Terrain", label: "Frequency Terrain" },
+  { id: "Kaleidoscope", label: "Kaleidoscope" },
 
 
 ];
@@ -74,7 +77,12 @@ function fxFromStorage(): VizFx {
     bloom: g("melo-viz-bloom") === "1",
     mirrorFade: g("melo-viz-mirror") === "1",
     pale: g("melo-viz-pale") === "1",
-    smoothing: Math.min(100, Math.max(0, parseInt(g("melo-viz-smoothing") || "50", 10) || 50)),
+    // A stored "0" is a valid choice — only missing/corrupt values fall back
+    // to the default.
+    smoothing: (() => {
+      const p = parseInt(g("melo-viz-smoothing") ?? "", 10);
+      return Number.isNaN(p) ? 50 : Math.min(100, Math.max(0, p));
+    })(),
   };
 }
 
@@ -116,9 +124,8 @@ function hexToRgb(c: string): [number, number, number] {
     }
   } else {
     // cover.ts writes the album-art color as "rgb(r, g, b)" into
-    // --visualizer / --accent; parse those too, otherwise mix() silently
-    // falls back to the fixed sky-blue and modes based on it (Radial
-    // Sunburst, Dot Matrix, peak caps, pale tops) never follow the cover.
+    // --visualizer / --accent; parse those too, or mix() silently falls back
+    // to the fixed sky-blue and cover-driven modes never follow the cover.
     const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(s);
     if (m) return [Math.min(255, +m[1]), Math.min(255, +m[2]), Math.min(255, +m[3])];
   }
@@ -153,12 +160,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   let peakHold: number[] = [];
   let slowMax = 0.45;
   let menuEl: HTMLElement | null = null;
-  // Set true when a skin's toggle button is showing the embedded
-  // playlist/lyrics view in the visualizer's slot instead of the
-  // visualizer itself — the canvas is invisible in that state, so the
-  // render loop (which otherwise runs every frame reading the analyser
-  // and drawing) is stopped entirely rather than just CSS-hidden, to avoid
-  // wasting CPU/battery on draws nobody can see.
+  // True when a skin's toggle is showing the embedded playlist/lyrics in the
+  // visualizer's slot: the canvas is invisible, so the render loop stops
+  // entirely instead of burning CPU on draws nobody can see.
   let externallyPaused = false;
 
   function ensureCanvas(host: HTMLElement) {
@@ -263,10 +267,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
   }
 
-  // cover.ts sets BOTH --visualizer and --accent to the same cover color, so
-  // many modes collapsed to one flat tone. accentOrDarker() returns --accent
-  // when a skin defines a different one, otherwise a slightly DARKENED copy
-  // of the cover color — giving every mode a real two-tone range.
+  // cover.ts sets BOTH --visualizer and --accent to the cover color, so
+  // modes collapsed to one flat tone. accentOrDarker() returns --accent
+  // when a skin defines its own, else a slightly DARKENED cover copy — a
+  // real two-tone range.
   function accentOrDarker(c1: string): string {
     const a = cssVar("--accent", "#0284c7");
     if (a.replace(/\s/g, "") === c1.replace(/\s/g, "")) return mix(c1, "#000000", 0.32);
@@ -292,7 +296,15 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       canvas.height = Math.round(h * dpr);
     }
   }
-  new ResizeObserver(resize).observe(canvas);
+  // One managed ResizeObserver: every (re)bind disconnects the previous one
+  // instead of leaking an observer per skin swap.
+  let canvasObserver: ResizeObserver | null = null;
+  function observeCanvasSize() {
+    if (canvasObserver) { canvasObserver.disconnect(); canvasObserver = null; }
+    canvasObserver = new ResizeObserver(resize);
+    canvasObserver.observe(canvas);
+  }
+  observeCanvasSize();
   resize();
 
   function clearFrame() {
@@ -378,10 +390,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     return (alpha: number) => `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
   }
 
-  // Which theme the skin is in. A scene that wants a dark room cannot just
-  // paint black over a light skin — it reads as a hole punched in the page —
-  // so it asks for a scrim and gets the value that suits the ground it sits
-  // on. Light theme: a pale wash. Dark theme: the usual black.
+  // Which theme the skin is in: a dark scene cannot just paint black over
+  // a light skin (it reads as a hole in the page), so it asks for a scrim —
+  // a pale wash on light themes, black on dark.
   function isLightTheme(): boolean {
     try {
       return document.documentElement.getAttribute("data-theme") === "light";
@@ -399,12 +410,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       : (a: number) => `rgba(255,255,255,${Math.max(0, Math.min(1, a))})`;
   }
 
-  // Concentric rings expanding outward from the centre like drops on
-  // still water. The expansion speed and brightness follow the low end and
-  // the number of visible rings grows with the music's intensity; each
-  // ring also carries a faint, slowly rotating shimmer (bass → wide 2-lobe
-  // swell, mids → 4 lobes) so the water "trembles" with the music without
-  // ever losing its stillness.
+  // Concentric rings expanding from the centre like drops on still water.
+  // Speed and brightness follow the low end; the ring count grows with
+  // intensity. Each ring carries a faint rotating shimmer (bass → wide
+  // 2-lobe swell, mids → 4 lobes).
   function drawRipples(w: number, h: number) {
     const dpr = dprOf();
     const S = ambientSignals(false);
@@ -495,12 +504,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
 
   // A calm sea under a soft moon. Calm: three slow swells rise with the
-  // overall energy. Lively: each swell follows its own band (all / mid /
-  // bass), moves faster and carries spectrum "foam" on its crest.
-  // Each swell is filled with a vertical gradient (lit near the crest,
-  // sinking into the dark toward the bottom) and finished with a specular
-  // crest line, so the water has depth instead of reading as flat paper
-  // cut-outs.
+  // overall energy. Lively: each swell follows its own band, moves faster
+  // and carries spectrum "foam". Each swell is a vertical gradient (lit
+  // near the crest) with a specular crest line, so the water has depth.
   function drawTide(w: number, h: number, lively: boolean) {
     const dpr = dprOf();
     const S = ambientSignals(lively);
@@ -603,8 +609,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       g2d.bezierCurveTo(sz * 0.9, -sz * 0.6, sz * 0.9, sz * 0.5, 0, sz);
       g2d.bezierCurveTo(-sz * 0.9, sz * 0.5, -sz * 0.9, -sz * 0.6, 0, -sz);
       g2d.closePath();
-      // Shaded petal: lit along the leading edge, translucent at the far
-      // side, with a centre crease — the old flat fill read as a blob.
+      // Shaded petal: lit along the leading edge, translucent at the far side,
+      // with a centre crease (a flat fill read as a blob).
       const pg = g2d.createLinearGradient(-sz * 0.9, -sz, sz * 0.9, sz);
       const a0 = 0.22 + 0.26 * q.s * (0.6 + 0.4 * S.all) + 0.18 * lv;
       pg.addColorStop(0, P(Math.min(1, a0 * 1.9)));
@@ -751,9 +757,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       g2d.fillStyle = gr;
       g2d.fill();
     };
-    // Three hard-edged stacked shapes made the flame look like a layered
-    // logo. Each shell is now filled through its own radial gradient so the
-    // body melts into the next one, and the core carries a white-hot tip.
+    // Each shell is filled through its own radial gradient so the body melts
+    // into the next (hard-edged stacked shapes read as a layered logo); the
+    // core carries a white-hot tip.
     flame(1.08, 0.34, P2, 0.55);
     flame(0.80, 0.52, P2, 0.7);
     flame(0.58, 0.68, P1, 0.85);
@@ -835,12 +841,12 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
 
 
+  // ---------------------------------------------------------------------
   // Beat-driven renderers — Glitch / Quake / Shards / Sparks
-  // They share punchSignals(): fast-attack band groups from getLevels(), a
-  // short-release energy envelope and a simple bass-onset detector (`hit`
-  // is true on the frame a beat lands, `beat` then decays 1 → 0 in about a
-  // fifth of a second). Everything is painted with the theme's --accent /
-  // --visualizer colours so dynamic album themes keep working.
+  // They share punchSignals(): fast-attack band groups, a short-release
+  // energy envelope and a bass-onset detector (`hit` is true on the beat
+  // frame; `beat` decays 1 → 0 in ~0.2 s). Everything paints with the
+  // theme's --accent / --visualizer colors.
   // ---------------------------------------------------------------------
   interface PunchSignals { d: number[]; low: number; mid: number; high: number; all: number; beat: number; hit: boolean; dt: number; t: number }
   let pLowAvg = 0, pBeat = 0, pLast = 0, pLastHit = 0, pFlow = 0, pEnergy = 0;
@@ -946,9 +952,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       const v = S.d[i];
       const bh = Math.max(1.5 * dpr, v * (h - 2 * dpr) * (1 + 0.1 * S.beat));
       const x = i * slot + (slot - bw) / 2, y = h - bh;
-      // Chromatic-aberration ghosts, then a shaded core column and a hot
-      // scan cap. The core used to be one flat fill, which read as a plain
-      // bar chart with an offset shadow.
+      // Chromatic-aberration ghosts, then a shaded core column and a hot scan
+      // cap (one flat fill read as a plain bar chart with an offset shadow).
       b.fillStyle = P1(0.45); b.fillRect(x - split, y, bw, bh);
       b.fillStyle = P2(0.45); b.fillRect(x + split, y, bw, bh);
       const cg = b.createLinearGradient(0, y, 0, h);
@@ -1096,9 +1101,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       for (let i = 0; i < n; i++) {
         const j = fromTop ? n - 1 - i : i;                  // bass on opposite sides so the jaws interlock
         const tipX = (i + 0.5) * slot + shift; // valleys land exactly on 0 and w: every tooth the same shape
-        // motion floor + a shared beat pulse: quiet (treble) bands at the
-        // jaw ends used to sit almost still; now every tooth dances with
-        // the rhythm while loud bands still reach further
+        // Motion floor + shared beat pulse so quiet (treble) bands at the jaw
+        // ends still dance with the rhythm while loud bands reach further.
         const v = 0.22 * (0.4 + 0.6 * S.beat) + 0.78 * S.d[j];
         const tipY = edge + sign * Math.max(2 * dpr, v * H + (Math.random() - 0.5) * jit);
         g2d.lineTo(tipX, tipY);
@@ -1158,12 +1162,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   // ---------------------------------------------------------------------
   // Shared column helpers for the spectrum family.
   // ---------------------------------------------------------------------
-  // Column paint for the bar family.
-  //
-  // Default is deliberately FLAT: a single solid cover colour, which is the
-  // look Melo has always had. The two-tone crown → dark-accent gradient is
-  // what the Settings → Visualizer "Pale tops" switch turns on, so the two
-  // are not two different features doing almost the same thing.
+  // Column paint for the bar family. Default is deliberately FLAT (a
+  // single solid cover color); the two-tone crown → dark-accent gradient
+  // is what the "Pale tops" switch turns on.
   function columnGrad(yTop: number, yBase: number, c1: string, c2: string) {
     if (!fx.pale) return c1;
     const g = g2d.createLinearGradient(0, yTop, 0, yBase);
@@ -1353,9 +1354,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.stroke();
     g2d.shadowBlur = 0;
     g2d.globalAlpha = 1;
-    // One even trace. A horizontal bass→treble sweep was tried here and
-    // rejected: whitening the treble end read as a smear of haze over the
-    // right-hand side of the canvas rather than as shading.
+    // One even trace (a horizontal bass→treble sweep read as a haze smear
+    // rather than shading).
     spine();
     g2d.strokeStyle = c2;
     g2d.lineWidth = 2.2 * dpr;
@@ -1526,13 +1526,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.lineCap = "butt";
   }
 
-  // Radial Sunburst — a full 360 degree corona around a pulsing core.
-  // The old version fanned rays across a half-circle rooted at the bottom
-  // edge with a ray width computed from the arc length, which on a wide
-  // strip overlapped every ray into one solid blob. Now the rays are
-  // mirrored around the vertical axis (so the figure is symmetric), sized
-  // from the actual angular slot, and drawn with a gradient along their
-  // length.
+  // Radial Sunburst — a full 360° corona around a pulsing core: rays
+  // mirrored around the vertical axis, sized from their angular slot,
+  // drawn with a gradient along their length.
   function drawRadial(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
@@ -1837,25 +1833,21 @@ export function setupVisualizer(audio: HTMLAudioElement) {
 
 
   // =====================================================================
-  // HIGH-ENERGY FAMILY — 24 scenes in 8 categories
+  // HIGH-ENERGY FAMILY
   //
-  // All of them run on punchSignals(): fast-attack band groups, a
+  // All scenes run on punchSignals(): fast-attack band groups, a
   // short-release energy envelope and the shared bass-onset detector
-  // (`hit` is true on the frame a beat lands, `beat` decays 1 → 0 in
-  // ~160 ms). Everything is painted through painter() with --visualizer /
-  // --accent, so the Dynamic Album Artwork Theme re-tints them live.
+  // (`hit` is true on the beat frame; `beat` decays 1 → 0 in ~160 ms).
+  // Everything paints through painter() with --visualizer / --accent, so
+  // the Dynamic Album Artwork Theme re-tints scenes live.
   //
-  // Sizing rule: `w` / `h` are already in DEVICE pixels, so only
-  // thicknesses and radii get multiplied by dpr — same as every other
-  // scene in this file. Every scene is built to read at both a large
-  // stage and the default skin's 56 px strip.
+  // Sizing: `w`/`h` are already DEVICE pixels; only thicknesses and radii
+  // multiply by dpr. Every scene must read at both a large stage and the
+  // default skin's 56 px strip.
   // =====================================================================
   interface WarpStar { x: number; y: number; z: number; pz: number; c: number }
   let warpStars: WarpStar[] = [];
 
-  // ⚡ 1. ENERGETIC — a charged ridge. The spectrum is smoothed into
-  // terrain, lightning crawls off the loudest peaks and forks on its way
-  // up, embers ride the updraft, and every beat flashes the whole sky.
   // ⚡ 1. ENERGETIC — a warp tunnel: rings rushing out of the vanishing
   // point, stars stretched into streaks, the field turning slowly, and a
   // jump on every beat that pulls the whole sky past you.
@@ -1957,9 +1949,9 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const P2 = painter(cssVar("--accent", "#0284c7"));
     const ridgeLine = h * 0.62;
 
-    // the sky: uniformly dark top to bottom (the old gradient went pale
-    // toward the horizon, which read as a washed white lower half on the
-    // light theme); one faint uniform tint keeps the colour in both halves
+    // Uniformly dark sky top to bottom (a pale horizon gradient read as a
+    // washed white lower half on light themes); one faint uniform tint
+    // keeps the color in both halves.
     const dk = isLightTheme() ? 0.15 : 0.44;   // uniform top-to-bottom, lighter on the pale theme
     const sky = g2d.createLinearGradient(0, 0, 0, h);
     sky.addColorStop(0, `rgba(0,0,0,${dk})`);
@@ -2036,17 +2028,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     if (S.beat > 0.05) { g2d.fillStyle = `rgba(255,255,255,${S.beat * 0.10})`; g2d.fillRect(0, 0, w, h); }
   }
 
-  // driven by its own band, with motes riding the updraft and a ground
-  // glow that swells with the bass.
-  // ⚡ 1. ENERGETIC — an ascension: pillars of light off a wet floor, rings
-  // climbing them, a peak marker above each, and embers riding the updraft
-  // clean out of the frame.
-  // flying out of each blast, and a white flash at the origin. Rings thin
-  // and fade as they grow; beats set them off.
-  // spinning as they fly, with motion-blur streaks and a flaring core on
-  // every beat.
-  // tall columns are blown off on every beat and tumble away under
-  // gravity, while the column itself snaps back down.
   let chunks: { x: number; y: number; vx: number; vy: number; rot: number; vr: number; s: number; life: number; max: number; c: number }[] = [];
   let detoH: number[] = [];
   // ⚡ 1. ENERGETIC — a demolition. A rig of cells that jumps on the attack
@@ -2055,14 +2036,11 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   // shock ring running out along the ground.
   let detoSparks: { x: number; y: number; vx: number; vy: number; life: number; max: number }[] = [];
   let detoRings: { x: number; life: number; max: number }[] = [];
-  // ⚡ 1. ENERGETIC — a mirror ball, in colour. Every facet of it is lit by
-  // one fixed light and turns with the ball, cones swing out across the room
-  // and pool where they land, and a row of bars stands on the floor, bobbing
-  // and kicking on the beat. The room is a colour wheel that turns with the
-  // music, but the bars themselves take the album's own two-tone
-  // (--visualizer / --accent) so the dance floor still belongs to the cover.
-  // (Was two modes — the monochrome "Disco" and "Disco Colour"; the
-  // monochrome one was removed on request and this one took its name and id.)
+  // ⚡ 1. ENERGETIC — a mirror ball, in colour. Every facet is lit by one
+  // fixed light and turns with the ball, cones swing out and pool where
+  // they land, and floor bars bob and kick on the beat. The room is a
+  // colour wheel turning with the music; the bars take the album's
+  // two-tone (--visualizer / --accent).
   let discoPeaks: number[] = [];
   function drawDisco(w: number, h: number) {
     const dpr = dprOf();
@@ -2170,10 +2148,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.fillStyle = hg;
     g2d.beginPath(); g2d.arc(bx, by, Math.max(0.001, rad * 3), 0, Math.PI * 2); g2d.fill();
 
-    // the floor, and the bars dancing on it.
-    // BAR_SCALE: 30% shorter than they were, on request. It applies to the
-    // level, the bob and the beat kick alike, and the peak marker uses the
-    // same factor so it still lands on top of the bar it belongs to.
+    // The floor, and the bars dancing on it.
+    // BAR_SCALE: bars are 30% shorter; the factor applies to the level, the
+    // bob and the beat kick alike, and the peak marker uses it too so it
+    // still lands on top of its bar.
     const BAR_SCALE = 0.70;
     const slot = w / n, bw = slot * 0.62;
     g2d.strokeStyle = P2(0.35 + 0.20 * S.all);
@@ -2331,15 +2309,11 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   }
 
 
-  // ⚡ 2. CALM — velvet: hills of it, one behind the other, a rim of light
-  // along every crest and mist lying in the hollows between them.
-  // The camera is bolted down — no layer drifts sideways, nothing pans — and
-  // every layer runs off ONE integrated phase, so the swell is continuous.
-  // The old version multiplied its accumulated time by the current energy
-  // (S.t * drift * (0.4 + 0.8 * S.all)); because that factor changes with the
-  // music, the phase jumped every time the level moved, which is exactly the
-  // "moves, freezes, moves again" lurch. Accumulating the rate per frame
-  // instead makes the rate change smoothly and the position never jump.
+  // ⚡ 2. CALM — velvet: hills one behind the other, a rim of light along
+  // every crest, mist in the hollows. The camera is bolted down and every
+  // layer runs off ONE integrated phase: accumulate the rate per frame —
+  // never scale accumulated time by live energy, or the phase jumps with
+  // every level change ("moves, freezes, moves again").
   let velvetPhase = 0;
   function drawVelvet(w: number, h: number) {
     const dpr = dprOf();
@@ -2432,7 +2406,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
 
 
 
-  // into the dark, over the last of a fire's glow.
   let ashFlakes: { x: number; y: number; vy: number; vx: number; r: number; ph: number; a: number }[] = [];
   // ⚡ 2. CALM — the last of a fire: a low glow under everything, flakes
   // turning over on their way down, embers that have not given up yet and
@@ -2557,18 +2530,15 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.fillStyle = bg; g2d.fillRect(0, 0, w, h);
 
     // the swell, band over band
-    // (The five background light shafts that used to sit behind this were
-    // removed on request — the water reads cleaner without them.)
     const bands = 9;
     for (let k = 0; k < bands; k++) {
       const u = (k + 0.5) / bands;
       const yb = h * (0.10 + 0.90 * u);
       const amp = h * (0.02 + 0.05 * u) * (0.4 + 1.1 * S.all);
       const kf = 1.2 + k * 0.4;
-      // Integrated phase. The old form multiplied the ever-growing clock
-      // by the live energy, so every energy change teleported the swell by
-      // clock × delta — the stutter the user saw. Stepping the phase by
-      // dt × rate keeps the water fluid at any tempo.
+      // Integrated phase: step by dt × rate. Multiplying the ever-growing
+      // clock by live energy teleported the swell by clock × delta on every
+      // energy change — a visible stutter.
       if (swimPh.length <= k) swimPh.push(k * 1.7);
       swimPh[k] += S.dt * (0.35 + 0.25 * u) * (0.4 + 1.0 * S.all) * (0.6 + 1.4 * S.all) * 2.2;
       const sp = swimPh[k];
@@ -2633,15 +2603,6 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     }
   }
 
-  // band of the spectrum. Every beat sends a ring out across them.
-  // pulled down further each time the music lands.
-  // a shadow that disagrees with it.
-  // each beat throwing a new one out from the middle.
-  // and shrinking, the whole surface breathing under it.
-  // and curving long after the source has moved on.
-  // music and some of them not coming back.
-  // and the beat decides when the next one goes.
-  // landing on the beat.
   let chargeStreaks: { x: number; y: number; len: number; sp: number; a: number }[] = [];
   // ⚡ 1. ENERGETIC — a charge: streaks caught in a vortex and flung outward,
   // each with a bright head and a tail that falls away behind it, rings
@@ -2781,10 +2742,139 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.globalCompositeOperation = "source-over";
   }
 
+  // -----------------------------------------------------------------
+  // Frequency Terrain — three translucent ridgelines receding into the
+  // distance (fast/foreground, slower/background), an elegant, precise
+  // landscape rather than a whimsical scene.
+  // -----------------------------------------------------------------
+  let terrainNear: number[] = [], terrainMid: number[] = [], terrainFar: number[] = [];
+  function drawRidge(levels: number[], w: number, h: number, alpha: number, color: string, baseLift: number, amp: number, glow: boolean) {
+    const dpr = dprOf();
+    const n = levels.length;
+    const base = h - baseLift;
+    const pts: [number, number][] = [];
+    for (let i = 0; i < n; i++) pts.push([(i / (n - 1)) * w, base - levels[i] * amp]);
+    const tracePath = () => {
+      g2d.beginPath();
+      g2d.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < n; i++) {
+        const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+        g2d.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+      }
+      g2d.lineTo(pts[n - 1][0], pts[n - 1][1]);
+    };
+    tracePath();
+    g2d.lineTo(w, h);
+    g2d.lineTo(0, h);
+    g2d.closePath();
+    const grad = g2d.createLinearGradient(0, base - amp, 0, h);
+    grad.addColorStop(0, mix(color, "#ffffff", 0.12));
+    grad.addColorStop(1, mix(color, "#000000", 0.45));
+    g2d.globalAlpha = alpha;
+    g2d.fillStyle = grad;
+    g2d.fill();
+    g2d.globalAlpha = 1;
+    if (glow) {
+      if (fx.bloom) { g2d.shadowColor = color; g2d.shadowBlur = 6 * dpr; }
+      g2d.strokeStyle = mix(color, "#ffffff", 0.6);
+      g2d.lineWidth = 1.3 * dpr;
+      tracePath();
+      g2d.stroke();
+      g2d.shadowBlur = 0;
+    }
+  }
+  function drawTerrain(w: number, h: number) {
+    const n = 40;
+    const data = getLevels(n);
+    if (terrainNear.length !== n) { terrainNear = data.slice(); terrainMid = data.slice(); terrainFar = data.slice(); }
+    for (let i = 0; i < n; i++) {
+      terrainNear[i] += (data[i] - terrainNear[i]) * 0.5;
+      terrainMid[i] += (data[i] - terrainMid[i]) * 0.16;
+      terrainFar[i] += (data[i] - terrainFar[i]) * 0.055;
+    }
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = accentOrDarker(c1);
+    const wash = g2d.createLinearGradient(0, 0, 0, h);
+    wash.addColorStop(0, scrim(0));
+    wash.addColorStop(1, mix(c1, "#000000", 0.82));
+    g2d.globalAlpha = 0.10;
+    g2d.fillStyle = wash;
+    g2d.fillRect(0, 0, w, h);
+    g2d.globalAlpha = 1;
+    drawRidge(terrainFar, w, h, 0.30, mix(c2, "#000000", 0.15), h * 0.30, h * 0.30, false);
+    drawRidge(terrainMid, w, h, 0.55, mix(c1, c2, 0.45), h * 0.15, h * 0.42, false);
+    drawRidge(terrainNear, w, h, 0.95, c1, 0, h * 0.55, true);
+  }
 
+  // ⚡ 1. ENERGETIC — Kaleidoscope: the spectrum folded into a mirrored
+  // mandala. Each wedge mirrors the one before it, rotated around the
+  // centre, so every frame paints a slightly different flower.
+  function drawKaleidoscope(w: number, h: number) {
+    const dpr = dprOf();
+    const S = punchSignals(40);
+    const P1 = painter(cssVar("--visualizer", "#38bdf8"));
+    const P2 = painter(cssVar("--accent", "#0284c7"));
+    const HOT = hotInk(P1);
+    const cx = w / 2, cy = h / 2;
+    const R = Math.hypot(w, h) * 0.55;
+    const segs = 10;
+    const slice = (Math.PI * 2) / segs;
+    const rot = S.t * (0.10 + 0.30 * S.all);
+    const n = S.d.length;
 
+    const bg = g2d.createRadialGradient(cx, cy, 0, cx, cy, Math.max(0.001, R));
+    bg.addColorStop(0, P2(0.10 + 0.14 * S.all));
+    bg.addColorStop(1, scrim(0.72));
+    g2d.fillStyle = bg;
+    g2d.fillRect(0, 0, w, h);
 
+    const inner = R * (0.10 + 0.05 * S.beat);
 
+    g2d.save();
+    g2d.translate(cx, cy);
+    for (let s = 0; s < segs; s++) {
+      g2d.save();
+      g2d.rotate(rot + s * slice);
+      if (s % 2 === 1) g2d.scale(1, -1);
+
+      g2d.beginPath();
+      g2d.moveTo(0, 0);
+      for (let i = 0; i <= n; i++) {
+        const u = i / n;
+        const a = -slice / 2 + u * slice;
+        const v = S.d[Math.min(n - 1, i)];
+        const len = inner + Math.pow(v, 1.10) * (R - inner) * (1 + 0.18 * S.beat);
+        g2d.lineTo(Math.cos(a) * len, Math.sin(a) * len);
+      }
+      g2d.closePath();
+
+      const g = g2d.createRadialGradient(0, 0, inner, 0, 0, Math.max(0.001, R));
+      g.addColorStop(0.00, HOT(0.30 + 0.30 * S.beat));
+      g.addColorStop(0.35, P1(0.20 + 0.14 * S.all));
+      g.addColorStop(1.00, P2(0.08 + 0.06 * S.all));
+      g2d.fillStyle = g;
+      g2d.fill();
+      g2d.strokeStyle = HOT(0.18 + 0.32 * S.beat);
+      g2d.lineWidth = Math.max(0.6 * dpr, 1.1 * dpr);
+      g2d.stroke();
+
+      g2d.restore();
+    }
+    g2d.restore();
+
+    const cr = R * (0.055 + 0.05 * S.beat + 0.03 * S.low);
+    const cg = g2d.createRadialGradient(cx, cy, 0, cx, cy, Math.max(0.001, cr * 3.5));
+    cg.addColorStop(0.00, HOT(0.85 + 0.15 * S.beat));
+    cg.addColorStop(0.35, P1(0.42 + 0.25 * S.low));
+    cg.addColorStop(1.00, P1(0));
+    g2d.fillStyle = cg;
+    g2d.beginPath(); g2d.arc(cx, cy, Math.max(0.001, cr * 3.5), 0, Math.PI * 2); g2d.fill();
+
+    const rim = R * (0.90 + 0.05 * S.low);
+    g2d.strokeStyle = HOT(0.10 + 0.28 * S.beat);
+    g2d.lineWidth = Math.max(0.8 * dpr, 1.5 * dpr);
+    g2d.beginPath(); g2d.arc(cx, cy, rim, 0, Math.PI * 2); g2d.stroke();
+  }
 
   function draw() {
     const w = canvas.width, h = canvas.height;
@@ -2835,6 +2925,8 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     if (mode === "Charge") return drawCharge(w, h);
 
     if (mode === "Puddle Ripples") return drawPuddles(w, h);
+    if (mode === "Frequency Terrain") return drawTerrain(w, h);
+    if (mode === "Kaleidoscope") return drawKaleidoscope(w, h);
 
 
     // A skin can override the number of bars/columns via data-bars="N" on the
@@ -2918,10 +3010,10 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   function bindContainer() {
     if (!container) return;
     container.title = "Click: next mode • Right-click: choose mode";
-    // Property assignment (NOT addEventListener): skin apply/reset paths
-    // re-run bindContainer through rebind() on the very same element, and
-    // stacked listeners made every click advance the mode by TWO steps
-    // (1 → 3 → 5). Assignment overwrites, so duplicates are impossible.
+    // Property assignment (NOT addEventListener): skin apply/reset re-runs
+    // bindContainer on the very same element, and stacked listeners made
+    // every click advance the mode by TWO steps. Assignment overwrites, so
+    // duplicates are impossible.
     container.onclick = () => {
       hideMenu();
       const enabled = getEnabledVizModes();
@@ -2964,7 +3056,7 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     if (!container) return;
     canvas = ensureCanvas(container);
     g2d = canvas.getContext("2d")!;
-    new ResizeObserver(resize).observe(canvas);
+    observeCanvasSize(); // disconnects the old observer first
     resize();
     bindContainer();
     startLoop();

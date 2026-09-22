@@ -253,6 +253,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1696,6 +1705,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-range"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21dec9db110f5f872ed9699c3ecf50cf16f423502706ba5c72462e28d3157573"
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2261,7 +2276,7 @@ dependencies = [
 
 [[package]]
 name = "melo"
-version = "0.8.1"
+version = "1.0.0"
 dependencies = [
  "crossbeam-channel",
  "image",
@@ -2270,12 +2285,12 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "souvlaki",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-global-shortcut",
+ "tauri-plugin-persisted-scope",
  "tauri-plugin-single-instance",
  "walkdir",
 ]
@@ -3524,24 +3539,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "souvlaki"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5855c8f31521af07d896b852eaa9eca974ddd3211fc2ae292e58dda8eb129bc8"
-dependencies = [
- "base64 0.22.1",
- "block",
- "cocoa",
- "core-graphics 0.22.3",
- "dbus",
- "dbus-crossroads",
- "dispatch",
- "objc",
- "thiserror 1.0.69",
- "windows 0.44.0",
-]
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3910,6 +3907,22 @@ dependencies = [
  "tracing",
  "windows-sys 0.60.2",
  "zbus",
+]
+
+[[package]]
+name = "tauri-plugin-persisted-scope"
+version = "2.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65e4639faf38e4527a4549cbc68b788c0d29b03b65e65f1590f5ec582df5d028"
+dependencies = [
+ "aho-corasick",
+ "bincode",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin-fs",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

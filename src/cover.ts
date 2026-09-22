@@ -88,9 +88,18 @@ export async function withCover<T extends { cover?: string | null }>(
 
 // ---------- Dynamic Ambient Palette Color Extraction ----------
 
-export async function extractDominantColor(coverSrc: string): Promise<{ r: number; g: number; b: number } | null> {
-  return new Promise((resolve) => {
-    if (!coverSrc) return resolve(null);
+// Cache the extraction per artwork: toggling the dynamic theme or a
+// settings reset must not redo image decode + pixel scans for the cover
+// already on screen. Caching the promise also de-duplicates concurrent
+// extracts. Bounded so a long session can't grow it without limit.
+const dominantColorCache = new Map<string, Promise<{ r: number; g: number; b: number } | null>>();
+
+export function extractDominantColor(coverSrc: string): Promise<{ r: number; g: number; b: number } | null> {
+  if (!coverSrc) return Promise.resolve(null);
+  const hit = dominantColorCache.get(coverSrc);
+  if (hit) return hit;
+
+  const job = new Promise<{ r: number; g: number; b: number } | null>((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
@@ -135,9 +144,22 @@ export async function extractDominantColor(coverSrc: string): Promise<{ r: numbe
     img.onerror = () => resolve(null);
     img.src = coverSrc;
   });
+
+  dominantColorCache.set(coverSrc, job);
+  if (dominantColorCache.size > 128) {
+    const oldest = dominantColorCache.keys().next().value;
+    if (oldest !== undefined) dominantColorCache.delete(oldest);
+  }
+  return job;
 }
 
+// Fast track-skipping could let a slow extraction for an old track resolve
+// AFTER the newer track's color was applied; the token keeps only the most
+// recent request authoritative.
+let ambientThemeToken = 0;
+
 export async function applyDynamicAmbientTheme(coverSrc: string | null) {
+  const token = ++ambientThemeToken;
   const enabled = localStorage.getItem("melo-dynamic-theme") !== "0";
   const doc = document.documentElement;
 
@@ -149,6 +171,7 @@ export async function applyDynamicAmbientTheme(coverSrc: string | null) {
   }
 
   const col = await extractDominantColor(coverSrc);
+  if (token !== ambientThemeToken) return; // superseded by a newer request
   if (col) {
     const rgbStr = `rgb(${col.r}, ${col.g}, ${col.b})`;
     doc.style.setProperty("--accent", rgbStr);

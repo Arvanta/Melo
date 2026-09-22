@@ -356,7 +356,10 @@
 
   .ko-embed {
     position: absolute; inset: 0;
-    overflow: auto;
+    /* the inner .embedded-playlist / .embedded-lyrics panels scroll
+       themselves — this wrapper must not scroll too (that yielded TWO
+       vertical scrollbars on every embedded panel) */
+    overflow: hidden;
     display: none !important;
     background: var(--ko-paper);
   }
@@ -419,6 +422,38 @@
     .ko-vol { grid-template-columns: 16px minmax(48px, 1fr); }
   }
 
+
+  /* Optional current-line lyric slot (synced-LRC engine, Settings switch).
+     Koto: the line sits on a taut string; each new line is plucked — a
+     small drop into place while the string shivers once beneath it. */
+  .ko-current-lyric {
+    display: block; flex: 0 1 auto; min-width: 0; position: relative;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+    font-size: 9.5px; font-weight: 600; letter-spacing: .02em; line-height: 1.5;
+    text-transform: none;
+    color: var(--accent);
+    padding-bottom: 3px;
+  }
+  .ko-current-lyric::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 65%, transparent), color-mix(in srgb, var(--accent) 12%, transparent));
+    transform-origin: left center;
+  }
+  .ko-current-lyric.melo-lyric-tick { animation: ko-lyric-pluck .55s cubic-bezier(.28, 1.6, .35, 1) both; }
+  .ko-current-lyric.melo-lyric-tick::after { animation: ko-string-shiver .9s ease-out both; }
+  @keyframes ko-lyric-pluck {
+    0%   { opacity: 0; transform: translateY(-4px); }
+    55%  { opacity: 1; transform: translateY(1.5px); }
+    100% { opacity: 1; transform: none; }
+  }
+  @keyframes ko-string-shiver {
+    0%   { transform: scaleY(3); }
+    35%  { transform: scaleY(.4); }
+    60%  { transform: scaleY(1.8); }
+    100% { transform: scaleY(1); }
+  }
+  .ko-current-lyric.melo-lyric-empty { display: none !important; }
+  html.melo-show-lyrics .ko-current-lyric { display: none !important; }
 </style>
 </head>
 <body data-window-width="760" data-window-height="230" data-min-width="700" data-min-height="215" data-max-width="980" data-max-height="320" data-resizable="true">
@@ -456,10 +491,10 @@
       </button>
     </div>
     <div class="win-controls">
-      <button class="win-btn" aria-label="minimize" title="Minimize">
+      <button class="win-btn" data-melo="minimize" aria-label="minimize" title="Minimize">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
       </button>
-      <button class="win-btn close" aria-label="close" title="Close">
+      <button class="win-btn close" data-melo="close" aria-label="close" title="Close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
@@ -484,6 +519,7 @@
         <div class="track-format">
           <span class="badge-flac" id="trackCodec">—</span>
           <span id="trackSpecs"></span>
+          <div class="ko-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
         </div>
       </div>
       <div class="ko-seek seek-row">

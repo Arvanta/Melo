@@ -383,6 +383,26 @@
   }
 
   .ms-hide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  /* Optional current-line lyric slot (synced-LRC engine, Settings switch).
+     Mist: the line condenses out of fog — blurred and faint, then quickly
+     sharpening into place (0.5s). */
+  .ms-current-lyric {
+    display: block; flex: 0 1 auto; min-width: 0; align-self: center;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+    font-size: 9px; font-weight: 600; letter-spacing: .05em; line-height: 1.6;
+    color: var(--accent);
+    padding: 2px 2px;
+    text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .ms-current-lyric.melo-lyric-tick { animation: ms-lyric-fog .5s ease-out both; }
+  @keyframes ms-lyric-fog {
+    0%   { opacity: 0;  filter: blur(8px); transform: translateY(3px) scale(1.015); }
+    55%  { opacity: .85; filter: blur(1.2px); }
+    100% { opacity: 1;  filter: blur(0); transform: none; }
+  }
+  .ms-current-lyric.melo-lyric-empty { display: none !important; }
+  html.melo-show-lyrics .ms-current-lyric { display: none !important; }
 </style>
 </head>
 <body data-window-width="740" data-window-height="300" data-min-width="740" data-min-height="300" data-max-width="740" data-max-height="300" data-resizable="false">
@@ -439,6 +459,7 @@
           <div class="ms-chips">
             <span class="ms-chip accent" data-melo="codec" id="trackCodec"></span>
             <span class="ms-chip" data-melo="specs" id="trackSpecs"></span>
+            <div class="ms-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
           </div>
           <div class="ms-viz" data-melo="visualizer" id="vizBars" data-bars="48"></div>
         </div>
