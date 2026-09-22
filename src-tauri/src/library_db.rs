@@ -2336,7 +2336,10 @@ pub async fn queue_tracks(limit: usize, offset: usize, state: State<'_, LibraryS
     ).map_err(|e| e.to_string())?;
     // Rows expose the queue entry_id through playlist_entry_id — the frontend
     // keys drag/selection/play identity on it (duplicates distinguishable).
-    let items = stmt.query_map(params![limit as i64,offset as i64], |r| row_track_with_entries(r, r.get(12)?))
+    // Column 13 is q.entry_id (0..12 are the track fields including replay_gain).
+    // Reading column 12 here used to feed replay_gain into playlist_entry_id,
+    // which left every queue row without an entry id → drag/multi-select dead.
+    let items = stmt.query_map(params![limit as i64,offset as i64], |r| row_track_with_entries(r, Some(r.get(13)?)))
         .map_err(|e| e.to_string())?.filter_map(log_skipped).collect();
     Ok(Page { items, total, limit, offset })
 }

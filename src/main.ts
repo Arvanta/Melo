@@ -139,10 +139,10 @@ app.innerHTML = `
           <button class="tab" data-libtab="playlists">Playlists</button>
           <div class="lib-switches">
           <div class="lib-layout-switch" id="libLayoutSwitch" title="Track display">
-            <button type="button" class="lib-view-btn active" data-liblayout="list" title="Track List" aria-label="Track List">
+            <button type="button" class="lib-view-btn" data-liblayout="list" title="Track List" aria-label="Track List">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="3" y="16" width="4" height="4" rx="1"/><path d="M11 6h10M11 12h10M11 18h10"/></svg>
             </button>
-            <button type="button" class="lib-view-btn" data-liblayout="albums" title="Album Sheets" aria-label="Album Sheets">
+            <button type="button" class="lib-view-btn active" data-liblayout="albums" title="Album Sheets" aria-label="Album Sheets">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1"/><path d="M14 5h7M14 9h7M3 15h7M14 15h7M3 19h7M14 19h7"/></svg>
             </button>
           </div>
@@ -544,7 +544,9 @@ app.innerHTML = `
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
-            <a href="https://github.com/Arvanta/Melo" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">github.com/Arvanta/Melo ↗</a>
+            <a href="https://github.com/Arvanta/Melo" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">github.com/Arvanta/Melo ↗</a><br/><br/>
+            Support the project:<br/>
+            <a href="https://arvanta.github.io" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">Donate ↗</a>
           </div>
         </div>
       </div>

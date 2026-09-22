@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Melo — Mica</title>
 <style>
-/* MICA — fixed drag at small sizes (v8) */
+/* MICA — an independent, compact skin built from a blank canvas.
+   It uses a visual field, an overlapping now-playing badge, and a horizontal
+   queue ribbon. It does not reuse the Stage, Command, or Aurora structures. */
 :root,
 :root[data-theme="dark"],
 [data-theme="dark"] {
@@ -80,61 +82,25 @@ body.tauri-main,
 body.tauri-main .app-shell { min-width: 0 !important; }
 body.tauri-main .player-card,
 body.custom-skin-active .player-card { width: 100% !important; height: 100vh !important; min-width: 500px !important; min-height: 230px !important; max-width: 1240px !important; max-height: 820px !important; margin: 0 auto !important; border-radius: 20px !important; box-shadow: none !important; }
-/* Global no-drag for interactive elements only — containers stay draggable */
-button, input, [data-melo="cover"], [data-melo="cover-fallback"], .sg-scene, .sg-dock { -webkit-app-region: no-drag; }
+button, input, [data-melo="cover"], [data-melo="cover-fallback"], .sg-topbar, .sg-scene, .sg-dock { -webkit-app-region: no-drag; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--sg-blue); outline-offset: 2px; }
 button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: none; }
 
 .sg-shell { position: absolute; inset: 0; display: grid; grid-template-rows: 42px minmax(0, 1fr) 78px; }
-.sg-topbar {
-  position: relative;
-  z-index: 100;
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 0 12px 0 18px;
-  border-bottom: 1px solid var(--sg-line-soft);
-  background: color-mix(in srgb, var(--sg-surface) 64%, transparent);
-  -webkit-app-region: drag;
-  user-select: none;
-}
+.sg-topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--sg-line-soft); background: color-mix(in srgb, var(--sg-surface) 64%, transparent); -webkit-app-region: drag; user-select: none; }
 .sg-brand { display: flex; align-items: center; gap: 9px; min-width: 130px; }
 .sg-mark { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--sg-teal) 57%, transparent); border-radius: 8px; color: var(--sg-teal); background: color-mix(in srgb, var(--sg-teal) 10%, transparent); }
 .sg-mark svg { width: 14px; height: 14px; }
 .sg-name { font-size: 10px; font-weight: 800; letter-spacing: .2em; }
 .sg-mode { color: var(--sg-muted); font-size: 9px; }
-.sg-top-actions, .sg-window-buttons { display: flex; align-items: center; gap: 2px; }
+.sg-top-actions, .sg-window-buttons { display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
 .sg-top-actions button, .sg-window-buttons button { width: 27px; height: 24px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--sg-muted); background: transparent; cursor: pointer; transition: color .15s ease, background .15s ease; }
 .sg-top-actions button:hover, .sg-window-buttons button:hover { color: var(--sg-text); background: var(--sg-glass); }
 .sg-window-buttons { margin-left: 8px; }
 .sg-window-buttons .sg-close:hover { color: #fff; background: var(--sg-danger); }
 .sg-top-actions svg, .sg-window-buttons svg { width: 13px; height: 13px; }
 
-/* Drag fix: containers are draggable, only their interactive children are no-drag.
-   This guarantees a draggable strip remains even at 500×230 minimum. */
-.sg-brand-menu,
-.sg-top-actions,
-.sg-window-buttons,
-.sg-clarity-toggle,
-.sg-topbar > .sg-ribbon-tabs {
-  -webkit-app-region: drag;
-}
-.sg-brand-trigger,
-.sg-menu-panel,
-.sg-menu-dismiss,
-.sg-menu-item,
-.sg-ribbon-tabs button,
-.sg-top-actions button,
-.sg-window-buttons button,
-.sg-clarity-toggle input,
-.sg-clarity-toggle .sg-toggle-track {
-  -webkit-app-region: no-drag;
-}
-.sg-drag-spacer {
-  flex: 1 1 16px;
-  min-width: 16px;
-  align-self: stretch;
-  -webkit-app-region: drag;
-}
-
+/* A single visual scene replaces the usual collection of panes. */
 .sg-scene { position: relative; min-width: 0; min-height: 0; overflow: hidden; padding: 20px 21px 14px; }
 .sg-scene::before { content: ""; position: absolute; width: 700px; height: 290px; left: 13%; top: 5%; border-radius: 50%; background: radial-gradient(ellipse, color-mix(in srgb, var(--sg-blue) 13%, transparent), transparent 69%); filter: blur(18px); pointer-events: none; }
 .sg-scene::after { content: ""; position: absolute; width: 450px; height: 240px; right: -4%; bottom: -20%; border-radius: 50%; background: radial-gradient(ellipse, color-mix(in srgb, var(--sg-purple) 13%, transparent), transparent 70%); filter: blur(20px); pointer-events: none; }
@@ -147,6 +113,7 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: non
 .sg-scene-state { display: flex; align-items: center; gap: 7px; color: var(--sg-muted); font-size: 9px; }
 .sg-state-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--sg-teal); box-shadow: 0 0 0 4px color-mix(in srgb, var(--sg-teal) 13%, transparent); }
 
+/* Overlapping information badge: deliberately horizontal and lightweight. */
 .sg-now-card { position: absolute; z-index: 4; left: 39px; bottom: 36px; width: min(520px, calc(100% - 360px)); min-width: 360px; display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 15px; padding: 11px; border: 1px solid var(--sg-line); border-radius: 14px; background: color-mix(in srgb, var(--sg-surface) 88%, transparent); box-shadow: 0 17px 33px color-mix(in srgb, var(--sg-shadow) 65%, transparent), inset 0 1px 0 rgba(255,255,255,.09); backdrop-filter: blur(22px); }
 .sg-art { position: relative; width: 92px; height: 92px; overflow: hidden; border: 1px solid var(--sg-line); border-radius: 10px; background: var(--sg-surface-solid); box-shadow: 0 7px 15px var(--sg-shadow); }
 .sg-art [data-melo="cover"] { width: 100%; height: 100%; display: block; object-fit: cover; }
@@ -168,6 +135,7 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: non
 .sg-lyric { min-height: 23px; margin-top: 7px; overflow: hidden; color: var(--sg-soft); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .sg-next { display: none; }
 
+/* A narrow queue ribbon floats independently from the now-playing badge. */
 .sg-ribbon { position: absolute; z-index: 4; right: 38px; bottom: 36px; width: min(300px, 32%); height: 116px; overflow: hidden; border: 1px solid var(--sg-line); border-radius: 14px; background: color-mix(in srgb, var(--sg-surface) 82%, transparent); box-shadow: 0 17px 33px color-mix(in srgb, var(--sg-shadow) 62%, transparent), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(22px); }
 .sg-ribbon-head { height: 35px; display: flex; align-items: center; justify-content: flex-start; padding: 0 11px; border-bottom: 1px solid var(--sg-line-soft); }
 .sg-ribbon-head b { color: var(--sg-soft); font-size: 9px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
@@ -187,6 +155,7 @@ html.melo-show-playlist .sg-ribbon-body [data-melo="embedded-playlist"], html.me
 .sg-ribbon-tabs button:hover, .sg-ribbon-tabs button.active { color: var(--sg-blue); background: color-mix(in srgb, var(--sg-blue) 13%, transparent); }
 .sg-ribbon-tabs svg { width: 11px; height: 11px; }
 
+/* Thin transport dock, kept visually separate from the scene. */
 .sg-dock { display: grid; grid-template-columns: minmax(155px, 1fr) auto minmax(155px, 1fr); align-items: center; gap: 15px; margin: 0 18px 11px; padding: 7px 11px; border: 1px solid var(--sg-line); border-radius: 13px; background: color-mix(in srgb, var(--sg-surface) 86%, transparent); box-shadow: 0 12px 24px color-mix(in srgb, var(--sg-shadow) 58%, transparent), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(18px); }
 .sg-progress { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .sg-time { min-width: 27px; color: var(--sg-muted); font: 8px "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
@@ -251,6 +220,7 @@ html.melo-show-playlist .sg-ribbon-body [data-melo="embedded-playlist"], html.me
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 
+/* Second-pass composition: artwork and metadata live in the lower dock. */
 .sg-scene-header { display: none !important; }
 .sg-ribbon-tabs { top: 1px; left: 34px; right: auto; bottom: auto; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
 .sg-ribbon-tabs button { min-width: 54px; height: 25px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; }
@@ -300,6 +270,7 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
   .sg-dock { margin-left: 7px; margin-right: 7px; }
 }
 
+
 @media (max-height: 260px) {
   .sg-shell { grid-template-rows: 32px minmax(0, 1fr) 56px; }
   .sg-topbar { padding-left: 9px; }
@@ -323,7 +294,7 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
   .sg-controls .sg-play svg { width: 13px; height: 13px; }
 }
 
-.sg-brand-menu { position: relative; z-index: 20; min-width: 145px; }
+.sg-brand-menu { position: relative; z-index: 20; min-width: 145px; -webkit-app-region: no-drag; }
 .sg-brand-trigger { display: flex; align-items: center; gap: 8px; width: max-content; padding: 3px 7px 3px 0; border-radius: 8px; color: var(--sg-text); cursor: pointer; list-style: none; }
 .sg-brand-trigger::-webkit-details-marker { display: none; }
 .sg-brand-trigger:hover { background: var(--sg-glass); }
@@ -340,7 +311,11 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
 .sg-volume-range { --vol: 60%; }
 @media (max-width: 430px) { .sg-brand-menu { min-width: 108px; } .sg-brand-trigger { gap: 5px; } .sg-menu-chevron { display: none; } }
 
+
+/* Final compact controls: volume shares the exact progress-row treatment. */
 .sg-scene-lyric { position: absolute; z-index: 5; top: 8px; left: 15px; right: 150px; height: 25px; padding: 7px 0 0 7px; box-sizing: border-box; overflow: hidden; color: var(--sg-soft); font-size: 10px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; opacity: .92; }
+/* The lyric engine controls when a line changes. The skin only adds a short
+   entrance effect, so the line remains visible for its normal lyric timing. */
 .sg-scene-lyric.melo-lyric-tick { animation: mica-lyric-fade .6s ease-out both; }
 @keyframes mica-lyric-fade {
   0% { opacity: 0; }
@@ -373,13 +348,17 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
 .sg-ribbon-body .embedded-playlist-mini .t-title,
 .sg-ribbon-body .embedded-playlist-row .t-title { font-size: 11px !important; }
 .sg-ribbon-body .embedded-playlist-row .t-artist, .sg-ribbon-body .embedded-playlist-row .t-dur { font-size: 10px !important; }
-.sg-clarity-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 31px; height: 24px; margin-left: 4px; cursor: pointer; }
+.sg-clarity-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 31px; height: 24px; margin-left: 4px; cursor: pointer; -webkit-app-region: no-drag; }
 .sg-clarity-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .sg-toggle-track { position: relative; width: 26px; height: 15px; border: 1px solid var(--sg-line); border-radius: 99px; background: var(--sg-glass); transition: background .15s ease, border-color .15s ease; }
 .sg-toggle-track i { position: absolute; top: 2px; left: 2px; width: 9px; height: 9px; border-radius: 50%; background: var(--sg-muted); transition: left .15s ease, background .15s ease; }
 .sg-clarity-toggle:hover .sg-toggle-track { border-color: color-mix(in srgb, var(--sg-blue) 55%, var(--sg-line)); }
 .sg-clarity-toggle input:checked + .sg-toggle-track { border-color: var(--sg-blue); background: color-mix(in srgb, var(--sg-blue) 20%, transparent); }
 .sg-clarity-toggle input:checked + .sg-toggle-track i { left: 13px; background: var(--sg-blue); }
+/* The switch is skin-only: :has changes the acrylic surfaces without any
+   application-code change. Checked is the transparent treatment. */
+/* Transparent is the checked state. When it is off, every main surface
+   is solid, including the outer Mica stage itself. */
 .sg-shell:not(:has(#sgClarityToggle:checked)) .sg-topbar,
 .sg-shell:not(:has(#sgClarityToggle:checked)) .sg-dock,
 .sg-shell:not(:has(#sgClarityToggle:checked)) .sg-ribbon,
@@ -396,6 +375,7 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
   .sg-dock { grid-template-columns: minmax(135px, .78fr) minmax(245px, 1.22fr); }
   .sg-progress-row .sg-volume { flex-basis: 72px; width: 72px; }
 }
+/* Internal Playlist/Lyrics controls live in the top bar after the MELO menu. */
 .sg-topbar > .sg-ribbon-tabs {
   position: static;
   top: auto;
@@ -417,6 +397,7 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
   .sg-dock .sg-now-copy .sg-byline { display: flex; }
 }
 @media (max-width: 520px) {
+  /* Keep the new top-bar order usable down to the 450px minimum width. */
   .sg-topbar { gap: 4px; padding-left: 8px; padding-right: 6px; }
   .sg-brand-menu { min-width: 92px; }
   .sg-brand-trigger { gap: 4px; padding-right: 2px; }
@@ -430,6 +411,8 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
   .sg-clarity-toggle { width: 25px; margin-left: 1px; }
   .sg-window-buttons { margin-left: 2px; gap: 0; }
 }
+/* Keep the skin hook from creating a second scrollbar: the hook itself is
+   the only scrolling element, including the generated Lyrics title. */
 .sg-ribbon-body > [data-melo="embedded-playlist"],
 .sg-ribbon-body > [data-melo="embedded-lyrics"] {
   overflow-y: auto;
@@ -440,14 +423,20 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
   height: auto;
   overflow: visible;
 }
+/* The volume fill belongs on the 3px track, not on the full-height range
+   input; this keeps it visually identical to the progress bar. */
 .sg-volume-range { background: transparent !important; }
 .sg-volume-range::-webkit-slider-runnable-track { height: 3px; }
 .sg-volume-range::-moz-range-track { height: 3px; }
 .sg-volume-range::-moz-range-progress { height: 3px; }
 @media (max-width: 620px) {
+  /* The embedded panel expands across the visualizer at compact widths;
+     hide the separate one-line lyric so the two layers never overlap. */
   html.melo-show-playlist .sg-scene-lyric,
   html.melo-show-lyrics .sg-scene-lyric { display: none !important; }
 }
+/* Center the internal Playlist/Lyrics controls in the header while keeping
+   them after the MELO menu in the markup. */
 .sg-topbar { position: relative; }
 .sg-topbar > .sg-ribbon-tabs {
   position: absolute;
@@ -458,21 +447,12 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
   margin: 0;
   transform: translate(-50%, -50%);
 }
-/* v8 drag fix — ensure drag spacer remains even at 500×230 */
-.sg-topbar .sg-drag-spacer {
-  display: block;
-}
-@media (max-width: 520px) {
-  .sg-topbar .sg-drag-spacer {
-    min-width: 8px;
-  }
-}
 </style>
 </head>
 <body data-window-width="600" data-window-height="380" data-min-width="500" data-min-height="230" data-max-width="1300" data-max-height="820" data-resizable="true">
 <div id="melo-player">
   <div class="sg-shell">
-    <header class="sg-topbar" data-tauri-drag-region>
+    <header class="sg-topbar">
       <div class="sg-brand-menu">
         <input id="sgBrandMenuToggle" type="checkbox">
         <label class="sg-brand-trigger" for="sgBrandMenuToggle">
@@ -486,21 +466,22 @@ html.melo-show-playlist .sg-ribbon-body .embedded-playlist, html.melo-show-lyric
         </div>
         <label class="sg-menu-dismiss" for="sgBrandMenuToggle" aria-label="Close menu"></label>
       </div>
-      <div class="sg-drag-spacer" data-tauri-drag-region></div>
       <div class="sg-ribbon-tabs"><button class="sg-tab stage-btn" data-melo="toggle-embedded-playlist" title="Playlist" aria-label="Playlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button><button class="sg-tab stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics" aria-label="Lyrics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></button></div>
       <div class="sg-top-actions">
         <button id="btnToggleLibrary" data-melo="toggle-library" title="Library" aria-label="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 4v16M10 6v14M15 8v12M20 10v10"/></svg></button>
         <button id="btnTogglePlaylist" data-melo="toggle-playlist" title="Playlist" aria-label="Playlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button>
         <button id="btnToggleLyrics" data-melo="toggle-lyrics" title="Lyrics" aria-label="Lyrics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></button>
-        <button id="btnOpenSettings" data-melo="toggle-settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+        <button id="btnOpenSettings" data-melo="toggle-settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
         <label class="sg-clarity-toggle" title="Transparent" aria-label="Transparent"><input id="sgClarityToggle" type="checkbox"><span class="sg-toggle-track"><i></i></span></label>
         <div class="sg-window-buttons"><button data-melo="minimize" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg></button><button class="sg-close" data-melo="close" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
       </div>
+      
     </header>
 
     <main class="sg-scene">
       <div class="sg-signal-field"><div class="sg-viz" data-melo="visualizer" data-bars="36"></div></div>
       <div class="sg-scene-lyric" data-melo="current-lyric" aria-live="polite"></div>
+      
       <aside class="sg-ribbon" aria-label="Queue"><div class="sg-ribbon-body"><div data-melo="embedded-playlist"></div><div data-melo="embedded-lyrics"></div></div></aside>
     </main>
 

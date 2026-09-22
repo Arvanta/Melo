@@ -8,6 +8,12 @@ Version: **1.0.0** • License: **GPL-3.0**
 
 ![Melo — main player window](assets/main-window.png)
 
+## ❤️ Donate
+
+If Melo is useful to you, you can support development here:
+
+**[https://arvanta.github.io](https://arvanta.github.io)**
+
 ## ✨ Features
 
 | Area | Details |

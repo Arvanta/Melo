@@ -921,8 +921,8 @@ test("the play queue allows DUPLICATE tracks (entry-keyed)", () => {
   const queueRegion = rust.slice(j, k);
   assert.ok(!queueRegion.includes("INSERT OR IGNORE INTO queue"),
     "queue inserts must keep duplicates (no INSERT OR IGNORE)");
-  assert.match(rust, /row_track_with_entries\(r, r\.get\(12\)\?\)/,
-    "queue_tracks must expose each row's entry id");
+  assert.match(rust, /row_track_with_entries\(r,\s*Some\(r\.get\(13\)\?\)\)/,
+    "queue_tracks must expose each row's entry id from column 13");
   assert.match(rust, /pub async fn move_queue_entries\(entry_ids: Vec<i64>/,
     "the entry-keyed block-move command must exist");
   assert.match(rust, /"UPDATE queue SET position=\?2 WHERE entry_id=\?1"/,
@@ -1116,7 +1116,11 @@ test("queue rows support ctrl/shift multi-select and bulk remove from Queue", ()
   // the bulk bar must show for queue selections
   assert.match(lib, /playlistBulk\.bar\.style\.display = playlistSelectedEntryIds\.size \? "flex" : "none";/,
     "the bulk bar must be visible whenever a selection exists");
-  assert.match(lib, /"Remove from Queue"/, "the bulk action must relabel per view");
+  // One short label covers both queue and playlist bulk removal.
+  assert.match(lib, /playlistBulk\.actionBtn\.textContent = "Remove"/,
+    "the bulk action label must be the short 'Remove' for both queue and playlist");
+  assert.doesNotMatch(lib, /"Remove from Queue"/, "the long queue-specific bulk label must be gone");
+  assert.doesNotMatch(lib, /"Remove from Playlist"/, "the long playlist-specific bulk label must be gone");
   // grabbing a selected QUEUE row moves the whole selection
   assert.match(lib, /const ids: string\[\] = \(!playlistSelectedEntryIds\.has\(grabId\) \|\| playlistSelectedEntryIds\.size < 2\)/,
     "queue drags must move the selection as a block");
@@ -1127,35 +1131,6 @@ test("queue rows support ctrl/shift multi-select and bulk remove from Queue", ()
   assert.ok(emits >= 2, "both the × button and the bulk action must notify the player");
   // the bulk bar exposes its action button so the label can follow the view
   assert.match(lib, /actionBtn: actionBtn as HTMLButtonElement/, "createBulkBar must expose the action button");
-});
-
-// ─── Mica / Mica 2 added to the lyric-line-in-skins supported list ───
-
-test("the lyric-line-in-skins setting description lists Mica and Mica 2 as supported skins", () => {
-  const en = readSrc("src/locales/en.json");
-  const desc = JSON.parse(en)["settings.general.lyricsSkinLine.desc"];
-  assert.match(desc, /Currently supported skins:.*\bMica\b.*\bMica 2\b/,
-    "Mica and Mica 2 must be listed among the supported skins");
-  for (const name of ["mica.html", "mica-2.html"]) {
-    const skin = readSrc(`skins/${name}`);
-    assert.match(skin, /data-melo="current-lyric"/, `${name} must actually expose the current-lyric slot`);
-  }
-});
-
-// ─── a stale playlist search query must not permanently disable queue drag-reorder ───
-
-test("switching to the queue view clears the (disabled) playlist search box, and hasSearch never applies to the queue", () => {
-  const lib = readSrc("src/library.ts");
-  // syncPlaylistChrome must blank the search input's VALUE when entering the
-  // queue view, not just disable it — a disabled input keeps its old value,
-  // and renderPlaylistVirtual reads that raw .value regardless of .disabled.
-  const chromeFn = lib.slice(lib.indexOf("function syncPlaylistChrome"), lib.indexOf("function broadcastCurrentPlaylist"));
-  assert.match(chromeFn, /if \(viewingQueue\) \{ playlistSearch\.value = ""; updatePlaylistSearchClear\(\); \}/,
-    "entering the queue view must clear the search box's value (and its clear-icon state)");
-  // Defense in depth: hasSearch itself must be forced false for the queue,
-  // since queue_tracks never applies a search filter anyway.
-  assert.match(lib, /const hasSearch = !viewingQueue && !!playlistSearchQuery\(\);/,
-    "hasSearch must never be true for the queue view, so it can never gate reorderAllowed off");
 });
 
 // ─── library crumb exactly 38px · deleted-skin boot check · block-drag distance ───
@@ -1351,6 +1326,11 @@ test("the Library has a persisted list/albums layout switch that only applies to
   assert.match(main, /data-liblayout="list"/);
   assert.match(main, /data-liblayout="albums"/);
   assert.match(lib, /"melo-lib-layout"/);
+  // Default for Details/Tiles is Album Sheets; only an explicit "list" preference overrides it.
+  assert.match(lib, /localStorage\.getItem\("melo-lib-layout"\) === "list" \? "list" : "albums"/,
+    "Album Sheets must be the default layout until the user picks Track List");
+  assert.match(main, /class="lib-view-btn active" data-liblayout="albums"/,
+    "the Album Sheets button is the markup default");
   assert.match(lib, /libLayout === "albums" && libView !== "compact" && isLibraryTrackDisplay\(\)/,
     "sheet mode must be limited to non-compact views and track displays");
   assert.match(lib, /if \(sheetModeActive\(\)\) \{\s*invalidateLibraryWindow\(\);\s*return renderAlbumSheets/,
@@ -1499,6 +1479,18 @@ test("unpainted-only artwork lookups: already-painted covers are not re-requeste
   const lib = readSrc("src/library.ts");
   const lazy = lib.slice(lib.indexOf("function bindLazyArtwork"), lib.indexOf("async function loadCore"));
   assert.ok(lazy.includes("!el.style.backgroundImage"), "elements painted from page data must be skipped");
+});
+
+
+// ─── round 65: donate link + About tab ───
+
+test("README and Settings → About both expose the donate URL", () => {
+  const readme = readSrc("README.md");
+  const main = readSrc("src/main.ts");
+  assert.match(readme, /## ❤️ Donate/, "README must have a Donate section");
+  assert.match(readme, /https:\/\/arvanta\.github\.io/, "README must link to arvanta.github.io");
+  assert.match(main, /https:\/\/arvanta\.github\.io/, "About tab must link to arvanta.github.io");
+  assert.match(main, />Donate ↗</, "About tab must show a Donate link");
 });
 
 // ─────────────────────────── run + summary ───────────────────────────

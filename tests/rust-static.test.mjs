@@ -158,6 +158,22 @@ test("rust static: append_queue_tracks returns the created entry ids", () => {
     "positions must still be renumbered inside the transaction");
 });
 
+test("rust static: queue_tracks maps q.entry_id from column 13 (not replay_gain)", () => {
+  // SELECT order is id,path,title,artist,album_artist,album,genre,year,duration,
+  // artwork_path,codec,specs,replay_gain,q.entry_id — so entry_id is index 13.
+  // Reading r.get(12) used to put replay_gain into playlist_entry_id and left
+  // every queue row without an entry id → drag/multi-select dead in the UI.
+  const lib = readSrc("src-tauri/src/library_db.rs");
+  const i = lib.indexOf("pub async fn queue_tracks");
+  assert.ok(i >= 0, "queue_tracks must exist");
+  const body = lib.slice(i, lib.indexOf("\n}", i + 1));
+  assert.ok(body.includes("q.entry_id"), "the SELECT must project q.entry_id");
+  assert.match(body, /row_track_with_entries\(r,\s*Some\(r\.get\(13\)\?\)\)/,
+    "entry_id must be read from column 13 and wrapped in Some");
+  assert.doesNotMatch(body, /row_track_with_entries\(r,\s*r\.get\(12\)/,
+    "must never read column 12 (replay_gain) as the entry id");
+});
+
 test("rust static: remove_queue_entries removes rows and returns the order", () => {
   const lib = readSrc("src-tauri/src/library_db.rs");
   assert.match(lib, /pub async fn remove_queue_entries\(entry_ids: Vec<i64>, state: State<'_, LibraryState>\) -> Result<Vec<QueueOrderRow>, String>/,

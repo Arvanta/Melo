@@ -137,7 +137,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // applies to Details/Tiles and only where TRACKS are shown (artist/album/
   // genre drill-ins and search results) — never to the root group tabs.
   type LibLayout = "list" | "albums";
-  let libLayout: LibLayout = localStorage.getItem("melo-lib-layout") === "albums" ? "albums" : "list";
+  // Default is Album Sheets for Details/Tiles track displays. An explicit
+  // user choice of "list" is respected; anything else (missing/corrupt) → albums.
+  let libLayout: LibLayout = localStorage.getItem("melo-lib-layout") === "list" ? "list" : "albums";
   const SHEET_TRACK_LIMIT = 5000;
   function isLibraryTrackDisplay(): boolean {
     if (libTab === "playlists") return false;
@@ -423,7 +425,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   const playlistBulk = createBulkBar([
     {
-      label: "Remove from Playlist",
+      label: "Remove",
       danger: true,
       onClick: async () => {
         if (!invoke || !playlistSelectedEntryIds.size) return;
@@ -485,9 +487,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       // Keep the ARIA state in lockstep with the visual one.
       row.setAttribute("aria-selected", selected ? "true" : "false");
     });
-    // The bulk bar works for the QUEUE view too.
+    // The bulk bar works for the QUEUE view too. One short label covers both
+    // the play-queue and stored-playlist removal paths.
     playlistBulk.bar.style.display = playlistSelectedEntryIds.size ? "flex" : "none";
-    playlistBulk.actionBtn.textContent = currentPlaylistId === QUEUE_ID ? "Remove from Queue" : "Remove from Playlist";
+    playlistBulk.actionBtn.textContent = "Remove";
     playlistBulk.countEl.textContent = `${playlistSelectedEntryIds.size} selected`;
   }
 
@@ -1942,14 +1945,6 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (playlistSearch) {
       playlistSearch.disabled = viewingQueue;
       playlistSearch.placeholder = viewingQueue ? "Search isn't available for the play queue" : "Search playlist…";
-      // Search never applies to the queue view (queue_tracks ignores it), so a
-      // leftover query typed while browsing a REAL playlist must not survive
-      // into the queue: renderPlaylistVirtual's hasSearch check reads this
-      // input's raw .value regardless of .disabled, and a stale non-empty
-      // value there permanently killed drag-reorder for the queue (hasSearch
-      // stuck true) until the box was manually cleared, which is impossible
-      // while it's disabled.
-      if (viewingQueue) { playlistSearch.value = ""; updatePlaylistSearchClear(); }
     }
     if (clearPlaylistButton) {
       clearPlaylistButton.disabled = viewingAutoPlaylist;
@@ -2148,7 +2143,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     page.items = page.items.map(normalizeTrack);
     // Same minimum-length rule as the Library search: a 1-char playlist
     // Query stays a plain browse view.
-    const hasSearch = !viewingQueue && !!playlistSearchQuery();
+    const hasSearch = !!playlistSearchQuery();
     // Manual reorder is only meaningful in the DEFAULT (position) order with
     // No active search: under a metadata sort or filter the visible rows are
     // A projection, so a drop target's index would not map to a real
