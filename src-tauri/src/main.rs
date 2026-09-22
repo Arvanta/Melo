@@ -59,6 +59,7 @@ const DEFAULT_SKIN_MICA: &str = include_str!("../../skins/mica.html");
 const DEFAULT_SKIN_MICA_2: &str = include_str!("../../skins/mica-2.html");
 const DEFAULT_SKIN_MICROLINE_V: &str = include_str!("../../skins/microline-v.html");
 const DEFAULT_SKIN_MIST: &str = include_str!("../../skins/mist.html");
+const DEFAULT_SKIN_RAIL: &str = include_str!("../../skins/rail.html");
 
 // ---- Helpers ----
 
@@ -269,6 +270,7 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
         ("mica-2.html", DEFAULT_SKIN_MICA_2),
         ("microline-v.html", DEFAULT_SKIN_MICROLINE_V),
         ("mist.html", DEFAULT_SKIN_MIST),
+        ("rail.html", DEFAULT_SKIN_RAIL),
     ] {
         let f = skins_dir.join(fname);
         if !f.exists() {
@@ -483,6 +485,49 @@ fn open_skins_folder(app: tauri::AppHandle) -> Result<(), String> {
     {
         std::process::Command::new("xdg-open")
             .arg(&path_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Open an https/http URL in the user's default browser.
+/// WebView2 does not honor target=_blank / window.open for external sites
+/// under Melo's CSP, so About links (and any future external links) must
+/// go through this command instead of a plain <a href>.
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    // Allowlist: only real web URLs. Reject file:, javascript:, data:, etc.
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err("only http(s) URLs can be opened".into());
+    }
+    if trimmed.chars().any(|c| c.is_control() || c == '"' || c == '\'') {
+        return Err("invalid URL".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // rundll32 FileProtocolHandler is the reliable way to hand a URL to
+        // the default browser on Windows. `cmd /C start "" url` also works
+        // but quotes/spaces are easier to get wrong; explorer.exe treats a
+        // URL as a folder path and fails silently.
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", trimmed])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(trimmed)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -714,6 +759,7 @@ fn main() {
             read_skin_file,
             save_custom_skin_file,
             open_skins_folder,
+            open_external_url,
             write_tags,
         ])
         .setup(|app| {

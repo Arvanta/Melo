@@ -544,9 +544,9 @@ app.innerHTML = `
             <b>Tauri 2 + TypeScript + Vite + Rust</b><br/>
             Supports: FLAC, ALAC, MP3, WAV, AAC, OGG, OPUS • 10-band EQ • Real-time FFT Visualizer • Lyric • Dynamic Ambient Theme<br/>
             License: <b>GPL-3.0</b> • Open Source on GitHub:<br/>
-            <a href="https://github.com/Arvanta/Melo" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">github.com/Arvanta/Melo ↗</a><br/><br/>
+            <a href="https://github.com/Arvanta/Melo" data-melo-external="https://github.com/Arvanta/Melo" rel="noopener" style="color:var(--accent); font-weight:600; cursor:pointer;">github.com/Arvanta/Melo ↗</a><br/><br/>
             Support the project:<br/>
-            <a href="https://arvanta.github.io" target="_blank" rel="noopener" style="color:var(--accent); font-weight:600;">Donate ↗</a>
+            <a href="https://arvanta.github.io" data-melo-external="https://arvanta.github.io" rel="noopener" style="color:var(--accent); font-weight:600; cursor:pointer;">Donate ↗</a>
           </div>
         </div>
       </div>
@@ -2232,6 +2232,28 @@ function setupSettings(toast: ToastFn) {
   // Reports.
   const buildEl = document.getElementById("aboutBuild");
   if (buildEl) buildEl.textContent = document.querySelector('meta[name="melo-build"]')?.getAttribute("content") || "unknown";
+
+  // About external links: WebView2 ignores target=_blank under our CSP, so
+  // open http(s) URLs via the Rust open_external_url command (default browser).
+  // Browser/demo fallback uses window.open. href stays on the anchor for
+  // accessibility / copy-link, but the click is always intercepted.
+  document.querySelectorAll<HTMLAnchorElement>("[data-melo-external]").forEach(a => {
+    a.addEventListener("click", async event => {
+      event.preventDefault();
+      const url = (a.dataset.meloExternal || a.getAttribute("href") || "").trim();
+      if (!/^https?:\/\//i.test(url)) return;
+      if (isTauri) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("open_external_url", { url });
+        } catch (e) {
+          toast(`Couldn't open link — ${String(e)}`);
+        }
+        return;
+      }
+      try { window.open(url, "_blank", "noopener,noreferrer"); } catch {}
+    });
+  });
 
   const langSelect = document.getElementById("setLanguage") as HTMLSelectElement | null;
   if (langSelect) {

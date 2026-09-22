@@ -1493,6 +1493,47 @@ test("README and Settings → About both expose the donate URL", () => {
   assert.match(main, />Donate ↗</, "About tab must show a Donate link");
 });
 
+
+// ─── round 66: Rail skin bundled + listed for current-lyric support ───
+
+test("the bundled Rail skin ships current-lyric and is wired into the binary", () => {
+  const rail = readSrc("skins/rail.html");
+  assert.match(rail, /data-melo="current-lyric"/, "Rail must expose the current-lyric engine hook");
+  assert.match(rail, /data-melo="close"/, "Rail close button must use the engine hook");
+  assert.match(rail, /data-melo="minimize"/, "Rail minimize button must use the engine hook");
+  assert.match(rail, /data-min-width="500"/, "Rail min width matches project floor");
+  assert.match(rail, /data-min-height="230"/, "Rail min height matches project floor");
+  assert.match(rail, /<title>Melo — Rail<\/title>/, "display name stays Rail");
+  assert.doesNotMatch(rail, /challenge-platform|cloudflare/i, "no Cloudflare challenge script");
+  const main = readSrc("src-tauri/src/main.rs");
+  assert.match(main, /include_str!\("\.\.\/\.\.\/skins\/rail\.html"\)/, "Rail must be embeddable via include_str!");
+  assert.match(main, /\("rail\.html", DEFAULT_SKIN_RAIL\)/, "Rail must seed on first run");
+});
+
+test("Settings → current-lyric description lists Rail among supported skins", () => {
+  const en = readSrc("src/locales/en.json");
+  assert.match(en, /Currently supported skins: Default - Aria - Halcyon - Haven - Hira - Koto - Mist - Rail - Silk Orbit\./,
+    "Rail must appear in the supported-skins line");
+});
+
+
+// ─── round 67: About external links open in the system browser ───
+
+test("About links open via open_external_url (WebView2 cannot target=_blank)", () => {
+  const main = readSrc("src/main.ts");
+  assert.match(main, /data-melo-external="https:\/\/github\.com\/Arvanta\/Melo"/,
+    "GitHub About link must carry data-melo-external");
+  assert.match(main, /data-melo-external="https:\/\/arvanta\.github\.io"/,
+    "Donate About link must carry data-melo-external");
+  assert.match(main, /invoke\("open_external_url", \{ url \}\)/,
+    "clicks must invoke the Rust open_external_url command");
+  assert.match(main, /\[data-melo-external\]/,
+    "setupSettings must bind every data-melo-external anchor");
+  // plain target=_blank alone is not enough in the desktop webview
+  assert.doesNotMatch(main, /data-melo-external="[^"]+"[^>]*target="_blank"/,
+    "external anchors should not rely on target=_blank");
+});
+
 // ─────────────────────────── run + summary ───────────────────────────
 
 // Defer to allow async tests to settle.

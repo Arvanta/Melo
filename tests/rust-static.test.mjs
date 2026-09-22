@@ -406,6 +406,22 @@ test("rust static: library_groups runs on the blocking pool with its OWN connect
   assert.match(main, /library_db::library_groups,/, "still registered");
 });
 
+
+test("rust static: open_external_url allows only http(s) and is registered", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  const i = main.indexOf("fn open_external_url");
+  assert.ok(i > 0, "open_external_url command must exist");
+  const body = main.slice(i, main.indexOf("\n}", i + 1));
+  assert.ok(body.includes('starts_with("https://")') || body.includes("starts_with(\"https://\")"),
+    "must allow https");
+  assert.ok(body.includes("http://"), "must allow http");
+  assert.ok(body.includes("FileProtocolHandler") || body.includes("rundll32"),
+    "Windows path must hand the URL to the default browser");
+  assert.ok(main.includes("open_external_url,"), "must be registered in generate_handler");
+  // reject non-web schemes
+  assert.ok(body.includes("only http(s)"), "non-http schemes must be rejected");
+});
+
 test("rust static: the Library browse indexes exist, are partial and match the query collations", () => {
   const lib = readSrc("src-tauri/src/library_db.rs");
   const schema = fnBody(lib, "fn init_schema(");
