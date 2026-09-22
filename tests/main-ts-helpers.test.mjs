@@ -1510,10 +1510,15 @@ test("the bundled Rail skin ships current-lyric and is wired into the binary", (
   assert.match(main, /\("rail\.html", DEFAULT_SKIN_RAIL\)/, "Rail must seed on first run");
 });
 
-test("Settings → current-lyric description lists Rail among supported skins", () => {
+test("Settings → current-lyric description lists all skins that ship the slot", () => {
   const en = readSrc("src/locales/en.json");
-  assert.match(en, /Currently supported skins: Default - Aria - Halcyon - Haven - Hira - Koto - Mist - Rail - Silk Orbit\./,
-    "Rail must appear in the supported-skins line");
+  assert.match(en, /Currently supported skins: Default - Aria - Halcyon - Haven - Hira - Koto - Mica - Mica 2 - Mist - Rail - Silk Orbit\./,
+    "supported-skins line must include Mica, Mica 2, Rail and the earlier lyric skins");
+  // Every listed custom skin must actually expose the engine hook.
+  for (const file of ["aria.html", "halcyon.html", "haven.html", "hira.html", "koto.html", "mica.html", "mica-2.html", "mist.html", "rail.html", "silk-orbit.html"]) {
+    const skin = readSrc(`skins/${file}`);
+    assert.match(skin, /data-melo="current-lyric"/, `${file} is listed as supported but has no current-lyric hook`);
+  }
 });
 
 
