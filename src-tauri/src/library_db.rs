@@ -45,6 +45,11 @@ pub struct DbTrack {
     // A playlist occurrence has its own identity so one repeated row can
     // be removed or reordered without touching the others.
     pub playlist_entry_id: Option<i64>,
+    // Only `playlist_tracks` knows a track's play count (its JOIN reaches the
+    // tracks table anyway, so one extra column costs nothing); every other
+    // command leaves it None and the field disappears from the JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub play_count: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -519,6 +524,7 @@ fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) ->
             specs: "Matroska Audio".into(),
             replay_gain: None,
             playlist_entry_id: None,
+            play_count: None,
         };
         return Some((track, file_size, modified_at));
     }
@@ -588,6 +594,7 @@ fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) ->
             specs,
             replay_gain,
             playlist_entry_id: None,
+            play_count: None,
         },
         file_size,
         modified_at,
@@ -613,6 +620,7 @@ fn row_track_with_entries(
         specs: row.get(11)?,
         replay_gain: row.get(12)?,
         playlist_entry_id,
+        play_count: None,
     })
 }
 
@@ -621,7 +629,17 @@ fn row_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbTrack> {
 }
 
 fn row_playlist_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbTrack> {
-    row_track_with_entries(row, Some(row.get(13)?))
+    let mut track = row_track_with_entries(row, Some(row.get(13)?))?;
+    // Column 14 is the optional t.play_count projection (round 73).
+    // Round 76b: this used rusqlite's checked getter — REMOVED in 0.31 (the
+    // pinned version), so the next Windows build died with a method-not-found.
+    // Plain `get` is exactly as defensive here: per the 0.31 docs it returns
+    // Err(InvalidColumnIndex) for an out-of-range index and Err(...) for a
+    // type mismatch — it never panics (only get_unwrap does). So a caller
+    // that forgets to select the column still degrades to "no play count".
+    // Note the turbofish order is <I, T>: index type first, value second.
+    track.play_count = row.get::<_, Option<i64>>(14).unwrap_or(None);
+    Ok(track)
 }
 
 const TRACK_SELECT: &str = "SELECT id,path,title,artist,album_artist,album,genre,year,duration,artwork_path,codec,specs,replay_gain FROM tracks";
@@ -1530,11 +1548,83 @@ fn ensure_auto_playlists(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+/// Round 76: this counts a LISTEN, nothing else. The player fires it only
+/// after a track has actually played min(30s, half its length) — skipping a
+/// track no longer inflates play_count. `last_played_at` is stamped
+/// separately at track start (touch_track_last_played) so Recently Played
+/// still tracks what the user queued up, not what they finished.
 #[tauri::command]
 pub async fn record_track_play(track_id: String, state: State<'_, LibraryState>) -> Result<(), String> {
     let conn = locked_db(&state)?;
     conn.execute(
-        "UPDATE tracks SET play_count=play_count+1,last_played_at=?2 WHERE id=?1",
+        "UPDATE tracks SET play_count=play_count+1 WHERE id=?1",
+        params![track_id],
+    ).map_err(|e| e.to_string())?;
+    ensure_auto_playlists(&conn)
+}
+
+/// Round 77: materialise a shuffle order into the physical play queue, so
+/// every "Queue" view shows what will actually play next (the player used to
+/// keep a private in-memory deck — the user asked the queue itself to be
+/// re-ordered). `order` lists track ids in the desired play order; duplicate
+/// tracks consume their queue rows greedily in current order, and rows not
+/// mentioned keep their relative place at the tail. `position` carries a
+/// UNIQUE index, so the new positions are staged through negatives first
+/// (the same two-phase dance replace_queue uses).
+#[tauri::command]
+pub async fn shuffle_queue_rows(order: Vec<String>, state: State<'_, LibraryState>) -> Result<(), String> {
+    // .transaction() takes &mut self — conn must be mut (E0596, caught by the
+    // Windows CI build; sibling tx commands like replace_queue declare it so).
+    let mut conn = locked_db(&state)?;
+    let rows: Vec<(i64, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT entry_id, track_id FROM queue ORDER BY position, entry_id")
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?;
+        let mut out: Vec<(i64, String)> = Vec::new();
+        for item in mapped {
+            out.push(item.map_err(|e| e.to_string())?);
+        }
+        out
+    };
+    if rows.len() < 2 {
+        return Ok(());
+    }
+    let mut used = vec![false; rows.len()];
+    let mut picked: Vec<i64> = Vec::with_capacity(rows.len());
+    for want in &order {
+        for (i, (entry, tid)) in rows.iter().enumerate() {
+            if !used[i] && tid == want {
+                used[i] = true;
+                picked.push(*entry);
+                break;
+            }
+        }
+    }
+    for (i, (entry, _)) in rows.iter().enumerate() {
+        if !used[i] {
+            picked.push(*entry);
+        }
+    }
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for (i, entry) in picked.iter().enumerate() {
+        tx.execute("UPDATE queue SET position=?2 WHERE entry_id=?1", params![entry, -(i as i64) - 1])
+            .map_err(|e| e.to_string())?;
+    }
+    for (i, entry) in picked.iter().enumerate() {
+        tx.execute("UPDATE queue SET position=?2 WHERE entry_id=?1", params![entry, i as i64])
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn touch_track_last_played(track_id: String, state: State<'_, LibraryState>) -> Result<(), String> {
+    let conn = locked_db(&state)?;
+    conn.execute(
+        "UPDATE tracks SET last_played_at=?2 WHERE id=?1",
         params![track_id, now_ms()],
     ).map_err(|e| e.to_string())?;
     ensure_auto_playlists(&conn)
@@ -1951,7 +2041,7 @@ pub async fn playlist_tracks(playlist_id: String, search: Option<String>, sort: 
     let q = search_pattern(&search.unwrap_or_default());
     let total:i64=conn.query_row("SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 ESCAPE '$' OR t.artist LIKE ?2 ESCAPE '$' OR t.album LIKE ?2 ESCAPE '$')",params![playlist_id,q],|r|r.get(0)).map_err(|e|e.to_string())?;
     let order=playlist_order(sort.as_deref());
-    let sql=format!("SELECT t.id,t.path,t.title,t.artist,t.album_artist,t.album,t.genre,t.year,t.duration,t.artwork_path,t.codec,t.specs,t.replay_gain,pt.entry_id FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 ESCAPE '$' OR t.artist LIKE ?2 ESCAPE '$' OR t.album LIKE ?2 ESCAPE '$') ORDER BY {} LIMIT ?3 OFFSET ?4",order);
+    let sql=format!("SELECT t.id,t.path,t.title,t.artist,t.album_artist,t.album,t.genre,t.year,t.duration,t.artwork_path,t.codec,t.specs,t.replay_gain,pt.entry_id,t.play_count FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 ESCAPE '$' OR t.artist LIKE ?2 ESCAPE '$' OR t.album LIKE ?2 ESCAPE '$') ORDER BY {} LIMIT ?3 OFFSET ?4",order);
     let mut stmt=conn.prepare(&sql).map_err(|e|e.to_string())?;
     let items=stmt.query_map(params![playlist_id,q,limit as i64,offset as i64],row_playlist_track).map_err(|e|e.to_string())?.filter_map(log_skipped).collect();
     Ok(Page{items,total,limit,offset})

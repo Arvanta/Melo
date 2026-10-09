@@ -5,7 +5,7 @@ import { setupEqualizer } from "./equalizer";
 import { setupVisualizer, VIZ_MODES } from "./visualizer";
 import { setupLyrics } from "./lyrics";
 import { setupSkinLyricLine } from "./lyric-line";
-import { setupSkinEngine, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry } from "./skin";
+import { setupSkinEngine, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry, getSkinCapabilities, clearSkinCapabilityCache, type SkinCapabilities } from "./skin";
 import { withCover } from "./cover";
 import { busEmit, busOn, isTauri } from "./bus";
 import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
@@ -138,6 +138,9 @@ app.innerHTML = `
           <button class="tab" data-libtab="genres">Genres</button>
           <button class="tab" data-libtab="playlists">Playlists</button>
           <div class="lib-switches">
+          <button type="button" class="lib-view-btn lib-alone-btn" id="btn-lib-artistbar" title="Artist list sidebar" aria-label="Toggle artist list sidebar">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="16" rx="1"/><path d="M13 8h8M13 12h8M13 16h5"/></svg>
+          </button>
           <div class="lib-layout-switch" id="libLayoutSwitch" title="Track display">
             <button type="button" class="lib-view-btn" data-liblayout="list" title="Track List" aria-label="Track List">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="3" y="16" width="4" height="4" rx="1"/><path d="M11 6h10M11 12h10M11 18h10"/></svg>
@@ -147,7 +150,7 @@ app.innerHTML = `
             </button>
           </div>
           <div class="lib-view-switch" id="libViewSwitch" title="Library view">
-            <button type="button" class="lib-view-btn active" data-libview="details" title="Details">
+            <button type="button" class="lib-view-btn active" data-libview="default" title="Default">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
             </button>
             <button type="button" class="lib-view-btn" data-libview="compact" title="Compact">
@@ -156,13 +159,29 @@ app.innerHTML = `
             <button type="button" class="lib-view-btn" data-libview="tiles" title="Tiles">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
             </button>
+            <button type="button" class="lib-view-btn" data-libview="details" title="Details">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16M15 4v16"/></svg>
+            </button>
+            <button type="button" class="lib-view-btn" id="btn-lib-columns" title="Columns…" aria-label="Configure columns" hidden>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+            </button>
           </div>
           </div>
         </div>
         <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
           <span id="libraryStats">0 tracks • 0 artists • 0 albums</span>
         </div>
-        <div id="trackList" style="display:flex; flex-direction:column; flex:1; overflow:auto;"></div>
+        <div class="lib-body-split">
+          <aside id="libArtistSidebar" class="lib-artist-sidebar" hidden aria-label="Artist list">
+            <div class="lib-artist-sidebar-head">Artists</div>
+            <div id="libArtistSidebarList" class="lib-artist-sidebar-list"></div>
+          </aside>
+          <div class="lib-main-col">
+            <div id="libSearchSections" class="lib-search-sections" hidden></div>
+            <div id="trackList" style="display:flex; flex-direction:column; flex:1; overflow:auto;"></div>
+          </div>
+        </div>
+        <div id="libColumnsMenu" class="lib-cols-menu" hidden role="menu" aria-label="Columns"></div>
         <div id="tagEditor" style="display:none; margin:8px 10px 0; background:var(--track-bg); border-radius:10px; padding:12px; gap:10px; flex-direction:column; border:1px solid var(--card-border); flex-shrink:0;">
           <div style="font-weight:600; font-size:12px;">Metadata Editor</div>
           <div class="tag-editor-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
@@ -222,6 +241,13 @@ app.innerHTML = `
           <div class="playlist-search-wrap" style="flex:1 1 auto; position:relative; min-width:100px; height:28px;">
             <input id="playlistSearchInput" class="search-input" placeholder="Search playlist…" style="width:100%; height:100%; font-size:11px; padding:0 28px 0 10px;" />
             <button class="search-clear" id="playlistSearchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
+          </div>
+          <!-- Round 79 · Find-in-Queue readout: a count chip + Prev/Next. Visible only while
+               the Queue view has a query — placeholders can't carry it (invisible once typing). -->
+          <div class="queue-find-nav" id="queue-find-nav" hidden>
+            <button class="btn small queue-find-btn" id="queueFindPrev" type="button" aria-label="Previous match" title="Previous match (Shift+Enter)">‹</button>
+            <span class="queue-find-count" id="queueFindCount"></span>
+            <button class="btn small queue-find-btn" id="queueFindNext" type="button" aria-label="Next match" title="Next match (Enter)">›</button>
           </div>
           <!-- icon-only Import/Export; the title tooltip keeps it accessible. -->
           <button class="btn small" id="btn-import-playlist" title="Import an M3U/M3U8 playlist as a new playlist" aria-label="Import playlist" style="height:28px; width:28px; padding:0; justify-content:center; gap:0;">
@@ -377,8 +403,8 @@ app.innerHTML = `
               </div>
             </div>
           </div>
-          <div class="settings-row">
-            <div><div class="label">${t("settings.general.lyricsSkinLine.label")}</div><div class="desc">${t("settings.general.lyricsSkinLine.desc")}</div></div>
+          <div class="settings-row" id="lyricsSkinLineRow">
+            <div><div class="label">${t("settings.general.lyricsSkinLine.label")}</div><div class="desc">${t("settings.general.lyricsSkinLine.desc")}</div><div id="lyricsSkinLineNote" class="skin-feature-note"></div></div>
             <div class="switch" id="swLyricsSkinLine" data-key="lyricsSkinLine"></div>
           </div>
         </div>
@@ -437,6 +463,10 @@ app.innerHTML = `
             </div>
           </div>
 
+          <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:6px; padding-top:0;">
+            <div id="skinFeatures" class="skin-features" aria-label="Features of the selected skin"></div>
+          </div>
+
           <div class="settings-row">
             <div><div class="label">Dynamic Album Artwork Theme</div><div class="desc">Automatically adapt accent and visualizer glow colors to matching album art</div></div>
             <div class="switch on" id="swDynamicTheme" data-key="dynamicTheme"></div>
@@ -458,7 +488,10 @@ app.innerHTML = `
                 Import Trusted Skin (.html) 📥
                 <input id="skinUpload" type="file" accept=".html,.htm" style="display:none" />
               </label>
-              <button class="btn small" id="btn-reset-skin-settings">Reset to Default</button>
+              <!-- Round 73: the "Reset to Default" button was removed from this row.
+                   The Skin select already has the "Default (Melo)" entry, which is the
+                   normal way back; this button also blew away the user's skins folder
+                   wiring for no extra capability. -->
             </div>
           </div>
           <div class="settings-row" style="flex-direction:column; align-items:stretch;">
@@ -869,10 +902,20 @@ if (isTauri && !urlPanel) {
     // Register the geometry re-apply listener BEFORE anything async runs: the
     // Deleted-skin fallback in skin.ts emits melo:skin-geometry early and the
     // Event would otherwise be lost.
-    busOn("melo:skin-geometry", async () => {
+    busOn("melo:skin-geometry", async (payload?: any) => {
       try {
         const sz = getTargetSize();
-        if (sz.force) {
+        // payload.constraintsOnly marks a RE-APPLY of the SAME skin (boot and
+        // theme-change paths in skin.ts): re-enforce the skin's min/max/
+        // resizable, but NEVER resize — the user's own window size must
+        // survive restarts and theme toggles, and snapping here used to also
+        // persist the skin's default size over the saved one (round 74:
+        // "custom-skin window reverts to the skin's default size"). An
+        // explicit pick/import still snaps, and a non-resizable skin ALWAYS
+        // snaps (its size is not user-changable; the deleted-skin fallback
+        // emits a null payload precisely to restore the default size).
+        const snap = !(payload && payload.constraintsOnly) || sz.fixed;
+        if (sz.force && snap) {
           const { LogicalSize } = await import("@tauri-apps/api/dpi");
           await mainWin.setSize(new LogicalSize(sz.w, sz.h));
         }
@@ -913,7 +956,10 @@ if (isTauri && !urlPanel) {
             w: geo.width || 0,
             h: geo.height || 0,
             resizable: geo.resizable !== false,
-            fixed: false,
+            // A NON-resizable skin's declared size is not a user preference:
+            // boot must ignore the saved size for it (the OS can never
+            // correct it afterwards) and the geometry event may always snap.
+            fixed: geo.resizable === false,
             custom: true,
             force: hasSize,
             minW: geo.minWidth,
@@ -959,9 +1005,12 @@ if (isTauri && !urlPanel) {
       const g = JSON.parse(localStorage.getItem("melo-geo-main") || "null");
       const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
       const sz = getTargetSize();
+      // Resolved startup size: also reused by the monitor-fallback path
+      // below, so re-centering an off-screen window keeps the USER's size
+      // instead of snapping to the skin's declared default (round 74).
+      let startupW = sz.w;
+      let startupH = sz.h;
       if (sz.force) {
-        let startupW = sz.w;
-        let startupH = sz.h;
         if (g && !sz.fixed) {
           if (sz.custom) {
             // Custom (resizable) skins keep the user's saved size across
@@ -1008,7 +1057,7 @@ if (isTauri && !urlPanel) {
         if (fallbackUsed) {
           try {
             const { LogicalSize } = await import("@tauri-apps/api/dpi");
-            await mainWin.setSize(new LogicalSize(sz.w, sz.h));
+            await mainWin.setSize(new LogicalSize(startupW, startupH));
             await mainWin.center();
           } catch {}
         }
@@ -1129,6 +1178,8 @@ if (isTauri && !urlPanel) {
   // Buffer drain against the event.
   const pendingOpenPaths: string[] = [];
   let pendingOpenTimer = 0;
+  const OPEN_BURST_MS = 5000;
+  let lastOpenImportAt = 0;
   const queueOpenPaths = (paths: string[], src: "event" | "poll" = "poll") => {
     const now = Date.now();
     for (const [p, r] of recentOpenPaths) {
@@ -1148,6 +1199,16 @@ if (isTauri && !urlPanel) {
       const batch = pendingOpenPaths.splice(0, pendingOpenPaths.length);
       if (!batch.length) return;
       const lib = window.LumiLibrary;
+      // The first batch of a burst replaces the queue and starts playing.
+      // Companion launches that trickle in later (cold start: each Explorer
+      // process needs time to reach the primary) belong to the SAME
+      // selection, so they are appended instead of replacing the queue.
+      const inBurst = lastOpenImportAt > 0 && Date.now() - lastOpenImportAt < OPEN_BURST_MS;
+      lastOpenImportAt = Date.now();
+      if (inBurst) {
+        await lib?.importPaths?.(batch, "append");
+        return;
+      }
       const imported = await lib?.importPaths?.(batch, "replace") || [];
       if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
     }, 450);
@@ -1226,8 +1287,9 @@ async function importAndPlayDroppedPaths(paths: string[]) {
   try {
     const list = await lib.importPaths(audio, "replace");
     if (list.length) {
+      // The queue updating on screen IS the feedback — a drop shows no success
+      // toast (round 71). Import failures still report themselves below.
       busEmit("melo:play-tracks", { tracks: list, index: 0 });
-      showToast(`${list.length} file(s) added`);
     } else {
       showToast("None of the dropped files could be imported");
     }
@@ -1256,8 +1318,9 @@ async function expandAndImportDroppedPaths(paths: string[], mode: "replace" | "a
     if (typeof lib?.importPaths !== "function") return;
     try {
       const list = await lib.importPaths(expanded, "append");
-      if (list.length) showToast(`${list.length} file(s) added to the playlist`);
-      else showToast("None of the dropped files could be imported");
+      // Same rule as the player drop: no success toast for a drag & drop — the
+      // playlist window shows the added rows itself (round 71).
+      if (!list.length) showToast("None of the dropped files could be imported");
     } catch (err) {
       showToast(`Couldn't add the dropped file(s) — ${err}`);
     }
@@ -2323,9 +2386,51 @@ function setupSettings(toast: ToastFn) {
     // The saved skin may have been deleted from the folder meanwhile — the
     // Dropdown must never show a selection that doesn't exist on disk.
     if (skinSelect.value !== currentVal) skinSelect.value = "default";
+    await refreshSkinFeatures();
+  }
+
+  // ---- Skin feature row (round 85) ----
+  // Three read-only chips under the skin select, plus the state of the
+  // "Show current lyric line in skins" switch. Both follow the ACTIVE skin
+  // (localStorage, shared by every Melo window) and read the cached result
+  // from skin.ts, so reopening Settings or switching skins never re-parses
+  // more than the one selected file.
+  const SKIN_FEATURE_ITEMS: Array<[keyof SkinCapabilities, string]> = [
+    ["currentLyric", t("settings.skinFeatures.currentLyric")],
+    ["embeddedLyrics", t("settings.skinFeatures.embeddedLyrics")],
+    ["embeddedPlaylist", t("settings.skinFeatures.embeddedPlaylist")],
+  ];
+  const SKIN_FEATURE_CHECK = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 5 8.5 9.5 3.5"/></svg>`;
+  const SKIN_FEATURE_CROSS = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5"/></svg>`;
+
+  function renderSkinFeatures(caps: SkinCapabilities) {
+    const host = document.getElementById("skinFeatures");
+    if (host) {
+      host.innerHTML = SKIN_FEATURE_ITEMS.map(([key, label]) => {
+        const yes = caps[key];
+        return `<span class="skin-feature ${yes ? "yes" : "no"}"><span class="skin-feature-mark" aria-hidden="true">${yes ? SKIN_FEATURE_CHECK : SKIN_FEATURE_CROSS}</span>${label}</span>`;
+      }).join("");
+    }
+    // Lyric switch: greyed out (not hidden) when the active skin has no slot.
+    const ok = caps.currentLyric;
+    document.getElementById("lyricsSkinLineRow")?.classList.toggle("skin-feature-unavailable", !ok);
+    const note = document.getElementById("lyricsSkinLineNote");
+    if (note) note.textContent = ok ? "" : t("settings.general.lyricsSkinLine.unsupported");
+  }
+
+  async function refreshSkinFeatures() {
+    const active = localStorage.getItem("melo-active-skin-id") || "default";
+    renderSkinFeatures(await getSkinCapabilities(active));
   }
 
   populateSkinsDropdown();
+
+  // Any skin change (picker, import, drop, refresh) re-derives the row. The
+  // cache is cleared first so an overwritten skin file is never stale.
+  busOn("melo:skin-changed", () => {
+    clearSkinCapabilityCache();
+    refreshSkinFeatures();
+  });
 
   if (skinSelect) {
     skinSelect.onchange = () => {
@@ -2335,6 +2440,7 @@ function setupSettings(toast: ToastFn) {
   }
 
   btnRefreshSkins?.addEventListener("click", async () => {
+    clearSkinCapabilityCache();
     await populateSkinsDropdown();
     const active = localStorage.getItem("melo-active-skin-id") || "default";
     // Honest toast: success is reported only when re-applying the
@@ -2348,10 +2454,9 @@ function setupSettings(toast: ToastFn) {
     openSkinsFolderOnDisk(toast);
   });
 
-  document.getElementById("btn-reset-skin-settings")?.addEventListener("click", () => {
-    resetSkin(toast);
-    if (skinSelect) skinSelect.value = "default";
-  });
+  // (Round 73) the removed "Reset to Default" button used to bind here; the
+  // auto-fallback at boot (missing skin file → resetSkin(undefined, false)) is
+  // intentionally untouched.
 
   // ---------------------------------------------------------------------
   // Reset all settings: confirmation dialog, then registry-driven deletion
@@ -2516,6 +2621,13 @@ function attachEmbeddedPanels() {
   function setStageMode(mode: "viz" | "playlist" | "lyrics") {
     document.documentElement.classList.toggle("melo-show-playlist", mode === "playlist");
     document.documentElement.classList.toggle("melo-show-lyrics", mode === "lyrics");
+    // Same-document notice for the embedded panels (round 76): the lyrics
+    // embed listens for this to snap onto the CURRENT line the moment its
+    // stage opens — otherwise it would keep showing the top of the file
+    // until the next line change, because its follow-scroll only fires on
+    // changes. (The playlist embed doesn't need it: the refresh call below
+    // re-renders and centers it on open.)
+    document.dispatchEvent(new CustomEvent("melo:player-stage", { detail: { mode } }));
     document.querySelectorAll(".stage-btn").forEach(btn => {
       const role = btn.getAttribute("data-melo");
       const on = (mode === "viz" && role === "toggle-embedded-viz")

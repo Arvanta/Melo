@@ -473,14 +473,27 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     const P1 = painter(cssVar("--visualizer", "#38bdf8"));
     const P2 = painter(cssVar("--accent", "#0284c7"));
     const layers = 4, steps = 64;
+    // Aurora II rides much higher than the calm scene. Its crest travels up to
+    // ~1.35 × its amplitude (the two stacked sines peak together) plus the
+    // spectrum push, so the base is derived FROM that worst case instead of
+    // being a fixed fraction:  base ≥ reach + 10% of the height, where
+    // reach = 1.35·amp + spec. The loudest passage then stops a visible margin
+    // below the top edge instead of being sliced off flat there (round 72);
+    // the amplitude/energy terms were pulled in accordingly so the safety
+    // margin never has to push a base off the bottom of a 56px strip.
     for (let L = 0; L < layers; L++) {
       const depth = L / (layers - 1);                  // 0 back → 1 front
-      const energy = lively ? 0.35 + 1.2 * S.mid : 0.55 + 0.9 * S.mid;
-      const amp = h * (0.16 + 0.22 * depth) * energy;
-      const baseY = h * (0.62 + 0.12 * depth);
+      const energy = lively ? 0.45 + 0.62 * S.mid : 0.55 + 0.9 * S.mid;
+      const amp = h * (lively ? 0.14 + 0.16 * depth : 0.16 + 0.22 * depth) * energy;
+      const spec = lively ? h * (0.05 + 0.08 * depth) : 0;
+      const reach = amp * 1.35 + spec;
+      // Both scenes get the guarantee: worst-case crest ≥ 10% of the height
+      // below the top edge. (The calm scene's old fixed base grazed the edge
+      // by a fraction of a pixel under a maximum spectrum, so it is covered
+      // by the same rule rather than by luck.)
+      const baseY = Math.max(h * (lively ? 0.56 + 0.13 * depth : 0.62 + 0.12 * depth), reach + h * 0.10);
       const speed = lively ? 0.6 + 0.5 * depth : 0.25 + 0.2 * depth;
       const alpha = (0.10 + 0.16 * depth + 0.15 * S.all) * (lively ? 1.15 : 1);
-      const spec = lively ? h * (0.10 + 0.18 * depth) : 0;
       g2d.beginPath();
       g2d.moveTo(0, h);
       for (let i = 0; i <= steps; i++) {
@@ -1529,6 +1542,13 @@ export function setupVisualizer(audio: HTMLAudioElement) {
   // Radial Sunburst — a full 360° corona around a pulsing core: rays
   // mirrored around the vertical axis, sized from their angular slot,
   // drawn with a gradient along their length.
+  //
+  // The canvas is alpha-transparent and the visualizer always sits ON a card
+  // (player stage / skins), so the scene must not paint a ground of its own:
+  // the old 360° "halo" wash tinted the whole area grey on light cards and
+  // hid the sunburst behind a haze on dark ones. The core now glows through
+  // a *ring-limited* corona (fills a small disc, edge at the glow radius)
+  // that fades to fully transparent well before the ray tips.
   function drawRadial(data: number[], w: number, h: number) {
     const dpr = dprOf();
     const c1 = cssVar("--visualizer", "#38bdf8");
@@ -1545,15 +1565,19 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     for (const v of data) sum += v;
     const avg = sum / Math.max(1, n);
 
-    // Core: soft halo + solid disc that breathes with the average level.
+    // Core: a soft, ring-limited corona + the solid disc that breathes with
+    // the average level. The fill stops exactly at the gradient's end radius
+    // and that radius only reaches `inner * 1.75`, so no square wash or grey
+    // veil is ever painted outside the corona (round 72).
     const coreR = inner * (0.72 + 0.42 * avg);
-    const halo = g2d.createRadialGradient(cx, cy, 0, cx, cy, inner * 2.6);
+    const coronaR = inner * 1.75;
+    const halo = g2d.createRadialGradient(cx, cy, 0, cx, cy, coronaR);
     halo.addColorStop(0, mix(c1, "#ffffff", 0.4));
-    halo.addColorStop(0.35, c1);
+    halo.addColorStop(0.40, c1);
     halo.addColorStop(1, "rgba(0,0,0,0)");
-    g2d.globalAlpha = 0.30 + 0.3 * avg;
+    g2d.globalAlpha = 0.26 + 0.26 * avg;
     g2d.fillStyle = halo;
-    g2d.beginPath(); g2d.arc(cx, cy, inner * 2.6, 0, Math.PI * 2); g2d.fill();
+    g2d.beginPath(); g2d.arc(cx, cy, coronaR, 0, Math.PI * 2); g2d.fill();
     g2d.globalAlpha = 1;
 
     if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }

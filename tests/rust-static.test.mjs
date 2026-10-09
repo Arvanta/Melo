@@ -15,6 +15,7 @@ const readSrc = (p) => readFileSync(join(here, "..", p), "utf8");
 const RS_FILES = [
   "src-tauri/src/library_db.rs",
   "src-tauri/src/main.rs",
+  "src-tauri/src/instance_guard.rs",
 ];
 
 // Tokenize: strip string literals ("…", r#"…"#, 'c') and comments (// /* */),
@@ -441,4 +442,123 @@ test("rust static: the Library browse indexes exist, are partial and match the q
   for (const m of lib.matchAll(/INDEXED BY (\w+)/g)) {
     assert.ok(schema.includes(`EXISTS ${m[1]} ON`), `INDEXED BY ${m[1]} refers to an index init_schema does not create`);
   }
+});
+
+// ─── round 69: cold-start multi-window guard ───
+
+test("rust static: the cold-start guard runs before the single-instance plugin and uses the plugin's names", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  const guard = readSrc("src-tauri/src/instance_guard.rs");
+  const conf = JSON.parse(readSrc("src-tauri/tauri.conf.json"));
+  assert.match(main, /^mod instance_guard;$/m, "main.rs must declare the guard module");
+  const body = main.slice(main.indexOf("fn main()"));
+  const g = body.indexOf("instance_guard::wait_for_primary_if_booting()");
+  const b = body.indexOf("tauri::Builder::default()");
+  assert.ok(g > 0 && b > g, "guard must run before the Builder (and so before the plugin)");
+  assert.ok(guard.includes(`const IDENTIFIER: &str = "${conf.identifier}";`),
+    "guard identifier must equal tauri.conf.json identifier (plugin derives its names from it)");
+  assert.ok(guard.includes('"{IDENTIFIER}-sic"') && guard.includes('"{IDENTIFIER}-siw"'),
+    "must look up the plugin's own class/window names");
+  assert.ok(guard.includes("WAIT_ABANDONED"), "a dead owner must not block the next process forever");
+  const cargo = readSrc("src-tauri/Cargo.toml");
+  assert.doesNotMatch(cargo, /tauri-plugin-single-instance\s*=\s*\{[^}]*semver/,
+    "the semver feature would change the plugin's names");
+});
+
+test("rust static: argv is pushed from setup (primary only), not at the top of main", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  const body = main.slice(main.indexOf("fn main()"));
+  const builder = body.indexOf("tauri::Builder::default()");
+  const setup = body.indexOf(".setup(|app|");
+  const own = body.indexOf("parse_args_and_push(&std::env::args()");
+  assert.ok(own > setup && setup > builder, "own-argv push must live inside .setup, after the plugins");
+  assert.ok(own < body.indexOf("LibraryState::new"), "push before the slow library init");
+});
+
+test("installer hook sets MultiSelectModel on the verb key of Applications\\melo.exe and real ProgIDs", () => {
+  const nsi = readSrc("src-tauri/windows/installer-hooks.nsi");
+  assert.match(nsi, /Applications\\melo\.exe\\shell\\open" "MultiSelectModel" "Player"/,
+    "must write the value on shell\\open of Applications\\melo.exe");
+  assert.doesNotMatch(nsi, /\\shell" "MultiSelectModel"/, "the parent shell key is the wrong level");
+  assert.match(nsi, /shell\\open\\command" ""\r?\n\s*\$\{If\} \$1 != ""/,
+    "ProgID branch must only write when shell\\open\\command exists");
+  assert.match(nsi, /NSIS_HOOK_POSTUNINSTALL[\s\S]*DeleteRegKey HKLM/, "uninstall removes the key");
+});
+
+test("play statistics commands are split: count vs last-played (round 76)", () => {
+  const db = readSrc("src-tauri/src/library_db.rs");
+  const main = readSrc("src-tauri/src/main.rs");
+  assert.match(db, /UPDATE tracks SET play_count=play_count\+1 WHERE id=\?1/,
+    "record_track_play must ONLY count (threshold semantics live in the player)");
+  assert.doesNotMatch(db, /play_count=play_count\+1,last_played_at/,
+    "the old combined start-of-track UPDATE must not come back (skips would inflate play_count)");
+  assert.match(db, /pub async fn touch_track_last_played/, "touch command exists");
+  assert.match(db, /UPDATE tracks SET last_played_at=\?2 WHERE id=\?1/, "touch stamps only the timestamp");
+  // both refresh the auto playlists (their ORDER BY rides on these columns)
+  const rec = db.slice(db.indexOf("pub async fn record_track_play"), db.indexOf("pub async fn list_playlists"));
+  assert.equal((rec.match(/ensure_auto_playlists\(&conn\)/g) || []).length, 2,
+    "both write paths end by refreshing Most Played / Recently Played");
+  assert.match(main, /library_db::record_track_play,\s*\n\s*library_db::touch_track_last_played,/, "registered together in the handler list");
+});
+
+test("shuffle_queue_rows: greedy duplicate matching, two-phase UNIQUE-safe renumber, registered (round 77)", () => {
+  const db = readSrc("src-tauri/src/library_db.rs");
+  const main = readSrc("src-tauri/src/main.rs");
+  const fn = db.slice(db.indexOf("pub async fn shuffle_queue_rows"), db.indexOf("#[tauri::command]", db.indexOf("pub async fn shuffle_queue_rows")));
+  assert.match(fn, /SELECT entry_id, track_id FROM queue ORDER BY position, entry_id/, "reads the current order");
+  assert.match(fn, /if rows\.len\(\) < 2 \{\s*return Ok\(\(\)\);/, "no-op below two rows");
+  assert.match(fn, /if !used\[i\] && tid == want \{/, "duplicates consumed greedily, first-unused wins");
+  assert.match(fn, /if !used\[i\] \{\s*picked\.push\(\*entry\);/, "unmatched rows keep their place at the tail");
+  assert.match(fn, /UPDATE queue SET position=\?2 WHERE entry_id=\?1", params!\[entry, -\(i as i64\) - 1\]/,
+    "phase 1 stages negatives — queue.position is UNIQUE-indexed");
+  assert.match(fn, /UPDATE queue SET position=\?2 WHERE entry_id=\?1", params!\[entry, i as i64\]/, "phase 2 writes final 0-based order");
+  assert.match(fn, /conn\.transaction\(\)/, "both phases share one transaction");
+  assert.match(main, /library_db::shuffle_queue_rows,/, "registered in the handler list");
+});
+
+test("rust static: shuffle_queue_rows takes a mutable conn (transaction() needs &mut)", () => {
+  // The Windows CI build flagged E0596 on exactly this — cargo is unavailable
+  // in this workspace, so the pairing (mut conn ↔ conn.transaction()) is pinned here.
+  const s = readSrc("src-tauri/src/library_db.rs");
+  const i = s.indexOf("pub async fn shuffle_queue_rows");
+  assert.ok(i > 0, "command exists");
+  const body = s.slice(i, s.indexOf("#[tauri::command]", i + 10));
+  assert.match(body, /let mut conn = locked_db\(&state\)\?;/, "conn is mut — sibling tx commands (replace_queue) do the same");
+  assert.match(body, /conn\.transaction\(\)/, "the two-phase renumber still runs inside one transaction");
+});
+
+test("rust static: round 86 bundled skins are embedded and seeded on fresh installs", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  const cases = [
+    ["DEFAULT_SKIN_BEAN", "bean.html", "bean.html"],
+    ["DEFAULT_SKIN_BEAN_COMPACT", "bean-compact.html", "bean-compact.html"],
+    ["DEFAULT_SKIN_FOLD", "Fold.html", "Fold.html"],
+    ["DEFAULT_SKIN_LILT", "lilt.html", "lilt.html"],
+    ["DEFAULT_SKIN_PRISM", "Prism.html", "Prism.html"],
+  ];
+  for (const [konst, file, seedName] of cases) {
+    assert.match(main, new RegExp(`const ${konst}: &str = include_str!\\("\\.\\./\\.\\./skins/${file.replace(".", "\\.")}"\\);`),
+      `${file} must be embedded with include_str!`);
+    assert.match(main, new RegExp(`\\("${seedName.replace(".", "\\.")}", ${konst}\\),`),
+      `${file} must be in the first-run seed list`);
+    assert.ok(readSrc(`skins/${file}`).length > 0, `${file} exists in skins/`);
+  }
+  // Seeding stays one-time: the marker guard must still precede the seed loop.
+  assert.match(main, /if marker\.exists\(\) \{\s*return;\s*\}/, "one-time seeding guard is intact");
+});
+
+test("rust static: round 88 bundled skins sync once per bundled set (install + upgrade)", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  assert.match(main, /const BUNDLED_SKINS: &\[\(&str, &str\)\] = &\[/, "one list of every bundled skin");
+  for (const konst of ["DEFAULT_SKIN_FULL_EXAMPLE", "DEFAULT_SKIN_SLATE", "DEFAULT_SKIN_MICA", "DEFAULT_SKIN_RAIL", "DEFAULT_SKIN_BEAN", "DEFAULT_SKIN_PRISM"]) {
+    assert.match(main, new RegExp(`\\(\"[^\"]+\", ${konst}\\),`), `${konst} is in BUNDLED_SKINS`);
+  }
+  assert.match(main, /fn sync_bundled_skins_once\(skins_dir: &Path\)/);
+  assert.match(main, /format!\("\{:x\}", hasher\.finalize\(\)\)/, "marker is a content hash of the bundled set");
+  assert.match(main, /format!\("\.melo-bundle-\{\}", &digest\[\.\.16\]\)/, "marker name encodes the set");
+  assert.match(main, /if marker\.exists\(\) \{\s*return;\s*\}/, "sync is skipped once the set's marker exists");
+  // Sync must run BEFORE the old first-run guard so upgraded installs reach it.
+  const callAt = main.indexOf("sync_bundled_skins_once(skins_dir);\n", main.indexOf("fn ensure_default_skins_on_disk"));
+  const guardAt = main.indexOf('let marker = skins_dir.join(".melo-seeded");');
+  assert.ok(callAt > 0 && guardAt > callAt, "sync is called before the .melo-seeded early return");
 });

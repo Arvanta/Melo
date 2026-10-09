@@ -1,0 +1,941 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Lilt</title>
+<style>
+  /*
+   * Lilt — a standalone Fluent mini-player skin for Melo.
+   * Built from the uploaded Nook sample's data-melo hooks, but with a
+   * different composition: left-aligned metadata, right-side cover tile,
+   * a slim signal stage, and a centered transport row.
+   * CSS only — no skin scripts.
+   */
+  :root {
+    --lt-canvas: #eef1f7;
+    --lt-card: #f7f8fc;
+    --lt-surface: #ffffff;
+    --lt-surface-2: #edf0f6;
+    --lt-ink: #1e2430;
+    --lt-soft: #667184;
+    --lt-muted: #9099a9;
+    --lt-line: rgba(30, 36, 48, .09);
+    --lt-line-strong: rgba(30, 36, 48, .14);
+    --lt-wash: rgba(30, 36, 48, .055);
+
+    /* Follow Melo's live album-art variables; the literal values are fallbacks. */
+    --accent: #5577e8;
+    --accent-hover: color-mix(in srgb, var(--accent) 84%, #17213a);
+    --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 24%, transparent);
+    --visualizer: var(--accent);
+    --lt-accent: var(--accent, #5577e8);
+    --lt-accent-2: color-mix(in srgb, var(--accent, #5577e8) 68%, #8e7cf0);
+    --lt-accent-soft: var(--accent-soft, color-mix(in srgb, var(--accent, #5577e8) 12%, transparent));
+    --lt-accent-glow: var(--accent-glow, color-mix(in srgb, var(--accent, #5577e8) 24%, transparent));
+
+    --lt-play-ink: #ffffff;
+    --lt-track: rgba(30, 36, 48, .12);
+    --lt-shadow: 0 16px 42px -20px rgba(27, 38, 67, .34), 0 2px 8px rgba(27, 38, 67, .07);
+  }
+
+  html[data-theme="dark"], [data-theme="dark"] {
+    --lt-canvas: #0c0f15;
+    --lt-card: #151922;
+    --lt-surface: #1c222d;
+    --lt-surface-2: #202733;
+    --lt-ink: #edf0f6;
+    --lt-soft: #a5afbf;
+    --lt-muted: #7e899a;
+    --lt-line: rgba(237, 240, 246, .075);
+    --lt-line-strong: rgba(237, 240, 246, .13);
+    --lt-wash: rgba(237, 240, 246, .06);
+
+    --accent: #9aafff;
+    --accent-hover: color-mix(in srgb, var(--accent) 86%, #ffffff);
+    --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 25%, transparent);
+    --visualizer: var(--accent);
+    --lt-accent: var(--accent, #9aafff);
+    --lt-accent-2: color-mix(in srgb, var(--accent, #9aafff) 68%, #c2aaff);
+    --lt-accent-soft: var(--accent-soft, color-mix(in srgb, var(--accent, #9aafff) 15%, transparent));
+    --lt-accent-glow: var(--accent-glow, color-mix(in srgb, var(--accent, #9aafff) 25%, transparent));
+
+    --lt-play-ink: #111827;
+    --lt-track: rgba(237, 240, 246, .12);
+    --lt-shadow: 0 18px 48px rgba(0, 0, 0, .46), 0 2px 8px rgba(0, 0, 0, .22);
+  }
+
+  * { box-sizing: border-box; }
+
+  body:not(.tauri-main):not(.custom-skin-active) {
+    min-height: 100vh;
+    margin: 0;
+    padding: 28px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background:
+      radial-gradient(68% 58% at 7% 0%, color-mix(in srgb, var(--lt-accent) 13%, transparent), transparent 68%),
+      radial-gradient(46% 42% at 100% 100%, color-mix(in srgb, var(--lt-accent-2) 8%, transparent), transparent 72%),
+      var(--lt-canvas);
+    color: var(--lt-ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The same frame styles apply to the standalone preview and Melo's player card. */
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(460px, 100%);
+    height: 236px;
+    min-width: 400px;
+    min-height: 190px;
+    max-height: 380px;
+    margin: 0;
+    padding: 7px 11px 8px;
+    position: relative;
+    overflow: hidden;
+    container-type: size;
+    container-name: lilt;
+    display: block;
+    background:
+      radial-gradient(110% 120% at 100% -34%, color-mix(in srgb, var(--lt-accent) 5%, transparent), transparent 60%),
+      var(--lt-card);
+    color: var(--lt-ink);
+    border: 1px solid var(--lt-line-strong);
+    border-radius: 14px;
+    box-shadow: var(--lt-shadow);
+    font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 100% !important;
+    height: 100vh !important;
+    min-height: 0 !important;
+    max-height: 100vh !important;
+    border-radius: 14px !important;
+    box-shadow: none !important;
+  }
+
+  /* Inner grid is a descendant of the size container, so height breakpoints
+     can safely reflow it in both the standalone preview and injected skin. */
+  .lt-layout {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 25px 62px 26px minmax(32px, 1fr) 14px 30px;
+    row-gap: 2px;
+  }
+
+  /* ── Top chrome ───────────────────────────────────────────────────── */
+  .lt-topbar {
+    position: relative;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    -webkit-app-region: drag;
+  }
+
+  .lt-menu {
+    z-index: 5;
+    position: relative;
+    flex: 0 0 auto;
+    -webkit-app-region: no-drag;
+  }
+  .lt-menu > input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .lt-brand {
+    height: 23px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 7px 0 3px;
+    border: 0;
+    border-radius: 7px;
+    color: var(--lt-ink);
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    -webkit-app-region: no-drag;
+    transition: background .14s ease;
+  }
+  .lt-brand:hover,
+  .lt-menu > input:checked ~ .lt-brand { background: var(--lt-wash); }
+  .lt-brand-mark {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border-radius: 50%;
+    background: var(--lt-accent);
+    box-shadow: 0 0 0 3px var(--lt-accent-soft), 0 0 9px var(--lt-accent-glow);
+  }
+  .lt-brand-word {
+    color: var(--lt-ink);
+    font-size: 11px;
+    font-weight: 720;
+    letter-spacing: -.025em;
+  }
+  .lt-brand-sep {
+    width: 1px;
+    height: 11px;
+    background: var(--lt-line-strong);
+  }
+  .lt-brand-skin {
+    color: var(--lt-muted);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+  }
+  .lt-caret {
+    width: 9px;
+    height: 9px;
+    color: var(--lt-muted);
+    margin-left: 1px;
+  }
+
+  .lt-menu-pop {
+    display: none;
+    position: absolute;
+    z-index: 50;
+    top: calc(100% + 5px);
+    left: 0;
+    min-width: 154px;
+    padding: 5px;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--lt-surface);
+    color: var(--lt-ink);
+    border: 1px solid var(--lt-line-strong);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .20);
+  }
+  .lt-menu > input:checked ~ .lt-menu-pop { display: flex; }
+  .lt-menu-item {
+    height: 29px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--lt-ink);
+    font: 500 11px/1 "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    cursor: pointer;
+  }
+  .lt-menu-item:hover { background: var(--lt-wash); }
+  .lt-menu-item svg { width: 14px; height: 14px; flex: 0 0 14px; color: var(--lt-soft); }
+  .lt-dismiss {
+    display: none;
+    position: fixed;
+    z-index: 4;
+    inset: 0;
+    cursor: default;
+  }
+  .lt-menu > input:checked ~ .lt-dismiss { display: block; }
+
+  /* Optional synced lyric: a clean, single centered line in the chrome. */
+  .lt-current-lyric {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 2;
+    width: min(46cqw, calc(100% - 156px));
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%);
+    overflow: hidden;
+    color: var(--lt-soft);
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    text-align: center;
+    pointer-events: none;
+  }
+  .lt-current-lyric:empty,
+  .lt-current-lyric.melo-lyric-empty { display: none !important; }
+
+  .lt-window-controls {
+    z-index: 3;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    -webkit-app-region: no-drag;
+  }
+  /* Windows controls stay backgroundless; hover changes only the glyph. */
+  .lt-window-controls button {
+    width: 24px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--lt-muted);
+    cursor: pointer;
+    transition: color .12s ease;
+    -webkit-app-region: no-drag;
+  }
+  .lt-window-controls button:hover { color: var(--lt-ink); }
+  .lt-window-controls button.close:hover { color: #e54855; }
+  .lt-window-controls svg { width: 11px; height: 11px; }
+
+  /* ── Track identity: copy on the left, artwork on the right ───────── */
+  .lt-main {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 58px;
+    align-items: center;
+    column-gap: 13px;
+    padding: 0 4px;
+    -webkit-app-region: drag;
+  }
+  .lt-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+  }
+  .lt-title {
+    min-width: 0;
+    color: var(--lt-ink);
+    font-size: 16px;
+    font-weight: 690;
+    letter-spacing: -.035em;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lt-byline {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--lt-soft);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+  .lt-byline > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lt-byline [data-melo="artist"] { flex: 0 1 auto; max-width: 58%; color: var(--lt-soft); font-weight: 650; }
+  .lt-byline [data-melo="album"] { flex: 0 1 auto; max-width: 38%; color: var(--lt-muted); }
+  .lt-dot {
+    flex: 0 0 3px;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--lt-muted);
+  }
+  .lt-byline:has([data-melo="album"]:empty) .lt-dot { display: none; }
+  .lt-quality {
+    min-height: 10px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--lt-muted);
+    font-size: 8px;
+    font-weight: 650;
+    letter-spacing: .045em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+  .lt-quality > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lt-codec {
+    flex: 0 0 auto;
+    color: var(--lt-accent);
+  }
+  .lt-codec:empty { display: none; }
+  .lt-specs { min-width: 0; }
+  .lt-specs:empty { display: none; }
+
+  .lt-cover {
+    position: relative;
+    width: 58px;
+    height: 58px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: var(--lt-surface-2);
+    border: 1px solid var(--lt-line-strong);
+    box-shadow: 0 5px 14px rgba(20, 28, 46, .14);
+    isolation: isolate;
+  }
+  .lt-cover img,
+  .lt-cover [data-melo="cover"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover !important;
+    object-position: 50% 50% !important;
+    display: block;
+  }
+  .lt-cover-fallback {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: color-mix(in srgb, var(--lt-accent) 70%, white);
+    background:
+      radial-gradient(90% 80% at 25% 12%, color-mix(in srgb, var(--lt-accent) 30%, transparent), transparent 72%),
+      linear-gradient(145deg, #343e58, #20283a);
+  }
+  .lt-cover-fallback svg { width: 22px; height: 22px; opacity: .92; }
+  .lt-cover-rim {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    border-radius: inherit;
+    border: 1px solid rgba(255,255,255,.20);
+    pointer-events: none;
+  }
+
+  /* ── Stage choices and utility tools ──────────────────────────────── */
+  .lt-actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .lt-stage-tabs {
+    min-width: 0;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 2px;
+    flex: 0 0 auto;
+    border: 1px solid var(--lt-line);
+    border-radius: 8px;
+    background: var(--lt-surface-2);
+  }
+  .lt-stage-btn {
+    width: auto;
+    min-width: 0;
+    height: 19px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--lt-muted);
+    font: 650 9px/1 "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    letter-spacing: .005em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color .13s ease, background .13s ease, box-shadow .13s ease;
+    -webkit-app-region: no-drag;
+  }
+  .lt-stage-btn svg { width: 11px; height: 11px; flex: 0 0 11px; }
+  .lt-stage-btn:hover { color: var(--lt-ink); background: var(--lt-wash); }
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) [data-melo="toggle-embedded-viz"],
+  html.melo-show-playlist [data-melo="toggle-embedded-playlist"],
+  html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] {
+    color: var(--lt-accent);
+    background: var(--lt-surface);
+    box-shadow: 0 1px 3px rgba(20, 28, 46, .10);
+  }
+
+  .lt-tools {
+    min-width: 0;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    flex: 0 0 auto;
+    -webkit-app-region: no-drag;
+  }
+  .lt-tools button {
+    width: 22px;
+    height: 23px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--lt-muted);
+    cursor: pointer;
+    transition: color .12s ease, background .12s ease;
+    -webkit-app-region: no-drag;
+  }
+  .lt-tools button:hover { color: var(--lt-ink); background: var(--lt-wash); }
+  .lt-tools button.active { color: var(--lt-accent); background: var(--lt-accent-soft); }
+  .lt-tools button svg { width: 12px; height: 12px; }
+
+  /* ── Slim live stage: visualizer, queue, or lyrics ─────────────────── */
+  .lt-stage {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 9px;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--lt-accent) 4%, transparent), transparent 72%),
+      var(--lt-surface);
+    border: 1px solid var(--lt-line);
+  }
+  .lt-viz {
+    position: absolute;
+    inset: 0;
+    /* Balanced inset: reduce side gutters and give the bars breathing room vertically. */
+    padding: 6px 4px;
+    cursor: pointer;
+  }
+  .lt-viz canvas {
+    position: relative;
+    z-index: 1;
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+  }
+  .lt-preview-wave {
+    position: absolute;
+    z-index: 0;
+    inset: 6px 4px;
+    width: calc(100% - 8px);
+    height: calc(100% - 12px);
+    color: var(--visualizer, var(--lt-accent));
+    opacity: .53;
+    pointer-events: none;
+  }
+  .lt-viz:has(canvas) .lt-preview-wave { display: none; }
+  html.melo-show-playlist .lt-viz,
+  html.melo-show-lyrics .lt-viz { display: none !important; }
+
+  .lt-embed {
+    position: absolute;
+    inset: 0;
+    display: none;
+    overflow: auto;
+    padding: 2px 5px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--lt-accent) 42%, transparent) transparent;
+  }
+  html.melo-show-playlist [data-melo="embedded-playlist"],
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  html:not(.melo-show-playlist) [data-melo="embedded-playlist"],
+  html:not(.melo-show-lyrics) [data-melo="embedded-lyrics"] { display: none !important; }
+  .lt-embed > .embedded-playlist,
+  .lt-embed > .embedded-lyrics {
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    overflow-y: auto;
+  }
+  .lt-embed .embedded-playlist-row {
+    min-height: 22px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    line-height: 1.2;
+  }
+  .lt-embed .embedded-playlist-row:hover { background: var(--lt-wash); }
+  .lt-embed .embedded-playlist-row.active {
+    background: var(--lt-accent-soft);
+    color: var(--lt-accent);
+  }
+  /* Match the default player stage's embedded-playlist title scale. */
+  .lt-embed .embedded-playlist-row .t-title {
+    font-size: .8em !important;
+    line-height: 1.2;
+  }
+  .lt-embed .embedded-playlist-row.active .t-title { color: var(--lt-accent); font-weight: 650; }
+  .lt-embed .track-cover-mini { border-radius: 4px; }
+  .lt-embed .embedded-lyrics-title { display: none; }
+  .lt-embed .lyric-line {
+    padding: 3px 6px;
+    border-radius: 5px;
+    color: var(--lt-soft);
+    font-size: 10px;
+  }
+  .lt-embed .lyric-line.active {
+    color: var(--lt-accent);
+    background: var(--lt-accent-soft);
+    font-weight: 680;
+  }
+  .lt-embed::-webkit-scrollbar { width: 3px; }
+  .lt-embed::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--lt-accent) 44%, transparent); border-radius: 99px; }
+
+  /* In embedded Queue/Lyrics view, give the panel the artwork/meta row's space. */
+  html.melo-show-playlist #melo-player .lt-layout,
+  html.melo-show-lyrics #melo-player .lt-layout,
+  html.melo-show-playlist body.custom-skin-active .player-card .lt-layout,
+  html.melo-show-lyrics body.custom-skin-active .player-card .lt-layout {
+    /* Reserve a real multi-line panel at the 224px full-layout threshold. */
+    grid-template-rows: 25px 0 26px minmax(90px, 1fr) 14px 30px;
+  }
+  html.melo-show-playlist #melo-player .lt-main,
+  html.melo-show-lyrics #melo-player .lt-main,
+  html.melo-show-playlist body.custom-skin-active .player-card .lt-main,
+  html.melo-show-lyrics body.custom-skin-active .player-card .lt-main {
+    /* Keep the zero-height grid slot: display:none would shift the stage
+       into the tools row and leave only a single visible line. */
+    visibility: hidden;
+    height: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  /* ── Progress and transport ───────────────────────────────────────── */
+  .lt-timeline {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .lt-time {
+    flex: 0 0 auto;
+    color: var(--lt-muted);
+    font: 600 9px/1 "Cascadia Mono", "Segoe UI Variable Text", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .lt-range {
+    appearance: none;
+    -webkit-appearance: none;
+    min-width: 0;
+    height: 14px;
+    margin: 0;
+    padding: 0;
+    outline: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  .lt-range.is-seek { flex: 1 1 auto; width: 100%; }
+  .lt-range.is-vol { flex: 0 0 38px; width: 38px; }
+  .lt-range.is-seek::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 99px;
+    background: linear-gradient(to right,
+      color-mix(in srgb, var(--lt-accent) 76%, white) 0%,
+      var(--lt-accent) var(--progress, 0%),
+      var(--lt-track) var(--progress, 0%),
+      var(--lt-track) 100%);
+  }
+  .lt-range.is-seek::-moz-range-track {
+    height: 3px;
+    border-radius: 99px;
+    background: linear-gradient(to right,
+      color-mix(in srgb, var(--lt-accent) 76%, white) 0%,
+      var(--lt-accent) var(--progress, 0%),
+      var(--lt-track) var(--progress, 0%),
+      var(--lt-track) 100%);
+  }
+  .lt-range.is-vol::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 99px;
+    background: linear-gradient(to right, var(--lt-accent) 0%, var(--lt-accent) var(--vol, 60%), var(--lt-track) var(--vol, 60%), var(--lt-track) 100%);
+  }
+  .lt-range.is-vol::-moz-range-track {
+    height: 3px;
+    border-radius: 99px;
+    background: linear-gradient(to right, var(--lt-accent) 0%, var(--lt-accent) var(--vol, 60%), var(--lt-track) var(--vol, 60%), var(--lt-track) 100%);
+  }
+  .lt-range::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 9px;
+    height: 9px;
+    margin-top: -3px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--lt-surface);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--lt-ink) 18%, transparent), 0 1px 3px rgba(0,0,0,.18);
+    opacity: 0;
+    transform: scale(.65);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .lt-range::-moz-range-thumb {
+    width: 9px;
+    height: 9px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--lt-surface);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--lt-ink) 18%, transparent), 0 1px 3px rgba(0,0,0,.18);
+    opacity: 0;
+    transform: scale(.65);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .lt-range:hover::-webkit-slider-thumb,
+  .lt-range:active::-webkit-slider-thumb,
+  .lt-range:hover::-moz-range-thumb,
+  .lt-range:active::-moz-range-thumb { opacity: 1; transform: scale(1); }
+
+  .lt-transport {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+  }
+  .lt-controls {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    -webkit-app-region: no-drag;
+  }
+  .lt-btn {
+    width: 25px;
+    height: 27px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--lt-soft);
+    cursor: pointer;
+    transition: color .12s ease, background .12s ease, transform .12s ease;
+    -webkit-app-region: no-drag;
+  }
+  .lt-btn:hover { color: var(--lt-ink); background: var(--lt-wash); }
+  .lt-btn.active { color: var(--lt-accent); background: var(--lt-accent-soft); }
+  .lt-btn svg { width: 13px; height: 13px; }
+  .lt-btn.lt-play {
+    width: 30px;
+    height: 30px;
+    margin: 0 2px;
+    border-radius: 50%;
+    color: var(--lt-play-ink);
+    background: var(--lt-accent);
+    box-shadow: 0 3px 11px var(--lt-accent-glow);
+  }
+  .lt-btn.lt-play:hover { color: var(--lt-play-ink); background: color-mix(in srgb, var(--lt-accent) 84%, var(--lt-ink)); transform: scale(1.045); }
+  .lt-btn.lt-play svg { width: 14px; height: 14px; }
+
+  .lt-volume {
+    grid-column: 3;
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    -webkit-app-region: no-drag;
+  }
+  .lt-volume-icon {
+    width: 22px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--lt-soft);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+  .lt-volume-icon:hover { color: var(--lt-ink); }
+  .lt-volume-icon.muted { color: #e54855; }
+  .lt-volume-icon svg { width: 13px; height: 13px; }
+
+  /*
+   * Compact-height breakpoint: at 223px window height and below (206px
+   * content box after border/padding)
+   */
+  @container lilt (max-height: 206px) {
+    .lt-layout {
+      grid-template-rows: 25px minmax(62px, 1fr) 23px 14px 30px !important;
+    }
+    .lt-main {
+      display: grid !important;
+      visibility: visible !important;
+      height: auto !important;
+      min-height: 0;
+      overflow: visible !important;
+      padding: 0 4px !important;
+      grid-template-columns: minmax(0, 1fr) clamp(54px, 32cqh, 70px);
+      column-gap: 10px;
+    }
+    .lt-cover { width: clamp(54px, 32cqh, 70px); height: clamp(54px, 32cqh, 70px); }
+    .lt-stage,
+    .lt-stage-tabs { display: none !important; }
+    .lt-actions { justify-content: flex-end; }
+    .lt-transport { transform: translateY(-2px); }
+  }
+
+  /* Respect reduced-motion preference in both normal and compact layouts. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body
+  data-window-width="460"
+  data-window-height="256"
+  data-min-width="400"
+  data-min-height="190"
+  data-max-width="640"
+  data-max-height="380"
+  data-resizable="true">
+<div id="melo-player" class="lilt-player">
+  <div class="lt-layout">
+  <header class="lt-topbar" data-tauri-drag-region>
+    <div class="lt-menu">
+      <input id="ltMenuToggle" type="checkbox" />
+      <label class="lt-brand" for="ltMenuToggle" title="Menu">
+        <span class="lt-brand-mark" aria-hidden="true"></span>
+        <span class="lt-brand-word">Melo</span>
+        <span class="lt-brand-sep" aria-hidden="true"></span>
+        <span class="lt-brand-skin">Lilt</span>
+        <svg class="lt-caret" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </label>
+      <div class="lt-menu-pop">
+        <label class="lt-menu-item" for="ltMenuToggle" data-melo="add-files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+          Add files
+        </label>
+        <label class="lt-menu-item" for="ltMenuToggle" data-melo="add-folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Add folder
+        </label>
+        <label class="lt-menu-item" for="ltMenuToggle" data-melo="theme-toggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          Theme
+        </label>
+      </div>
+      <label class="lt-dismiss" for="ltMenuToggle" aria-label="Close menu"></label>
+    </div>
+
+    <div class="lt-current-lyric" data-melo="current-lyric" aria-live="polite" title="Current lyric"></div>
+
+    <div class="lt-window-controls">
+      <button type="button" data-melo="minimize" title="Minimize" aria-label="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button type="button" class="close" data-melo="close" title="Close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="lt-main" data-tauri-drag-region>
+    <div class="lt-copy">
+      <div class="lt-title" data-melo="title">Nothing playing</div>
+      <div class="lt-byline">
+        <span data-melo="artist">Add music to begin</span>
+        <span class="lt-dot" aria-hidden="true"></span>
+        <span data-melo="album" class="lt-album"></span>
+      </div>
+      <div class="lt-quality">
+        <span data-melo="codec" class="lt-codec"></span>
+        <span data-melo="specs" class="lt-specs"></span>
+      </div>
+    </div>
+    <div class="lt-cover" aria-label="Album cover">
+      <img data-melo="cover" alt="" style="display:none" />
+      <div class="lt-cover-fallback" data-melo="cover-fallback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </div>
+      <span class="lt-cover-rim" aria-hidden="true"></span>
+    </div>
+  </section>
+
+  <nav class="lt-actions" aria-label="Player panels">
+    <div class="lt-stage-tabs">
+      <button type="button" class="lt-stage-btn stage-btn active" data-melo="toggle-embedded-viz" title="Visualizer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 18v-5M9 18V6M14 18V9M19 18V4"/></svg>
+        <span>Visualizer</span>
+      </button>
+      <button type="button" class="lt-stage-btn stage-btn" data-melo="toggle-embedded-playlist" title="Queue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h8"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/></svg>
+        <span>Queue</span>
+      </button>
+      <button type="button" class="lt-stage-btn stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M5 11h10M5 16h7"/><path d="M18 14v5"/><circle cx="18" cy="21" r="1"/></svg>
+        <span>Lyrics</span>
+      </button>
+    </div>
+
+    <div class="lt-tools">
+      <button type="button" id="btnToggleLibrary" data-melo="toggle-library" title="Library" aria-label="Library">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
+      </button>
+      <button type="button" id="btnTogglePlaylist" data-melo="toggle-playlist" title="Queue window" aria-label="Queue window">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h8"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/></svg>
+      </button>
+      <button type="button" id="btnToggleEq" data-melo="toggle-eq" title="Equalizer" aria-label="Equalizer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+      </button>
+      <button type="button" id="btnToggleLyrics" data-melo="toggle-lyrics" title="Lyrics window" aria-label="Lyrics window">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+      </button>
+      <button type="button" id="btnOpenSettings" data-melo="toggle-settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <section class="lt-stage" aria-label="Visualizer, queue, or lyrics">
+    <div class="lt-viz" data-melo="visualizer" data-bars="24">
+      <svg class="lt-preview-wave" viewBox="0 0 440 64" preserveAspectRatio="none" aria-hidden="true">
+        <defs><linearGradient id="liltWave" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="currentColor" stop-opacity=".36"/><stop offset=".48" stop-color="currentColor" stop-opacity=".96"/><stop offset="1" stop-color="currentColor" stop-opacity=".45"/></linearGradient></defs>
+        <g fill="url(#liltWave)">
+          <rect x="8" y="25" width="5" height="14" rx="2.5"/><rect x="20" y="20" width="5" height="24" rx="2.5"/><rect x="32" y="28" width="5" height="8" rx="2.5"/><rect x="44" y="16" width="5" height="32" rx="2.5"/><rect x="56" y="12" width="5" height="40" rx="2.5"/><rect x="68" y="22" width="5" height="20" rx="2.5"/><rect x="80" y="27" width="5" height="10" rx="2.5"/><rect x="92" y="17" width="5" height="30" rx="2.5"/><rect x="104" y="9" width="5" height="46" rx="2.5"/><rect x="116" y="15" width="5" height="34" rx="2.5"/><rect x="128" y="23" width="5" height="18" rx="2.5"/><rect x="140" y="27" width="5" height="10" rx="2.5"/><rect x="152" y="18" width="5" height="28" rx="2.5"/><rect x="164" y="10" width="5" height="44" rx="2.5"/><rect x="176" y="20" width="5" height="24" rx="2.5"/><rect x="188" y="25" width="5" height="14" rx="2.5"/><rect x="200" y="14" width="5" height="36" rx="2.5"/><rect x="212" y="7" width="5" height="50" rx="2.5"/><rect x="224" y="15" width="5" height="34" rx="2.5"/><rect x="236" y="24" width="5" height="16" rx="2.5"/><rect x="248" y="19" width="5" height="26" rx="2.5"/><rect x="260" y="11" width="5" height="42" rx="2.5"/><rect x="272" y="22" width="5" height="20" rx="2.5"/><rect x="284" y="27" width="5" height="10" rx="2.5"/><rect x="296" y="16" width="5" height="32" rx="2.5"/><rect x="308" y="8" width="5" height="48" rx="2.5"/><rect x="320" y="15" width="5" height="34" rx="2.5"/><rect x="332" y="25" width="5" height="14" rx="2.5"/><rect x="344" y="20" width="5" height="24" rx="2.5"/><rect x="356" y="12" width="5" height="40" rx="2.5"/><rect x="368" y="22" width="5" height="20" rx="2.5"/><rect x="380" y="27" width="5" height="10" rx="2.5"/><rect x="392" y="17" width="5" height="30" rx="2.5"/><rect x="404" y="13" width="5" height="38" rx="2.5"/><rect x="416" y="23" width="5" height="18" rx="2.5"/><rect x="428" y="26" width="5" height="12" rx="2.5"/>
+        </g>
+      </svg>
+    </div>
+    <div class="lt-embed" data-melo="embedded-playlist"></div>
+    <div class="lt-embed" data-melo="embedded-lyrics"></div>
+  </section>
+
+  <div class="lt-timeline">
+    <span class="lt-time" data-melo="current-time">0:00</span>
+    <input class="lt-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
+    <span class="lt-time" data-melo="duration">0:00</span>
+  </div>
+
+  <footer class="lt-transport">
+    <div class="lt-controls">
+      <button class="lt-btn" type="button" data-melo="shuffle" title="Shuffle" aria-label="Shuffle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg>
+      </button>
+      <button class="lt-btn" type="button" data-melo="prev" title="Previous" aria-label="Previous">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
+      </button>
+      <button class="lt-btn" type="button" data-melo="stop" title="Stop" aria-label="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+      <button class="lt-btn lt-play" type="button" data-melo="play" title="Play / Pause" aria-label="Play or pause">
+        <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </button>
+      <button class="lt-btn" type="button" data-melo="next" title="Next" aria-label="Next">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
+      </button>
+      <button class="lt-btn" type="button" data-melo="repeat" title="Repeat" aria-label="Repeat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </button>
+    </div>
+
+    <div class="lt-volume">
+      <span class="lt-volume-icon" data-melo="volume-icon" title="Mute" aria-label="Mute">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h4l5 4V6L7 10H3z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
+      </span>
+      <input class="lt-range is-vol" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" />
+    </div>
+  </footer>
+  </div>
+</div>
+</body>
+</html>

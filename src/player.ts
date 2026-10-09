@@ -62,17 +62,95 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   let repeatMode: RepeatMode = "off";
   let isSeeking = false;
 
+  // ─── Round 76/77: shuffle = a random ORDER, materialised ──────────────
+  // Turning Shuffle on permutes the queue ITSELF (Fisher–Yates) with the
+  // playing track pinned first, and the new order is persisted to the queue
+  // table through the library window's DB handler. That is what round 77
+  // asked for: the Queue view in every window shows exactly what will play
+  // next — no hidden deck, no per-press dice. Playback walks the array
+  // straight, so nothing repeats within a pass and Previous is the real
+  // history. Repeat-All reshuffles at each pass boundary (again current-
+  // first, so the track that closed a pass never opens the next one).
+  // Toggling shuffle OFF simply keeps the current (already random) order.
+  function shuffleInPlace(a: number[]) {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+  }
+  function applyShuffleToQueue() {
+    const n = queue.length;
+    if (n < 2) return;
+    const cur = Math.max(0, Math.min(currentIndex, n - 1));
+    const rest: number[] = [];
+    for (let i = 0; i < n; i++) if (i !== cur) rest.push(i);
+    shuffleInPlace(rest);
+    queue = [cur, ...rest].map(i => queue[i]);
+    currentIndex = 0;
+    (window as any).__LUMI_QUEUE__ = queue;
+    // Propose the physical order; the main window's library.ts rewrites the
+    // queue table and broadcasts melo:queue-changed so every view refreshes.
+    try { busEmit("melo:queue-shuffled", { order: queue.map(t => String(t.id)) }); } catch {}
+  }
+
+  // ─── Round 76 (2): listen-threshold play counting ────────────────────
+  // A play is no longer booked at track start. The player keeps a session
+  // for the current track counting WALL-CLOCK TIME SPENT UNPAUSED; the
+  // track counts once that reaches min(30s, half its duration) — the
+  // Spotify rule (short tracks need only their second half; unknown
+  // lengths fall back to 30s). Pauses stop the meter, SEEKING doesn't add
+  // anything, so scrubbing to the end can no longer farm plays, and
+  // skipping after 3 seconds writes NOTHING. The count is evaluated at
+  // boundaries only (next track loads, 'ended', pagehide/quit) — never on
+  // a timer — and fires once per pass (repeat-one loops: once per loop).
+  // last_played_at still stamps at track start via a separate command.
+  type PlaySession = { id: string; durMs: number; listenedMs: number; resumeAt: number; counted: boolean };
+  let playSession: PlaySession | null = null;
+  function newSession(t: Track): PlaySession {
+    const d = Number(t.duration);
+    return { id: t.id, durMs: d > 0 ? d * 1000 : 0, listenedMs: 0, resumeAt: audio.paused ? 0 : Date.now(), counted: false };
+  }
+  function beginPlaySession(t: Track) {
+    evaluatePlaySession(); // settle the outgoing track first
+    playSession = newSession(t);
+  }
+  function accumulateSession() {
+    const s = playSession;
+    if (s && s.resumeAt) { s.listenedMs += Date.now() - s.resumeAt; s.resumeAt = 0; }
+  }
+  function resumeSession() {
+    const s = playSession;
+    if (s && !s.resumeAt && audio && !audio.paused) s.resumeAt = Date.now();
+  }
+  function evaluatePlaySession() {
+    const s = playSession;
+    if (!s) return;
+    if (audio && !audio.paused) accumulateSession();
+    if (s.counted || !s.id) return;
+    const threshold = s.durMs > 0 ? Math.min(30000, s.durMs / 2) : 30000;
+    if (s.listenedMs >= threshold) {
+      s.counted = true;
+      busEmit("melo:play-counted", { trackId: s.id });
+    }
+  }
+  // Quit, reload and OS-suspend all flush through pagehide, so a track
+  // that had already earned its count is never lost by closing the app.
+  window.addEventListener("pagehide", () => evaluatePlaySession());
+
   function computeNextIndex(): number | null {
     if (!queue.length) return null;
     if (repeatMode === "one") return currentIndex;
     let nxt = currentIndex + 1;
-    if (isShuffle) {
-      nxt = Math.floor(Math.random() * queue.length);
-      if (nxt === currentIndex && queue.length > 1) nxt = (nxt + 1) % queue.length;
-    }
     if (nxt >= queue.length) {
-      if (repeatMode === "all") nxt = 0;
-      else return null;
+      if (repeatMode !== "all") return null;
+      if (isShuffle) {
+        // New pass: reshuffle the REAL queue (every view follows) with the
+        // just-played track pinned at position 0, then resume at position 1
+        // — the track that closed a pass can never open the next one.
+        applyShuffleToQueue();
+        return Math.min(1, queue.length - 1);
+      }
+      nxt = 0;
     }
     return nxt;
   }
@@ -400,9 +478,13 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     resetDeckGain(outgoing, 1);
     resetDeckGain(incoming, 1);
 
+    evaluatePlaySession(); // the crossfaded-out track settles here
     audio = incoming;
     currentIndex = nxt;
     applyTrackMetadata(queue[nxt], { resetProgress: false });
+    // The incoming deck was already playing during the fade — start its
+    // session now; the pre-fade overlap is not charged to it.
+    if (queue[nxt]) playSession = newSession(queue[nxt]);
   }
 
   function visibleTrackSpecs(t: Track): string {
@@ -492,6 +574,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     currentIndex = idx;
     const t = queue[idx];
     if (!t) return;
+    beginPlaySession(t); // settles the outgoing track's count, too
 
     if (!trackTitle) bindDOM();
 
@@ -667,8 +750,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       audio.currentTime = 0;
       return;
     }
+    // Round 77: with shuffle the array itself carries the pass order, so
+    // the plain index walk IS the history — the old deck special case is
+    // gone (and stays correct across window/queue reloads).
     let prv = currentIndex - 1;
-    if (isShuffle) prv = Math.floor(Math.random() * queue.length);
     if (prv < 0) {
       if (repeatMode === "all") prv = queue.length - 1;
       else prv = 0;
@@ -746,6 +831,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       btnShuffle.onclick = () => {
         isShuffle = !isShuffle;
         btnShuffle.classList.toggle("active", isShuffle);
+        // ON: shuffle the real queue now, current track pinned first (the
+        // next press lands on the track after it). OFF: keep the order that
+        // is on screen — playback simply continues through it sequentially.
+        if (isShuffle) applyShuffleToQueue();
         toast(isShuffle ? "Shuffle on" : "Shuffle off");
       };
     }
@@ -906,6 +995,13 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
 
     el.addEventListener("ended", () => {
       if (el !== audio || crossfadeActive) return; // stray/handled event
+      // The pass ended — settle this play's count now. (A natural end has
+      // usually cleared the threshold already; a user who SEEKED to the
+      // tail still hasn't earned it, and won't.)
+      evaluatePlaySession();
+      // Repeat-one restarts without loadTrack(): give each loop a fresh
+      // session so every full pass counts exactly once.
+      if (repeatMode === "one" && queue[currentIndex]) playSession = newSession(queue[currentIndex]);
       next();
     });
 
@@ -913,6 +1009,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // count toward the stop cap.
     el.addEventListener("play", () => {
       if (el === audio) consecutiveErrors = 0;
+      if (el === audio) resumeSession(); // un-paused: the listen meter runs again
       // The icons follow the REAL element state.
       if (el === audio) {
         if (iconPlay) iconPlay.style.display = "none";
@@ -924,6 +1021,11 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       // Whatever pauses the deck (fade-pause, crossfade swap, stop, a paused
       // restore) re-shows the Play icon.
       if (el !== audio) return;
+      accumulateSession(); // paused: the listen meter stops here
+      // Settle NOW too (the once-flag makes re-evaluation harmless): a user
+      // who listens, pauses, then closes the app must not lose the count if
+      // the webview skips pagehide on shutdown.
+      evaluatePlaySession();
       if (iconPlay) iconPlay.style.display = "block";
       if (iconPause) iconPause.style.display = "none";
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
@@ -1160,7 +1262,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     loadTrack(idx, true);
     // A fromQueue click carries only the ONE clicked record (instant
     // start); grow the runtime queue to the full DB queue in place.
-    if (p.fromQueue) hydrateFullQueue(gen, p.tracks[0]);
+    if (p.fromQueue) hydrateFullQueue(gen, p.tracks[0], p.queueHint);
+    // A full-array handoff (no DB rebuild pending): apply shuffle directly
+    // so the first Next already follows the random order.
+    else if (isShuffle) applyShuffleToQueue();
   });
 
   // Silent in-place upgrade of the runtime queue to the FULL DB play
@@ -1169,20 +1274,38 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // Next/Previous/shuffle/crossfade span the real source. Paged in via
   // LumiLibrary. A stale generation (user click-played again
   // mid-hydrate) or an empty result keeps the small queue.
-  async function hydrateFullQueue(gen: number, focusTrack: Track) {
+  async function hydrateFullQueue(gen: number, focusTrack: Track, hint?: number) {
     try {
       const lib = (window as any).LumiLibrary;
       const all: Track[] | undefined = await lib?.getQueueTracksAll?.();
       if (gen !== queueGen || !all || !all.length) return;
-      // Queue rows are entry-keyed (duplicates allowed): the clicked
-      // occurrence is located by entry id; runtime-only items fall back to
-      // the track id.
-      const focus = focusTrack.playlistEntryId != null
-        ? all.findIndex(t => t.playlistEntryId === focusTrack.playlistEntryId)
-        : all.findIndex(t => t.id === focusTrack.id);
+      // Locating the clicked occurrence (round 75):
+      // 1. queueHint — the row's index in the order the DB queue was just
+      //    rebuilt with (the sender built both from the same search+sort).
+      //    Trusted only after an id check, so a stale/raced order can never
+      //    point the index at the wrong track.
+      // 2. Entry id — correct ONLY for queue-view rows, whose playlistEntryId
+      //    IS a queue-table id. Playlist/library rows carry ids from a
+      //    different table, which is why the old lookup missed and
+      //    Next/Previous restarted from position 0. When a hint is present
+      //    the id space is known to be foreign — skip it (a numeric
+      //    coincidence would land on the wrong occurrence).
+      // 3. Track id first occurrence — best-effort last resort.
+      const hintOk = Number.isInteger(hint) && (hint as number) >= 0 && (hint as number) < all.length
+        && all[hint as number] && String(all[hint as number].id) === String(focusTrack.id);
+      let focus = hintOk ? (hint as number) : -1;
+      if (focus < 0 && hint == null && focusTrack.playlistEntryId != null) {
+        focus = all.findIndex(t => t.playlistEntryId === focusTrack.playlistEntryId);
+      }
+      if (focus < 0) focus = all.findIndex(t => t.id === focusTrack.id);
       queue = all;
       (window as any).__LUMI_SET_QUEUE__(queue);
       if (focus >= 0) currentIndex = focus;
+      // Round 77: a queue rebuilt under shuffle (fresh play-from-list, DB
+      // re-hydrate) must immediately wear the shuffle order. Applied AFTER
+      // the focus resolution so the clicked track keeps playing — it simply
+      // lands on position 0 of the permuted array.
+      if (isShuffle) applyShuffleToQueue();
     } catch { /* the small queue stays; playback is unaffected */ }
   }
 }

@@ -402,6 +402,28 @@ export function setupLyrics(
 
   audio.addEventListener("timeupdate", updateActiveLine);
 
+  // Round 76: the SKIN-EMBEDDED lyrics stage (the one created with an
+  // explicit `elements` container) used to open showing the TOP of the
+  // lyrics until the next line change — the smooth follow-scroll only
+  // fires when the active line actually switches. main.ts announces every
+  // player-stage switch as a same-document "melo:player-stage" event; on
+  // "lyrics" this instance recomputes the active line and centers on it
+  // INSTANTLY (no smooth glide on open). Panel/float instances (no
+  // `elements`) are full windows that always render from scratch — skip.
+  if (elements) {
+    document.addEventListener("melo:player-stage", (ev) => {
+      const mode = (ev as CustomEvent).detail?.mode;
+      if (mode !== "lyrics" || !lyricsContainer) return;
+      updateActiveLine();
+      requestAnimationFrame(() => {
+        const el = lyricsContainer ? lyricsContainer.querySelector<HTMLElement>(".lyric-line.active") : null;
+        if (!el || !lyricsContainer) return;
+        const top = el.offsetTop - lyricsContainer.offsetTop - lyricsContainer.clientHeight / 2 + el.clientHeight / 2;
+        lyricsContainer.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+      });
+    });
+  }
+
   // Settings propagation: when "fetch lyrics online" or the save mode
   // changes in any window, drop cached lookups so the NEXT resolution
   // runs under the new preferences. Cache-invalidation only — flipping a

@@ -39,6 +39,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const playlistEmpty = document.getElementById("winPlaylistEmpty") as HTMLElement | null;
   const playlistSelect = document.getElementById("playlistSelect") as HTMLSelectElement | null;
   const playlistSearch = document.getElementById("playlistSearchInput") as HTMLInputElement | null;
+  const queueFindNav = document.getElementById("queue-find-nav") as HTMLElement | null;
+  const queueFindCount = document.getElementById("queueFindCount") as HTMLElement | null;
+  const queueFindPrev = document.getElementById("queueFindPrev") as HTMLButtonElement | null;
+  const queueFindNext = document.getElementById("queueFindNext") as HTMLButtonElement | null;
   const playlistSearchClear = document.getElementById("playlistSearchClear") as HTMLButtonElement | null;
   const playlistSort = document.getElementById("playlistSortSelect") as HTMLSelectElement | null;
   const clearPlaylistButton = document.getElementById("btn-clear-playlist") as HTMLButtonElement | null;
@@ -52,6 +56,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // This pseudo-ID everywhere a "current playlist" is expected. Installs
   // Start with ZERO real playlists.
   const QUEUE_ID = "__queue__";
+  // The backend's auto-projection ids (library_db.rs AUTO_MOST_PLAYED_ID);
+  // the frontend only needs Most Played — for its play-count badge (round 73).
+  const AUTO_MOST_PLAYED_ID = "__auto_most_played__";
   let currentPlaylistId = localStorage.getItem("melo-currentPlaylist") || QUEUE_ID;
   // Monotonic revision for the cross-window active-playlist sync: a later
   // Decision always beats an earlier one, so a LATE stale event can never
@@ -125,13 +132,108 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Character triggers a full LIKE scan for little value — the view stays
   // Unfiltered until the second character is typed.
   const MIN_SEARCH_LEN = 2;
-  type LibView = "details" | "compact" | "tiles";
-  const LIB_VIEWS: LibView[] = ["details", "compact", "tiles"];
+  type LibView = "default" | "details" | "compact" | "tiles";
+  const LIB_VIEWS: LibView[] = ["default", "details", "compact", "tiles"];
+  // Round 75: the old "details" view was RENAMED to "default" and the label
+  // was reused for a brand-new columned view. A one-time migration maps the
+  // saved value so existing users keep the look they had; after the marker is
+  // written, a saved "details" legitimately means the new column view.
   let libView: LibView = ((): LibView => {
-    const saved = localStorage.getItem("melo-lib-view") || "details";
-    if (saved === "mosaic") return "tiles";
-    return (LIB_VIEWS as string[]).includes(saved) ? saved as LibView : "details";
+    const migrated = localStorage.getItem("melo-lib-view-v2") === "1";
+    let saved = localStorage.getItem("melo-lib-view") || "default";
+    if (saved === "mosaic") saved = "tiles";
+    if (saved === "details" && !migrated) {
+      // Rewrite the STORED value too — otherwise the next boot would read the
+      // old "details" again and (marker now present) open the NEW column view.
+      saved = "default";
+      try { localStorage.setItem("melo-lib-view", "default"); } catch {}
+    }
+    if (!migrated) { try { localStorage.setItem("melo-lib-view-v2", "1"); } catch {} }
+    return (LIB_VIEWS as string[]).includes(saved) ? saved as LibView : "default";
   })();
+  // ─── Details view: column model (round 75) ───
+  // Title is pinned first; the rest are user-orderable (drag in the Columns
+  // menu) and toggleable (checkbox). Order + disabled set persist as JSON.
+  type LibColId = "artist" | "album" | "albumArtist" | "genre" | "year" | "duration";
+  const LIB_COL_DEFS: Record<LibColId, { label: string; fr: number; min: number; right?: boolean }> = {
+    artist: { label: "Artist", fr: 1.5, min: 80 },
+    album: { label: "Album", fr: 1.5, min: 80 },
+    albumArtist: { label: "Album Artist", fr: 1.3, min: 70 },
+    genre: { label: "Genre", fr: 1, min: 60 },
+    year: { label: "Year", fr: 0.55, min: 42 },
+    duration: { label: "Time", fr: 0.7, min: 46, right: true },
+  };
+  const LIB_COL_IDS = Object.keys(LIB_COL_DEFS) as LibColId[];
+  let libColOrder: LibColId[] = ((): LibColId[] => {
+    let raw: unknown = null;
+    try { raw = JSON.parse(localStorage.getItem("melo-lib-cols-order") || "null"); } catch {}
+    const arr = Array.isArray(raw) ? raw.filter((x): x is LibColId => LIB_COL_IDS.includes(x as LibColId)) : [];
+    for (const id of LIB_COL_IDS) if (!arr.includes(id)) arr.push(id);
+    return arr;
+  })();
+  const libColOff = new Set<LibColId>(((): LibColId[] => {
+    let raw: unknown = null;
+    try { raw = JSON.parse(localStorage.getItem("melo-lib-cols-off") || "null"); } catch {}
+    return Array.isArray(raw) ? raw.filter((x): x is LibColId => LIB_COL_IDS.includes(x as LibColId)) : [];
+  })());
+  // Default state matches the classic look: Artist + Album + Time (title
+  // always). Nothing else is on until the user enables it.
+  if (!localStorage.getItem("melo-lib-cols-off")) {
+    for (const id of LIB_COL_IDS) if (id !== "artist" && id !== "album" && id !== "duration") libColOff.add(id);
+  }
+  const libColEnabled = (): LibColId[] => libColOrder.filter(id => !libColOff.has(id));
+  const persistLibColumns = () => {
+    try {
+      localStorage.setItem("melo-lib-cols-order", JSON.stringify(libColOrder));
+      localStorage.setItem("melo-lib-cols-off", JSON.stringify([...libColOff]));
+    } catch {}
+  };
+  // Grid template shared by header + rows: num, Title, [enabled...], add-button.
+  function libColsGrid(): string {
+    const parts = ["26px", "minmax(120px, 2.2fr)"];
+    for (const id of libColEnabled()) parts.push(`minmax(${LIB_COL_DEFS[id].min}px, ${LIB_COL_DEFS[id].fr}fr)`);
+    parts.push("30px");
+    return parts.join(" ");
+  }
+  function libColsValue(track: Track, id: LibColId): string {
+    switch (id) {
+      case "artist": return track.artist || "";
+      case "album": return track.album || "";
+      case "albumArtist": return track.albumArtist || "";
+      case "genre": return track.genre || "";
+      case "year": return track.year ? String(track.year) : "";
+      case "duration": return fmtDur(track.duration);
+    }
+  }
+  function libColsRowCells(track: Track, absIndex: number): string {
+    let html = `<span class="num">${absIndex + 1}</span><span class="lc lc-title" title="${esc(track.title)}">${esc(track.title)}</span>`;
+    for (const id of libColEnabled()) {
+      const val = libColsValue(track, id);
+      const right = LIB_COL_DEFS[id].right ? " lc-right" : "";
+      const sub = id === "year" || id === "genre" || id === "duration" ? " lc-sub" : "";
+      html += `<span class="lc${right}${sub}" title="${esc(val)}">${val ? esc(val) : "&nbsp;"}</span>`;
+    }
+    return html + `<button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>`;
+  }
+  // Round 77: the Details view at the group roots (albums/artists/genres)
+  // gets its own fixed column line — Name · Details · Count — so the view is
+  // "columns" everywhere, not only for flat track lists. (User-configurable
+  // track columns only exist for track rows; group rows keep this fixed set.)
+  const LIB_GROUP_COLS_GRID = ";--lib-cols:28px minmax(140px,2.2fr) minmax(110px,1.5fr) 56px;padding-left:8px;padding-right:6px;margin-left:0;margin-right:0";
+  function libGroupColsHeader(): string {
+    const kind = libraryGroupKind();
+    const nameLabel = kind === "albums" ? "Album" : kind === "genres" ? "Genre" : kind === "album-artists" ? "Album Artist" : "Artist";
+    return `<span></span><span class="lc">${nameLabel}</span><span class="lc">Details</span><span class="lc" style="text-align:right">Tracks</span>`;
+  }
+  function libColsHeader(): string {
+    let html = `<span class="num"></span><span class="lc lc-title">Title</span>`;
+    // draggable per the label the Columns button promised ("drag columns into any
+    // order") — round 80: only the menu rows had it, so grabbing a header label
+    // showed the no-drop cursor. The listeners are delegated on #trackList below,
+    // so every header (flat, group root, discography) works without rebinding.
+    for (const id of libColEnabled()) html += `<span class="lc${LIB_COL_DEFS[id].right ? " lc-right" : ""} lc-draggable" data-col-id="${id}" title="Drag to reorder">${LIB_COL_DEFS[id].label}</span>`;
+    return html + `<span class="lc"></span>`;
+  }
   // Track-display layout: "list" is the classic rows view; "albums" groups the
   // tracks into album sheets (180×180 cover + two-column track list). It only
   // applies to Details/Tiles and only where TRACKS are shown (artist/album/
@@ -146,11 +248,31 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return libraryMode() === "tracks" || !!librarySearch || ((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
   }
   function sheetModeActive(): boolean {
-    return libLayout === "albums" && libView !== "compact" && isLibraryTrackDisplay();
+    // The columned Details view and Compact are list displays: album sheets
+    // need the wide two-line rows, so the "Album Sheets" layout is disabled
+    // in both.
+    return libLayout === "albums" && libView !== "compact" && libView !== "details" && isLibraryTrackDisplay();
+  }
+  // Tiles paints its 190px CARDS only on the group roots. Every other branch
+  // of the same view paints ordinary TRACK rows — an active query replaces the
+  // groups with a flat track list, and a drill-in goes to the discography or
+  // the album sheets — so those rows must keep the normal height. Reusing the
+  // card height gave every searched track a 190px-tall box (round 83).
+  function tilesCardsActive(): boolean {
+    if (libView !== "tiles" || libraryMode() !== "groups" || librarySearch) return false;
+    return !((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
   }
   function libraryRowHeight(): number {
     if (libView === "compact") return 36;
-    if (libView === "tiles" && libraryMode() === "groups") return 148;
+    // Details (columns, round 75): one tight line per track — taller than
+    // compact for the 12px cells, far shorter than the two-line default.
+    if (libView === "details") return 40; // round 77: group roots too
+    // Tiles (round 73): 148 → 190 so the cover is genuinely square. The card
+    // spends 8px margin + 16px padding + ~34px title/artist, leaving the cover
+    // 132px tall — the CSS caps width at the same 132 and centres it, so
+    // height always equals width (before, wide columns clipped the height with
+    // `max-height: calc(100% - 34px)` and the art squashed into a wide band).
+    if (tilesCardsActive()) return 190;
     return 54;
   }
   let libraryRequest = 0;
@@ -190,6 +312,89 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let libraryScrollTimer = 0;
   let libraryResizeTimer = 0;
   let playlistSearchTimer = 0;
+  // ── Round 78 · Find-in-Queue ──────────────────────────────────────────
+  // The queue view must never be FILTERED — its rows ARE the physical play
+  // order (positions, drag, persisted sort and the round-77 shuffle all key
+  // off it). But the search box still searches it: typing jumps to the first
+  // match (scroll + flash highlight) across the WHOLE queue, Enter /
+  // Shift+Enter cycle. Zero data ops, zero re-layout — the list never lies.
+  type QueueFind = { query: string; positions: number[]; at: number };
+  let queueFind: QueueFind | null = null;
+  let queueFindStamp = 0; // bumped on every queue re-render (edits/refreshes)
+  let queueFindHunt = ""; // round 80: one re-query per stale target, never a loop
+  function queueFindStatus(): void {
+    // Round 79: a placeholder is invisible the moment you type — the count
+    // lives in its own chip now, with Prev/Next buttons beside it. The
+    // placeholder keeps ONLY the idle hint (chrome owns it).
+    const on = currentPlaylistId === QUEUE_ID && !!playlistSearch?.value.trim();
+    if (queueFindNav) queueFindNav.hidden = !on;
+    if (!on || !queueFindCount) return;
+    const n = queueFind ? queueFind.positions.length : 0;
+    queueFindCount.textContent = n ? `${queueFind!.at + 1}/${n}` : "No match";
+    queueFindCount.classList.toggle("miss", !n);
+    const cyc = n > 1;
+    if (queueFindPrev) queueFindPrev.disabled = !cyc;
+    if (queueFindNext) queueFindNext.disabled = !cyc;
+  }
+  function queueFindHighlight(): void {
+    if (!playlistList) return;
+    playlistList.querySelectorAll<HTMLElement>(".track-row.pl-find").forEach(r => r.classList.remove("pl-find"));
+    if (!queueFind || queueFind.at < 0 || queueFind.at >= queueFind.positions.length) return;
+    const idx = queueFind.positions[queueFind.at];
+    const row = playlistList.querySelector<HTMLElement>(`[data-pl-index="${idx}"]`);
+    // A stale index (the queue changed under us) must never strand the
+    // status text on a count the list can't show: re-run the search — it
+    // re-queries, recomputes positions and re-highlights on its own.
+    // "keep" re-queries but holds the cycle position (clamped) — jumping back
+    // to the first match here would recreate the round-80 reset loop. One hunt
+    // per target though: if the row STILL isn't painted (a collapsed window,
+    // a lost virtual page), leave it unmarked — Enter/Next keep cycling fine.
+    if (!row && queueFind.query) {
+      const key = `${queueFind.query}:${idx}`;
+      if (queueFindHunt === key) return;
+      queueFindHunt = key;
+      void queueFindStep("keep");
+      return;
+    }
+    if (row) queueFindHunt = "";
+    row?.classList.add("pl-find");
+  }
+  async function queueFindStep(dir: "first" | "next" | "prev" | "keep"): Promise<void> {
+    if (!playlistSearch || !playlistList || currentPlaylistId !== QUEUE_ID) return;
+    const q = playlistSearch.value.trim().toLowerCase();
+    if (!q || !invoke) { queueFind = null; queueFindHighlight(); queueFindStatus(); return; }
+    const prevAt = queueFind ? queueFind.at : 0;
+    if (dir !== "next" && dir !== "prev") { // "first"/"keep" (re-)query; cycling reuses the cache
+      let items: Track[];
+      try {
+        // the FULL queue, not the virtual window — matches live beyond the viewport
+        items = (await invoke<Page<Track>>("queue_tracks", { limit: 5000, offset: 0 })).items || [];
+      } catch { queueFind = null; queueFindStatus(); return; }
+      const positions: number[] = [];
+      items.forEach((t, i) => {
+        if (`${t.title || ""}\n${t.artist || ""}\n${t.album || ""}`.toLowerCase().includes(q)) positions.push(i);
+      });
+      const n0 = positions.length;
+      // "keep" re-runs the SAME query but preserves the cycle position — used
+      // when a paint raced the flash and the row index went stale.
+      const keepAt = dir === "keep" ? Math.min(Math.max(prevAt, 0), Math.max(0, n0 - 1)) : 0;
+      queueFind = { query: q, positions, at: n0 ? keepAt : -1 };
+    } else if (queueFind) {
+      const n = queueFind.positions.length;
+      if (n) queueFind.at = (queueFind.at + (dir === "next" ? 1 : n - 1)) % n; // wraps both ways
+    } else { queueFindStatus(); return; }
+    queueFindStatus();
+    if (!queueFind || queueFind.at < 0) { queueFindHighlight(); return; } // a miss must also UNMARK
+    const idx = queueFind.positions[queueFind.at];
+    const firstRow = playlistList.querySelector<HTMLElement>("[data-pl-index]");
+    const rowH = firstRow ? firstRow.getBoundingClientRect().height || 34 : 34;
+    const top = Math.max(0, idx * rowH - playlistList.clientHeight / 2 + rowH / 2);
+    if (Math.abs(playlistList.scrollTop - top) > rowH / 2) {
+      playlistList.scrollTo({ top, behavior: "smooth" });
+      await new Promise(r => setTimeout(r, 260)); // the scroll-debounced paint
+    }
+    queueFindHighlight();
+  }
   let playlistScrollTimer = 0;
   let contextTrackId: string | null = null;
   type ContextLibraryGroup = { artist: string; albumArtist?: string; album?: string; name: string; count: number };
@@ -755,6 +960,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   function updatePlaylistSearchClear() {
     playlistSearchClear?.classList.toggle("show", !!playlistSearch?.value);
+    queueFindStatus(); // round 79: find chip + Prev/Next follow the box state
   }
 
   // Highlight the row that is currently playing in the Playlist window.
@@ -991,6 +1197,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     initialized = true;
     await Promise.all([refreshStats(), refreshPlaylists(), refreshLibraryRoots()]);
     await renderLibraryVirtual(true);
+    // Round 79: the module-level sidebar boot paint runs while `invoke` is
+    // still null (loadCore awaits the Tauri core import first), so a cold
+    // webview that reopens straight onto Artists + open sidebar showed an
+    // EMPTY list until Show/hide was toggled. Paint once, here, for real.
+    if (artistSidebarOpen && artistSidebarActive() && !artistSidebarCache) void renderArtistSidebarData();
     if (initialLibraryNavigation?.scrollTop) {
       await renderLibraryVirtual(false, initialLibraryNavigation.scrollTop);
     }
@@ -1073,7 +1284,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function invalidateGroupsTotalCache() {
     groupsTotalCache = new Map();
     groupsTotalGeneration++;
-    // The loaded scroll window shows pre-change data too.
+    // The loaded scroll window shows pre-change data too — and so does the
+    // artist sidebar's cached name list (round 75).
+    artistSidebarCache = null;
     invalidateLibraryWindow();
   }
 
@@ -1127,7 +1340,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function libraryColumns(): number {
     if (!trackList) return 1;
     const width = trackList.clientWidth || 0;
-    if (libView === "compact") return 1;
+    if (libView === "compact" || libView === "details") return 1;
     // Album sheets lay their own two-column track grid out with CSS.
     if (sheetModeActive()) return 1;
     const trackLike = libraryMode() === "tracks" || !!librarySearch || ((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
@@ -1135,7 +1348,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // Artist discography, album drill, genre drill, tiles-view tracks):
     // Single column below 600 px, two columns at 600 px and above.
     if (trackLike) return width >= TWO_COLUMN_THRESHOLD ? 2 : 1;
-    if (libView === "tiles") return Math.max(2, Math.min(6, Math.floor((width + GRID_GAP) / 118)));
+    // Round 84 (user): on resize the COVERS must stay a constant 132px and only
+    // the COUNT of cards per row should change. Each column therefore needs to
+    // be wide enough that the avatar (col minus ~20px padding/gap) always hits
+    // its 132px cap → a 156px divisor, and no upper cap on the column count
+    // (the old ÷118 with a 6-column cap made covers shrink at narrow widths and
+    // left wide empty gaps once the cap was reached).
+    if (libView === "tiles") return Math.max(2, Math.floor((width + GRID_GAP) / 156));
     // Group rows in Details view use the same 600 px threshold (they used a
     // Near-identical but different computed value before).
     return width >= TWO_COLUMN_THRESHOLD ? 2 : 1;
@@ -1204,17 +1423,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       btn.classList.toggle("active", btn.dataset.libview === libView);
     });
     trackList?.setAttribute("data-lib-view", libView);
+    // The Columns button only exists for the columned Details view.
+    const colsBtn = document.getElementById("btn-lib-columns");
+    if (colsBtn) colsBtn.hidden = libView !== "details";
+    if (libView !== "details") hideColumnsMenu();
     syncLibLayoutButtons();
   }
   function syncLibLayoutButtons() {
-    const unavailable = libView === "compact";
+    const unavailable = libView === "compact" || libView === "details";
     document.querySelectorAll<HTMLButtonElement>("[data-liblayout]").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.liblayout === libLayout);
       btn.disabled = unavailable;
       btn.classList.toggle("disabled", unavailable);
     });
-    document.getElementById("libLayoutSwitch")?.setAttribute("title", unavailable ? "Album layout is available in Details and Tiles views" : "Track display");
     trackList?.setAttribute("data-lib-layout", sheetModeActive() ? "albums" : "list");
+    document.getElementById("libLayoutSwitch")?.setAttribute("title", unavailable ? "Album layout is available in Default and Tiles views" : "Track display");
   }
 
   // Coalesce renders: while one async render is in flight, further
@@ -1234,6 +1457,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       await renderLibraryVirtualInner(reset, restoreScroll);
     } finally {
       libraryRenderBusy = false;
+      // Round 77: one funnel for every render path (search, drill, Back,
+      // discography, sheets…) — keeps the artist sidebar highlight honest.
+      syncArtistSidebarActive();
       if (libraryRenderQueued) {
         libraryRenderQueued = false;
         await renderLibraryVirtual();
@@ -1261,6 +1487,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         offset: 0,
       });
       page.items = page.items.map(normalizeTrack);
+      // Round 77: the library's Playlists pane shows the Most Played count
+      // too (the playlist window got it in round 73 — this pane has its own
+      // row builder and was missed). Same rule: only the Most Played
+      // projection, only counts > 0.
+      const libTabMostPlayed = selected.kind === "auto" && selected.id === AUTO_MOST_PLAYED_ID;
+      const libPlaysBadge = (track: Track): string => {
+        if (!libTabMostPlayed) return "";
+        const pc = Number(track.playCount);
+        if (!Number.isFinite(pc) || pc <= 0) return "";
+        return `<span class="t-plays" title="Played ${pc} time${pc === 1 ? "" : "s"}">${pc}×</span>`;
+      };
       const rows = page.items.map((track, index) => {
         const cover = resolvedCover(track.id, track.cover);
         const coverEl = cover
@@ -1269,7 +1506,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         return `<div class="track-row library-playlist-track" data-playlist-track="${esc(track.id)}" data-playlist-index="${index}">
           <span class="num">${index + 1}</span>${coverEl}
           <div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>
-          <span class="t-dur">${fmtDur(track.duration)}</span>
+          ${libPlaysBadge(track)}<span class="t-dur">${fmtDur(track.duration)}</span>
         </div>`;
       }).join("");
       const left = playlists.map(p => `<button type="button" class="library-playlist-item ${p.id === selected.id ? "active" : ""}" data-library-playlist="${esc(p.id)}" aria-selected="${p.id === selected.id}">
@@ -1280,7 +1517,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       trackList.style.overflow = "hidden";
       trackList.innerHTML = `<div class="library-playlist-split">
         <aside class="library-playlist-sidebar" aria-label="Playlists"><div class="library-playlist-sidebar-title">PLAYLISTS</div>${left}</aside>
-        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b><span>${page.total} track${page.total === 1 ? "" : "s"}${librarySearch ? ` · ${esc(librarySearch)}` : ""}</span></div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
+        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b>${librarySearch ? `<span>matching “${esc(librarySearch)}”</span>` : ""}</div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
       </div>`;
       trackList.querySelectorAll<HTMLButtonElement>("[data-library-playlist]").forEach(button => {
         button.onclick = () => {
@@ -1297,7 +1534,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           if (!focus) return;
           try {
             await invoke!("replace_queue_from_playlist", { playlistId: selected.id, search: librarySearch || null, sort: "default" });
-            await playFromDbQueue(focus);
+            await playFromDbQueue(focus, true, index);
           } catch (error) {
             await replaceQueueWith(page.items);
             busEmit("melo:play-tracks", { tracks: [focus], index: 0 });
@@ -1314,10 +1551,22 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   async function renderLibraryVirtualInner(reset = false, restoreScroll?: number) {
     if (!trackList || !invoke) return;
+    // "All"-field searches get their Artists/Albums sections above EVERY
+    // track-display branch (flat list, album sheets); fire-and-forget, a
+    // newer search invalidates it by generation. Reset-driven only, so
+    // scroll renders never refetch.
+    if (reset) void renderSearchSectionsAll();
     if (libTab === "playlists") {
       libraryRequest++;
       invalidateLibraryWindow();
+      hideLibSearchSections();
       return renderLibraryPlaylists(reset);
+    }
+    // Round 75: with the Artist/Album search filters an active query shows
+    // the MATCHING ENTITIES (artist names / album titles), not tracks.
+    if (isEntityFilterSearch()) {
+      invalidateLibraryWindow();
+      return renderEntitySearch();
     }
     if (sheetModeActive()) {
       invalidateLibraryWindow();
@@ -1336,11 +1585,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     trackList.style.overflowY = "auto";
     const viewport = Math.max(300, trackList.clientHeight || 420);
     const crumb = libraryCrumb();
-    const headerHeight = crumb ? 38 : 0;
+    const groupColsOn = libView === "details" && libraryMode() === "groups" && !librarySearch;
+    const colHeadOn = libView === "details" && (isLibraryTrackDisplay() || groupColsOn);
+    const headerHeight = (crumb ? 38 : 0) + (colHeadOn ? 28 : 0);
     const rowH = libraryRowHeight();
     const columns = libraryColumns();
     lastLibraryColumns = columns;
     syncLibViewButtons();
+    // Shared grid geometry for the Details column view (header + rows read
+    // the same custom property; harmless in other views).
+    trackList.style.setProperty("--lib-cols", libColsGrid());
     const rowsVisible = Math.ceil(viewport / rowH);
     // One viewport of rows above and below the visible ones: a normal scroll
     // stays inside this window (no fetch), and the prefetch margin in
@@ -1357,7 +1611,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       if (request !== libraryRequest) return;
       const totalRows = Math.max(1, Math.ceil(page.total / columns));
       const totalHeight = totalRows * rowH + headerHeight;
-      const card = libView === "tiles" && libraryMode() === "groups" && !librarySearch;
+      // Same predicate the row height uses: a card grid and 190px rows always
+      // go together, plain track rows never do.
+      const card = tilesCardsActive();
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
         const rowIdx = Math.floor(absoluteIndex / columns);
@@ -1376,6 +1632,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
             ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(group.artworkTrackId || "")}"></div>`
             : `<div class="${avatarClass}" data-artwork-id="${esc(group.artworkTrackId || "")}">${fallback}</div>`;
           const sub = esc(group.subtitle || `${group.count} tracks`);
+          if (groupColsOn) {
+            return `<div class="lib-item lib-cols virtual-row" data-group-index="${index}" style="${posStyle}${LIB_GROUP_COLS_GRID}">${avatar}<span class="lc t-title">${esc(group.name)}</span><span class="lc t-artist lib-count">${sub}</span><span class="lc g-count">${group.count}</span></div>`;
+          }
           if (card) {
             return `<div class="lib-item lib-card virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title">${esc(group.name)}</div><div class="t-artist">${sub}</div></div>`;
           }
@@ -1396,6 +1655,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
             <div class="t-artist">${esc(track.artist)}${track.album ? ` · ${esc(track.album)}` : ""}</div>
           </div>`;
         }
+        // Details view (round 75): one aligned grid line per track, columns
+        // user-configurable via the Columns menu.
+        if (libView === "details" && isLibraryTrackDisplay()) {
+          return `<div class="track-row lib-cols virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" data-abs-index="${absoluteIndex}" style="${posStyle}">${libColsRowCells(track, absoluteIndex)}</div>`;
+        }
         return `<div class="track-row virtual-row" data-track-id="${esc(track.id)}" data-page-index="${index}" data-abs-index="${absoluteIndex}" style="${posStyle}">
           <span class="num">${absoluteIndex + 1}</span>
           ${coverEl}
@@ -1404,9 +1668,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
         </div>`;
       }).join("");
-      const header = crumb
-        ? `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;height:${headerHeight}px;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(crumb)}</b></div>`
+      const crumbHtml = crumb
+        ? `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;height:38px;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(crumb)}</b></div>`
         : "";
+      // Sticky column header for the Details view — sits under the crumb bar
+      // and shares the --lib-cols grid, so labels always align with cells.
+      const colHeadHtml = colHeadOn
+        ? `<div class="lib-col-head lib-cols${groupColsOn ? " lib-cols-group" : ""}" style="position:sticky;top:${crumb ? 38 : 0}px;height:28px;z-index:2;background:var(--card)${groupColsOn ? LIB_GROUP_COLS_GRID : ""}">${groupColsOn ? libGroupColsHeader() : libColsHeader()}</div>`
+        : "";
+      const header = crumbHtml + colHeadHtml;
       // Read the position HERE — immediately before the swap, not at render
       // Start: the list keeps scrolling in between (middle-button auto-scroll
       // Is continuous) and restoring the STALE start position yanked the
@@ -1433,6 +1703,371 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       trackList.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Could not read the Library database.</div>`;
     }
   }
+
+  // ─── round 75 — entity-aware search, Columns menu, artist sidebar ───
+  const LIB_SEARCH_SECTION_LIMIT = 10;
+  const LIB_ENTITY_SEARCH_LIMIT = 200;
+
+  function isEntityFilterSearch(): boolean {
+    return libTab !== "playlists" && !!librarySearch && (librarySearchField === "artist" || librarySearchField === "album");
+  }
+  function entitySearchKind(): "artists" | "album-artists" | "albums" {
+    return librarySearchField === "album" ? "albums" : libTab === "album-artists" ? "album-artists" : "artists";
+  }
+  // Compact name+subtitle row used by the entity list and the "All" search
+  // sections (no full-width group layout — these are lookup affordances).
+  function groupCellHtml(group: GroupRow): string {
+    const cover = resolvedCover(group.artworkTrackId, artworkUrl(group.cover));
+    const avatar = cover
+      ? `<div class="lib-avatar lse-avatar" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center"></div>`
+      : `<div class="lib-avatar lse-avatar">${esc(((group.name || "")[0] || "?").toUpperCase())}</div>`;
+    const sub = esc(group.subtitle || `${group.count} track${group.count === 1 ? "" : "s"}`);
+    return `${avatar}<div class="t-title" style="flex:1;min-width:0">${esc(group.name)}</div><div class="t-artist lib-count" style="flex-shrink:0">${sub}</div>`;
+  }
+
+  function hideLibSearchSections() {
+    const box = document.getElementById("libSearchSections") as HTMLElement | null;
+    if (box && !box.hidden) { box.hidden = true; box.innerHTML = ""; }
+  }
+
+  // Clicking an entity in search results navigates to it and clears the
+  // query — the search box was the path in, the entity is the destination.
+  function drillFromSearchGroup(kind: "artists" | "album-artists" | "albums", group: GroupRow) {
+    librarySearch = "";
+    if (searchInput) searchInput.value = "";
+    updateSearchClear();
+    hideLibSearchSections();
+    if (kind === "albums") {
+      const parts = String(group.key || "").split("\0");
+      selectedArtist = parts[0] || null;
+      selectedAlbum = parts[1] || group.name;
+    } else {
+      selectedArtist = group.name;
+      selectedAlbum = null;
+      // The artist scope only filters TRACKS on the artist tabs — jumping in
+      // from Albums/Genres switches the tab so the drill means what it says.
+      if (libTab !== "artists" && libTab !== "album-artists") {
+        libTab = "artists";
+        syncLibraryTabButton();
+      }
+    }
+    selectedGenre = null;
+    savedGroupsScrollTop = 0;
+    clearLibrarySelection();
+    persistLibraryNavigation();
+    renderLibraryVirtual(true);
+  }
+
+  let libSearchSectionsReq = 0;
+  let libSearchSectionsData: { kind: "artists" | "album-artists" | "albums"; groups: GroupRow[] }[] = [];
+  // "All" field + active query: artists first, then albums, then the flat
+  // track list below (rendered as usual). Each section caps at
+  // LIB_SEARCH_SECTION_LIMIT rows — it is a jump-off point, not a browser.
+  async function renderSearchSectionsAll() {
+    const box = document.getElementById("libSearchSections") as HTMLElement | null;
+    if (!box || !invoke) return;
+    const gen = ++libSearchSectionsReq;
+    if (!librarySearch || libTab === "playlists" || librarySearchField !== "all") { hideLibSearchSections(); return; }
+    const q = librarySearch;
+    const artistKind: "artists" | "album-artists" = libTab === "album-artists" ? "album-artists" : "artists";
+    let artists: GroupRow[] = [], albums: GroupRow[] = [];
+    let artistTotal = 0, albumTotal = 0;
+    try {
+      const [pa, pb] = await Promise.all([
+        invoke<Page<GroupRow>>("library_groups", { kind: artistKind, search: q, artist: null, limit: LIB_SEARCH_SECTION_LIMIT, offset: 0, includeTotal: true }),
+        invoke<Page<GroupRow>>("library_groups", { kind: "albums", search: q, artist: null, limit: LIB_SEARCH_SECTION_LIMIT, offset: 0, includeTotal: true }),
+      ]);
+      artists = pa.items || []; albums = pb.items || [];
+      artistTotal = pa.total ?? artists.length; albumTotal = pb.total ?? albums.length;
+    } catch { if (gen === libSearchSectionsReq) hideLibSearchSections(); return; }
+    if (gen !== libSearchSectionsReq || librarySearch !== q) return; // superseded
+    if (!artists.length && !albums.length) { hideLibSearchSections(); return; }
+    const section = (title: string, kind: "artists" | "album-artists" | "albums", list: GroupRow[], total: number) => list.length
+      ? `<section class="lse-sec"><h4>${title}${total > list.length ? ` · ${total}` : ""}</h4>${list.map((g, i) => `<button type="button" class="lse-row" data-lse-kind="${kind}" data-lse-index="${i}">${groupCellHtml(g)}</button>`).join("")}</section>`
+      : "";
+    libSearchSectionsData = [{ kind: artistKind, groups: artists }, { kind: "albums", groups: albums }];
+    box.innerHTML = `<div class="lse-grid">${section(artistKind === "album-artists" ? "Album Artists" : "Artists", artistKind, artists, artistTotal)}${section("Albums", "albums", albums, albumTotal)}</div>`;
+    box.hidden = false;
+    box.querySelectorAll<HTMLElement>("[data-lse-index]").forEach(row => {
+      row.onclick = () => {
+        const set = libSearchSectionsData.find(s => s.kind === (row.dataset.lseKind as "artists" | "album-artists" | "albums"));
+        const g = set?.groups[Number(row.dataset.lseIndex || 0)];
+        if (g && set) drillFromSearchGroup(set.kind, g);
+      };
+    });
+    bindLazyArtwork(box);
+  }
+
+  // Artist/Album field + active query: the track list is REPLACED by the
+  // matching entities (non-virtual — capped, this is a result set).
+  async function renderEntitySearch() {
+    if (!trackList || !invoke) return;
+    hideLibSearchSections();
+    const kind = entitySearchKind();
+    const label = kind === "albums" ? "Albums" : "Artists";
+    trackList.style.display = "block";
+    trackList.style.position = "relative";
+    trackList.style.overflowY = "auto";
+    const req = ++libraryRequest;
+    let page: Page<GroupRow>;
+    try {
+      page = await invoke<Page<GroupRow>>("library_groups", {
+        kind, search: librarySearch, artist: null, limit: LIB_ENTITY_SEARCH_LIMIT, offset: 0, includeTotal: true,
+      });
+    } catch {
+      trackList.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Could not read the Library database.</div>`;
+      return;
+    }
+    if (req !== libraryRequest) return;
+    const items = page.items || [];
+    const rows = items.map((g, i) => `<div class="lib-item les-row" data-les-index="${i}">${groupCellHtml(g)}</div>`).join("");
+    const head = `<div class="les-head">${label} matching “${esc(librarySearch)}” · ${page.total}</div>`;
+    const more = page.total > items.length ? `<div class="lib-sheet-note">Showing the first ${items.length} of ${page.total} — narrow the search to see the rest.</div>` : "";
+    const empty = items.length ? "" : `<div style="padding:24px;text-align:center;color:var(--text-muted)">No ${label.toLowerCase()} match “${esc(librarySearch)}”.</div>`;
+    trackList.innerHTML = `<div class="lib-entity-search">${head}${rows}${more}${empty}</div>`;
+    trackList.querySelectorAll<HTMLElement>("[data-les-index]").forEach(row => {
+      row.onclick = () => {
+        const g = items[Number(row.dataset.lesIndex || 0)];
+        if (g) drillFromSearchGroup(kind, g);
+      };
+    });
+  }
+
+  // ── Columns menu (Details view): checkbox = show/hide, drag = reorder.
+  let libColumnsMenuOpen = false;
+  function hideColumnsMenu() {
+    libColumnsMenuOpen = false;
+    const menu = document.getElementById("libColumnsMenu") as HTMLElement | null;
+    if (menu && !menu.hidden) { menu.hidden = true; menu.innerHTML = ""; }
+  }
+  function showColumnsMenu() {
+    lcmSwallowClick = false; // a stale swallow flag must never survive a reopen
+    const menu = document.getElementById("libColumnsMenu") as HTMLElement | null;
+    if (!menu) return;
+    const rowsHtml = libColOrder.map(id => `<div class="lcm-item" data-lcm-id="${id}"><span class="lcm-handle" aria-hidden="true">⋮⋮</span><label class="lcm-check"><input type="checkbox" data-lcm-toggle="${id}"${libColOff.has(id) ? "" : " checked"} /> ${LIB_COL_DEFS[id].label}</label></div>`).join("");
+    menu.innerHTML = `<div class="lcm-head">Columns</div><div class="lcm-title-pin">Title <span>always shown</span></div>${rowsHtml}<div class="lcm-hint">Drag rows to reorder</div>`;
+    menu.hidden = false;
+    libColumnsMenuOpen = true;
+    menu.querySelectorAll<HTMLInputElement>("[data-lcm-toggle]").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const id = cb.dataset.lcmToggle as LibColId;
+        if (cb.checked) libColOff.delete(id); else libColOff.add(id);
+        persistLibColumns();
+        renderLibraryVirtual(true);
+      });
+    });
+    // Round 81/82: pointer-based (WebView2 + dragDropEnabled kills HTML5 drags
+    // — see the header drag below). r81 excluded the label from drag-start —
+    // but the label covers nearly the whole row, so NOTHING dragged in the
+    // real app. Now: press ANYWHERE on the row; the checkbox only toggles if
+    // it was a plain click. A 4px intent threshold starts the drag; the click
+    // the browser synthesizes after a real drag is swallowed in capture.
+    // State lives beside the header drag so the menu listeners bind ONCE.
+    menu.querySelectorAll<HTMLElement>(".lcm-item").forEach(item => {
+      item.addEventListener("pointerdown", e => {
+        if (e.button !== 0) return;
+        lcmDragging = item;
+        lcmMoved = false;
+        lcmStartY = e.clientY;
+      });
+    });
+    if (!menu.dataset.lcmPointerBound) {
+      menu.dataset.lcmPointerBound = "1";
+      menu.addEventListener("pointermove", e => {
+        const item = lcmDragging;
+        if (!item) return;
+        if (!lcmMoved && Math.abs(e.clientY - lcmStartY) < 4) return;
+        if (!lcmMoved) { lcmMoved = true; item.classList.add("dragging"); }
+        const others = [...menu.querySelectorAll<HTMLElement>(".lcm-item")].filter(el => el !== item);
+        let after: HTMLElement | null = null;
+        for (const el of others) {
+          const r = el.getBoundingClientRect();
+          if (e.clientY < r.top + r.height / 2) { after = el; break; }
+        }
+        if (after) menu.insertBefore(item, after);
+        else if (others.length) menu.appendChild(item);
+        e.preventDefault();
+      });
+      const endLcm = () => {
+        const item = lcmDragging;
+        if (!item) return;
+        lcmDragging = null;
+        item.classList.remove("dragging");
+        if (!lcmMoved) return; // a click, not a drag — let the checkbox handle it
+        lcmSwallowClick = true;
+        // The synthesized click (if any) fires right after pointerup. If the
+        // drag was released OUTSIDE the menu no click comes at all, so the flag
+        // must self-clear — or it would eat the NEXT real click on a checkbox.
+        setTimeout(() => { lcmSwallowClick = false; }, 0);
+        const order = [...menu.querySelectorAll<HTMLElement>(".lcm-item")].map(el => el.dataset.lcmId as LibColId);
+        if (order.length === LIB_COL_IDS.length) libColOrder = order;
+        persistLibColumns();
+        hideColumnsMenu();
+        renderLibraryVirtual(true);
+      };
+      menu.addEventListener("pointerup", endLcm);
+      window.addEventListener("pointerup", endLcm); // release outside still commits
+      menu.addEventListener("pointercancel", () => {
+        lcmDragging?.classList.remove("dragging");
+        lcmDragging = null;
+        lcmMoved = false;
+      });
+      menu.addEventListener("click", e => {
+        if (!lcmSwallowClick) return;
+        lcmSwallowClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }, true);
+    }
+  }
+  // Round 81: column reordering moved OFF HTML5 drag-and-drop entirely.
+  // Tauri keeps its native drag-drop handler enabled app-wide (OS file drops
+  // reach the app through onDragDropEvent, see main.ts) — and in WebView2 that
+  // makes EVERY HTML5 drag show the "no-drop" cursor and cancel. Pointer
+  // events bypass the OLE path completely: same UX, works in the real build.
+  let colDrag: { span: HTMLElement; id: LibColId } | null = null;
+  let lcmDragging: HTMLElement | null = null;
+  let lcmMoved = false;
+  let lcmStartY = 0;
+  let lcmSwallowClick = false;
+  const colHeadOf = (span: HTMLElement) => span.closest<HTMLElement>(".lib-col-head");
+  trackList?.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    const span = (event.target as HTMLElement).closest?.<HTMLElement>(".lib-col-head [data-col-id]") ?? null;
+    if (!span) return;
+    colDrag = { span, id: span.dataset.colId as LibColId };
+    try { span.setPointerCapture(event.pointerId); } catch {} // synthetic pointers may not have an active capture
+    span.classList.add("dragging");
+    event.preventDefault(); // no text selection, no native drag
+  });
+  trackList?.addEventListener("pointermove", event => {
+    if (!colDrag) return;
+    const head = colHeadOf(colDrag.span);
+    if (!head) return;
+    const spans = [...head.querySelectorAll<HTMLElement>("[data-col-id]")].filter(s => s !== colDrag?.span);
+    head.querySelectorAll(".col-over, .col-over-r").forEach(el => el.classList.remove("col-over", "col-over-r"));
+    const target = spans.find(s => event.clientX <= s.getBoundingClientRect().right) ?? spans[spans.length - 1] ?? null;
+    if (!target) return;
+    const r = target.getBoundingClientRect();
+    target.classList.add(event.clientX < r.left + r.width / 2 ? "col-over" : "col-over-r");
+  });
+  const colDrop = (event: PointerEvent) => {
+    if (!colDrag) return;
+    const { span, id: from } = colDrag;
+    colDrag = null;
+    span.classList.remove("dragging");
+    const head = colHeadOf(span);
+    const over = head?.querySelector<HTMLElement>(".col-over, .col-over-r") ?? null;
+    head?.querySelectorAll(".col-over, .col-over-r").forEach(el => el.classList.remove("col-over", "col-over-r"));
+    const to = over?.dataset.colId as LibColId | undefined;
+    const before = over?.classList.contains("col-over") ?? false;
+    if (!to || to === from || !trackList) return;
+    const order = libColOrder.filter(x => x !== from);
+    order.splice(Math.max(0, order.indexOf(to)) + (before ? 0 : 1), 0, from);
+    libColOrder = order;
+    persistLibColumns();
+    renderLibraryVirtual(true);
+  };
+  trackList?.addEventListener("pointerup", event => { if (colDrag) colDrop(event); });
+  trackList?.addEventListener("pointercancel", () => {
+    if (!colDrag) return;
+    colDrag.span.classList.remove("dragging");
+    colHeadOf(colDrag.span)?.querySelectorAll(".col-over, .col-over-r").forEach(el => el.classList.remove("col-over", "col-over-r"));
+    colDrag = null;
+  });
+  document.getElementById("btn-lib-columns")?.addEventListener("click", event => {
+    event.stopPropagation();
+    if (libColumnsMenuOpen) hideColumnsMenu(); else showColumnsMenu();
+  });
+  document.addEventListener("click", event => {
+    if (!libColumnsMenuOpen) return;
+    const menu = document.getElementById("libColumnsMenu");
+    if (menu && !menu.contains(event.target as Node)) hideColumnsMenu();
+  });
+
+  // ── Artist sidebar (Artists / Album Artist tabs): compact name list that
+  // stays available while an artist's tracks are open. Names ONLY.
+  let artistSidebarOpen = localStorage.getItem("melo-lib-artistbar") === "1";
+  let artistSidebarCache: { kind: string; rows: GroupRow[] } | null = null;
+  function artistSidebarActive(): boolean { return libTab === "artists" || libTab === "album-artists"; }
+  function syncArtistSidebarControls() {
+    const btn = document.getElementById("btn-lib-artistbar") as HTMLButtonElement | null;
+    const side = document.getElementById("libArtistSidebar");
+    const open = artistSidebarActive() && artistSidebarOpen;
+    if (btn) {
+      btn.disabled = !artistSidebarActive();
+      btn.classList.toggle("active", open);
+      btn.setAttribute("title", artistSidebarActive() ? "Show/hide artist list" : "Artist list is available on the Artists tab");
+    }
+    if (side) side.hidden = !open;
+  }
+  let sideSyncedArtist: string | null = null;
+  function syncArtistSidebarActive() {
+    // Round 77: called from every library render's finally — guard makes it
+    // O(1) while nothing moved (scroll renders!), so the sidebar only rewalks
+    // its rows when the selection actually changed (drill-in from the right
+    // pane, Back, search clicks all now resync the highlight).
+    const sel = selectedArtist || "";
+    if (sideSyncedArtist === sel) return;
+    sideSyncedArtist = sel;
+    const list = document.getElementById("libArtistSidebarList");
+    if (!list) return;
+    const side = document.getElementById("libArtistSidebar");
+    if (side?.hidden) return;
+    list.querySelectorAll<HTMLElement>("[data-side-artist]").forEach(b => {
+      const on = (b.dataset.sideArtist || "") === (selectedArtist || "");
+      b.classList.toggle("active", on);
+      if (on) b.scrollIntoView({ block: "nearest" });
+    });
+  }
+  function paintArtistSidebar() {
+    const list = document.getElementById("libArtistSidebarList") as HTMLElement | null;
+    if (!list) return;
+    if (!artistSidebarActive() || !artistSidebarOpen) return;
+    if (!artistSidebarCache || artistSidebarCache.kind !== libraryGroupKind()) { void renderArtistSidebarData(); return; }
+    const q = (librarySearch || "").trim().toLowerCase();
+    const rows = artistSidebarCache.rows.filter(g => !q || String(g.name || "").toLowerCase().includes(q));
+    list.innerHTML = rows.length
+      ? rows.map((g, i) => `<button type="button" class="lib-side-artist${g.name === selectedArtist ? " active" : ""}" data-side-artist="${esc(g.name)}" title="${esc(g.name)}">${esc(g.name)}</button>`).join("")
+      : `<div class="lib-side-empty">${librarySearch ? "No artist matches." : "No artists yet."}</div>`;
+    list.querySelectorAll<HTMLElement>("[data-side-artist]").forEach(b => {
+      b.onclick = () => {
+        const name = b.dataset.sideArtist || "";
+        selectedArtist = name;
+        selectedAlbum = null;
+        selectedGenre = null;
+        savedGroupsScrollTop = 0;
+        clearLibrarySelection();
+        persistLibraryNavigation();
+        syncArtistSidebarActive();
+        renderLibraryVirtual(true);
+      };
+    });
+  }
+  async function renderArtistSidebarData() {
+    const list = document.getElementById("libArtistSidebarList") as HTMLElement | null;
+    if (!list || !invoke) return;
+    if (!artistSidebarActive() || !artistSidebarOpen) { list.innerHTML = ""; return; }
+    if (list.dataset.busy === "1") return;
+    list.dataset.busy = "1";
+    const kind = libraryGroupKind();
+    try {
+      const page = await invoke<Page<GroupRow>>("library_groups", { kind, search: null, artist: null, limit: 5000, offset: 0, includeTotal: false });
+      artistSidebarCache = { kind, rows: page.items || [] };
+    } catch {
+      artistSidebarCache = { kind, rows: [] };
+    } finally {
+      delete list.dataset.busy;
+    }
+    paintArtistSidebar();
+  }
+  document.getElementById("btn-lib-artistbar")?.addEventListener("click", () => {
+    if (!artistSidebarActive()) return;
+    artistSidebarOpen = !artistSidebarOpen;
+    try { localStorage.setItem("melo-lib-artistbar", artistSidebarOpen ? "1" : "0"); } catch {}
+    syncArtistSidebarControls();
+    if (artistSidebarOpen) void renderArtistSidebarData();
+  });
 
   function bindLibraryRows(items: Array<GroupRow | Track>) {
     if (!trackList) return;
@@ -1539,7 +2174,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           busEmit("melo:play-tracks", { tracks: [focus], index: 0 });
           return;
         }
-        await playFromDbQueue(focus);
+        await playFromDbQueue(focus, true, absIndex);
       };
       row.oncontextmenu = event => {
         event.preventDefault();
@@ -1595,7 +2230,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       }
       const columns = libraryColumns();
       lastLibraryColumns = columns;
+      // Round 79: the discography used to IGNORE the Details view (rows were
+      // always the compact two-line template). Under Details it now renders
+      // the same aligned column grid as every other track list — header and
+      // --lib-cols included, which the flat renderer sets but this path
+      // never did, so reusing the classes alone would have shown raw fallback
+      // columns. Track numbers stay per-album (ti), not flat-list indices.
+      const detailsOn = libView === "details";
+      if (detailsOn) trackList.style.setProperty("--lib-cols", libColsGrid());
       const header = `<div class="lib-crumb virtual-crumb" style="position:sticky;top:0;z-index:3;background:var(--card)"><button class="btn small" id="virtualBack">‹ Back</button><b>${esc(selectedArtist)}</b></div>`;
+      // margin:0 6px mirrors the rows' global .track-row lateral margin — without
+      // it the header's fr columns sit ~12px wider than the cells underneath.
+      const colHead = detailsOn ? `<div class="lib-col-head lib-cols" style="position:sticky;top:38px;height:28px;z-index:2;background:var(--card);margin:0 6px">${libColsHeader()}</div>` : "";
       const body = albums.map((album, ai) => {
         const artId = album.tracks[0]?.id || "";
         const cover = resolvedCover(artId, artworkUrl(album.cover));
@@ -1604,6 +2250,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           : `<div class="lib-avatar lib-avatar-album" data-artwork-id="${esc(artId)}">💿</div>`;
         const rows = album.tracks.map((track, ti) => {
           const tCover = resolvedCover(track.id, track.cover);
+          if (detailsOn) return `<div class="track-row lib-cols" data-track-id="${esc(track.id)}" data-album-index="${ai}" data-track-index="${ti}">${libColsRowCells(track, ti)}</div>`;
           return `<div class="track-row" data-track-id="${esc(track.id)}" data-album-index="${ai}" data-track-index="${ti}">
           <span class="num">${ti + 1}</span>
           ${tCover ? `<div class="track-cover-mini" style="background-image:url('${esc(tCover)}');background-size:cover;background-position:center" data-artwork-id="${esc(track.id)}"></div>` : `<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}
@@ -1612,7 +2259,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
         </div>`;
         }).join("");
-        const twoCol = columns > 1 && libView !== "compact";
+        const twoCol = columns > 1 && libView !== "compact" && !detailsOn; // the column grid is the layout now
         const rowCount = twoCol ? Math.max(1, Math.ceil(album.tracks.length / 2)) : album.tracks.length;
         const gridClass = twoCol ? "lib-album-tracks two-col" : "lib-album-tracks";
         const gridStyle = twoCol ? `grid-template-rows:repeat(${rowCount},auto)` : "";
@@ -1621,7 +2268,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <div class="${gridClass}" style="${gridStyle}">${rows}</div>
         </section>`;
       }).join("");
-      trackList.innerHTML = `${header}${body || `<div style="padding:24px;text-align:center;color:var(--text-muted)">No tracks for this artist.</div>`}`;
+      trackList.innerHTML = `${header}${colHead}${body || `<div style="padding:24px;text-align:center;color:var(--text-muted)">No tracks for this artist.</div>`}`;
       trackList.querySelectorAll<HTMLElement>("[data-album-context]").forEach(head => {
         head.oncontextmenu = event => {
           event.preventDefault();
@@ -1765,11 +2412,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         const mins = Math.round(sheet.seconds / 60);
         const minsText = sheet.seconds > 0 && mins < 1 ? "<1 min" : `${mins} min${mins === 1 ? "" : "s"}`;
         const metaLeft = [sheet.year ? String(sheet.year) : "", artistScope ? "" : sheet.albumArtist].filter(Boolean).join(" · ");
+        // Round 73: the album's track count sits directly left of the total
+        // time (same grouping as the years/artist on the left, so the meta row
+        // stays "identifiers … · measurements"). Counted from the rendered
+        // sheet rows — under a search this is the matching subset, which is
+        // exactly what the shown total time covers.
+        const nTracks = sheet.tracks.length;
+        const tracksText = `${nTracks} track${nTracks === 1 ? "" : "s"}`;
         return `<section class="lib-sheet" data-sheet-context="${si}">
           ${coverEl}
           <div class="lib-sheet-main">
             <div class="lib-sheet-title" title="${esc(sheet.name)}">${esc(sheet.name)}</div>
-            <div class="lib-sheet-meta"><span class="lib-sheet-sub">${esc(metaLeft)}</span><span class="lib-sheet-mins">${minsText}</span></div>
+            <div class="lib-sheet-meta"><span class="lib-sheet-sub">${esc(metaLeft)}</span><span class="lib-sheet-measures"><span class="lib-sheet-count">${tracksText}</span><span class="lib-sheet-mins">${minsText}</span></span></div>
             <div class="lib-sheet-tracks" style="--rows:${Math.max(1, Math.ceil(sheet.tracks.length / 2))}">${rows}</div>
           </div>
         </section>`;
@@ -1903,7 +2557,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!invoke) return;
     playlists = await invoke<PlaylistRow[]>("list_playlists");
     // The dropdown always offers "▶ Now Playing" first (the queue's
-    // Pseudo-playlist). A stored id that no longer exists — including the
+    // Pseudo-playlist; the name is used verbatim — no "(queue)" suffix). A
+    // Stored id that no longer exists — including the
     // Retired factory "Favorites" (p1) — falls back to it.
     if (currentPlaylistId !== QUEUE_ID && !playlists.some(p => p.id === currentPlaylistId)) {
       currentPlaylistId = QUEUE_ID;
@@ -1916,7 +2571,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
     if (playlistSelect) {
       playlistSelect.innerHTML =
-        `<option value="${QUEUE_ID}" ${currentPlaylistId === QUEUE_ID ? "selected" : ""}>▶ Now Playing (queue)</option>` +
+        `<option value="${QUEUE_ID}" ${currentPlaylistId === QUEUE_ID ? "selected" : ""}>▶ Now Playing</option>` +
         playlists.map(p => `<option value="${esc(p.id)}" ${p.id === currentPlaylistId ? "selected" : ""}>${esc(p.name)} (${p.trackCount})</option>`).join("");
     }
     syncPlaylistChrome();
@@ -1930,8 +2585,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   // The queue view supports SORT and DRAG-REORDER: both rewrite the DB
   // Queue positions AND broadcast melo:queue-reordered so the player's
-  // Runtime queue follows (the playing track keeps playing). Search stays
-  // Disabled.
+  // Runtime queue follows (the playing track keeps playing). Search is a
+  // FIND, never a filter (round 78): it jumps the FULL list and highlights —
+  // the queue itself is never re-laid-out or subset.
   function syncPlaylistChrome() {
     const viewingQueue = currentPlaylistId === QUEUE_ID;
     const viewingAutoPlaylist = !!playlists.find(p => p.id === currentPlaylistId && p.kind === "auto");
@@ -1943,9 +2599,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       playlistSort.title = viewingQueue ? "Sort the play queue (re-orders playback)" : "Sort tracks";
     }
     if (playlistSearch) {
-      playlistSearch.disabled = viewingQueue;
-      playlistSearch.placeholder = viewingQueue ? "Search isn't available for the play queue" : "Search playlist…";
+      // Round 78: no longer disabled for the queue — it turns into the
+      // find box there (see queueFindStep). Only the placeholder differs.
+      playlistSearch.disabled = false;
+      playlistSearch.placeholder = viewingQueue ? "Find in queue…" : "Search playlist…";
     }
+    queueFindStatus(); // round 79: chip only exists in the queue view
     if (clearPlaylistButton) {
       clearPlaylistButton.disabled = viewingAutoPlaylist;
       const svg = clearPlaylistButton.querySelector("svg");
@@ -2094,13 +2753,40 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   // Play from the DB QUEUE (single source of truth) instead of handing the
+  // Round 78: re-anchor the finder after every queue-view render. A reset
+  // (playlist switch, queue changed, filter edited) re-queries and returns
+  // to match 1 — the old index may point at a different row now; a plain
+  // scroll paint keeps the cycle position and just re-attaches the class.
+  // Non-queue renders only clear a stale highlight.
+  async function queueFindResync(): Promise<void> {
+    if (currentPlaylistId !== QUEUE_ID) {
+      if (queueFind) { queueFind = null; queueFindHighlight(); }
+      return;
+    }
+    if (playlistSearch?.value.trim()) {
+      const stamp = queueFindStamp;
+      await queueFindStep("first");
+      if (stamp !== queueFindStamp) void queueFindStep("first"); // raced another render
+    } else {
+      queueFind = null;
+      queueFindHighlight();
+      queueFindStatus();
+    }
+  }
   // Player the ~60-row page on screen. The clicked record rides the bus
   // Message so playback starts INSTANTLY; the player then silently grows
   // Its runtime queue to the full DB list (paged). `announce` emits
   // Queue-changed for flows that just rewrote the queue.
-  async function playFromDbQueue(focus: Track, announce = true) {
+  async function playFromDbQueue(focus: Track, announce = true, queueHint?: number) {
     if (!invoke) return;
-    busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true });
+    // queueHint (round 75): the clicked row's index in the SAME order the
+    // DB queue was just rebuilt with (same search/sort). The player locates
+    // the focus in the hydrated queue by ENTRY ID — but playlist rows carry
+    // playlist-table ids while queue rows carry queue-table ids, so that
+    // lookup missed and Next/Previous started from position 0 ("select
+    // track 8, press next → track 2"). The hint (validated against the
+    // track id before use) makes the index exact.
+    busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true, queueHint: Number.isInteger(queueHint) ? queueHint : undefined });
     if (announce) busEmit("melo:queue-changed", {});
   }
 
@@ -2151,6 +2837,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // Through move_queue_track; the player follows via
     // Melo:queue-reordered).
     const viewingAutoPlaylist = !!playlists.find(p => p.id === currentPlaylistId && p.kind === "auto");
+    // Round 73: Most Played shows each track's play count left of its time —
+    // the list is ordered by that number, so seeing it explains the ranking.
+    // `playlist_tracks` is the only backend command that carries playCount
+    // (added round 73); other views leave it undefined and render nothing.
+    const viewingMostPlayed = currentPlaylistId === AUTO_MOST_PLAYED_ID;
+    const playsBadge = (track: Track): string => {
+      if (!viewingMostPlayed) return "";
+      const pc = Number(track.playCount);
+      if (!Number.isFinite(pc) || pc <= 0) return "";
+      return `<span class="t-plays" title="Played ${pc} time${pc === 1 ? "" : "s"}">${pc}×</span>`;
+    };
     const reorderAllowed = !viewingAutoPlaylist && !hasSearch
       && (playlistSort?.value || "default") === "default";
     // Detach the empty-state element before we wipe innerHTML so it isn't
@@ -2183,7 +2880,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       // QUEUE rows carry their entry ids too — the queue allows duplicate
       // Tracks, so drag/selection identity needs the entry.
       const entryId = track.playlistEntryId;
-      return `<div class="track-row virtual-row ${track.id === currentTrackId ? "active" : ""}" role="option" tabindex="0" aria-selected="${entryId != null && playlistSelectedEntryIds.has(String(entryId))}"${track.id === currentTrackId ? ` aria-current="true"` : ""} ${reorderAllowed ? `draggable="true" ` : ""}data-pl-track="${esc(track.id)}" ${entryId != null ? `data-pl-entry="${entryId}"` : ""} data-page-index="${i}" data-pl-index="${page.offset + i}" style="position:absolute;left:0;right:0;top:${(page.offset+i)*rowH}px;height:${rowH}px"><span class="num">${page.offset+i+1}</span>${track.cover?`<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`:`<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}<div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div><span class="t-dur">${fmtDur(track.duration)}</span>${viewingQueue
+      return `<div class="track-row virtual-row ${track.id === currentTrackId ? "active" : ""}" role="option" tabindex="0" aria-selected="${entryId != null && playlistSelectedEntryIds.has(String(entryId))}"${track.id === currentTrackId ? ` aria-current="true"` : ""} ${reorderAllowed ? `draggable="true" ` : ""}data-pl-track="${esc(track.id)}" ${entryId != null ? `data-pl-entry="${entryId}"` : ""} data-page-index="${i}" data-pl-index="${page.offset + i}" style="position:absolute;left:0;right:0;top:${(page.offset+i)*rowH}px;height:${rowH}px"><span class="num">${page.offset+i+1}</span>${track.cover?`<div class="track-cover-mini" style="background-image:url('${esc(track.cover)}');background-size:cover;background-position:center"></div>`:`<div class="track-cover-mini cover-default" data-artwork-id="${esc(track.id)}">♪</div>`}<div style="flex:1;min-width:0"><div class="t-title">${esc(track.title)}</div><div class="t-artist">${esc(track.artist)} • ${esc(track.album)}</div></div>${playsBadge(track)}<span class="t-dur">${fmtDur(track.duration)}</span>${viewingQueue
           // The queue view gets the same × as playlists.
           ? `<button class="btn small ghost" data-remove-queue-entry="${entryId ?? ""}" aria-label="Remove ${esc(track.title)} from the play queue">×</button>`
           : (!viewingAutoPlaylist ? `<button class="btn small ghost" data-remove-entry="${entryId ?? ""}" aria-label="Remove ${esc(track.title)} from playlist">×</button>` : "")}</div>`;
@@ -2191,6 +2888,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     playlistList.innerHTML = `<div style="position:relative;height:${Math.max(viewport,page.total*rowH)}px">${rows}</div>`;
     if (playlistEmpty) playlistList.appendChild(playlistEmpty);
     bindLazyArtwork(playlistList);
+    queueFindStamp++;
+    // Round 80: re-querying on EVERY paint reset the cycle to match 1 — and
+    // scrolling to a match paints (60ms debounce) right through this tail,
+    // so Enter/Next could never leave the first row. Scroll paints may only
+    // RE-ATTACH the flash; genuine data paints (reset=true) re-query.
+    if (reset) void queueFindResync(); else queueFindHighlight();
     playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
       row.onclick = async event => {
         if ((event.target as HTMLElement).closest("[data-remove-entry], [data-remove-queue-entry]")) return;
@@ -2231,8 +2934,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         }
         // The queue is entry-keyed (duplicate occurrences of one track are each
         // Queued). Playlist rows retain their own occurrence ids for
-        // Edit/reorder.
-        await playFromDbQueue(focus);
+        // Edit/reorder — and those playlist-table ids are NOT queue ids,
+        // hence the position hint (round 75).
+        await playFromDbQueue(focus, true, absIndex);
       };
     });
     updatePlaylistSelectionUI();
@@ -2463,13 +3167,27 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   // Playback history is persisted in SQLite. Only the main/player window
   // records the event so the Library and Playlist windows cannot double-count.
-  async function recordTrackPlayed(trackId: string) {
+  // Round 76 split the two effects apart:
+  //  - starting a track ONLY stamps last_played_at (Recently Played must
+  //    follow what the user queued up, even when they skip immediately);
+  //  - play_count +1 arrives late, on "melo:play-counted", which the player
+  //    emits once a listen actually cleared min(30s, half the track).
+  async function touchTrackPlayed(trackId: string) {
+    if (!trackId || role !== "main" || !invoke) return;
+    try {
+      await invoke("touch_track_last_played", { trackId });
+      busEmit("melo:playlist-changed", { playlistId: "__auto_playlists__" });
+    } catch {
+      // Playback must never be blocked by a statistics write.
+    }
+  }
+  async function countTrackPlayed(trackId: string) {
     if (!trackId || role !== "main" || !invoke) return;
     try {
       await invoke("record_track_play", { trackId });
       busEmit("melo:playlist-changed", { playlistId: "__auto_playlists__" });
     } catch {
-      // Playback must never be blocked by a statistics write.
+      // The count is fire-and-forget by design.
     }
   }
 
@@ -2549,6 +3267,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
     });
     if (showCover) bindLazyArtwork(embeddedPlaylistContainer);
+    // Round 76: the strip opens AT the now-playing row, not at the queue
+    // head — the player's Playlist stage renders through here every time
+    // it opens (setStageMode → refresh), so the current track lands
+    // centered. Only when the list actually scrolls, so short playlists
+    // never jitter. Rect math (not offsetTop) because the container isn't
+    // guaranteed to be the rows' offsetParent.
+    const activeRow = embeddedPlaylistContainer.querySelector<HTMLElement>(".embedded-playlist-row.active");
+    if (activeRow && embeddedPlaylistContainer.scrollHeight > embeddedPlaylistContainer.clientHeight + 8) {
+      const ar = activeRow.getBoundingClientRect();
+      const br = embeddedPlaylistContainer.getBoundingClientRect();
+      embeddedPlaylistContainer.scrollTop += (ar.top - br.top) - (embeddedPlaylistContainer.clientHeight / 2 - ar.height / 2);
+    }
   }
 
   (window as any).__MELO_EMBEDDED_PLAYLIST__ = {
@@ -2612,6 +3342,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       });
     }
   }
+  syncArtistSidebarControls();
+  if (artistSidebarOpen) void renderArtistSidebarData();
   syncLibraryTabButton();
   tabs?.querySelectorAll<HTMLButtonElement>("button[data-libtab]").forEach(tab => {
     tab.onclick = () => {
@@ -2620,6 +3352,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       libTab = (tab.dataset.libtab || "artists") as typeof libTab;
       resetLibrarySelection();
       persistLibraryNavigation();
+      syncArtistSidebarControls();
+      if (artistSidebarOpen) void renderArtistSidebarData();
       renderLibraryVirtual(true);
     };
   });
@@ -2638,6 +3372,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     resetLibrarySelection();
     persistLibraryNavigation();
     syncLibraryTabButton();
+    // Round 77: this label IS the Artists-tab trigger when a grouping tab is
+    // active — the plain tab buttons re-sync the sidebar button on click, so
+    // this path must too, or the toolbar stays disabled and the sidebar stays
+    // hidden after returning from Albums/Genres/Playlists.
+    syncArtistSidebarControls();
+    if (artistSidebarOpen) void renderArtistSidebarData();
     renderLibraryVirtual(true);
   });
   // Only the small arrow opens the choice menu.
@@ -2661,6 +3401,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       persistLibraryNavigation();
       closeArtistModeMenu();
       syncLibraryTabButton();
+      syncArtistSidebarControls();
+      if (artistSidebarOpen) void renderArtistSidebarData();
       renderLibraryVirtual(true);
     });
   });
@@ -2682,6 +3424,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         : "Search artist, album, track…";
     }
     clearLibrarySelection();
+    paintArtistSidebar();
     window.clearTimeout(librarySearchTimer);
     librarySearchTimer = window.setTimeout(() => renderLibraryVirtual(true), 120);
   });
@@ -2694,6 +3437,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // To the OLD query and may not even be visible after this re-render,
     // While a later bulk action would still apply to them. Clear first.
     clearLibrarySelection();
+    paintArtistSidebar();
     window.clearTimeout(librarySearchTimer);
     librarySearchTimer = window.setTimeout(() => renderLibraryVirtual(true), 180);
   });
@@ -2704,6 +3448,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     updateSearchClear();
     librarySearch = "";
     clearLibrarySelection();
+    paintArtistSidebar();
     window.clearTimeout(librarySearchTimer);
     renderLibraryVirtual(true);
   });
@@ -2768,12 +3513,33 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   });
   playlistSearch?.addEventListener("input", () => {
     updatePlaylistSearchClear();
+    if (currentPlaylistId === QUEUE_ID) { void queueFindStep("first"); return; }
     // Same rule as the Library search: changing the query invalidates the
     // Current selection (rows may leave the visible result set).
     clearPlaylistSelection();
     window.clearTimeout(playlistSearchTimer);
     playlistSearchTimer = window.setTimeout(() => renderPlaylistVirtual(true), 180);
   });
+  playlistSearch?.addEventListener("keydown", event => {
+    if (!playlistSearch || currentPlaylistId !== QUEUE_ID) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void queueFindStep(event.shiftKey ? "prev" : "next");
+      return;
+    }
+    // Round 78: F3 follows browser find culture (Shift+F3 backwards).
+    if (event.key === "F3") {
+      event.preventDefault();
+      void queueFindStep(event.shiftKey ? "prev" : "next");
+    }
+  });
+  const qfBind = (btn: HTMLButtonElement | null, dir: "next" | "prev") => {
+    if (!btn) return;
+    btn.addEventListener("mousedown", event => event.preventDefault()); // stay focused: Enter keeps working
+    btn.addEventListener("click", () => void queueFindStep(dir));
+  };
+  qfBind(queueFindNext, "next");
+  qfBind(queueFindPrev, "prev");
   playlistSearchClear?.addEventListener("click", () => {
     if (!playlistSearch) return;
     playlistSearch.value = "";
@@ -2803,7 +3569,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     renderPlaylistVirtual(true);
   });
   playlistSelect?.addEventListener("change", () => {
+    const wasQueue = currentPlaylistId === QUEUE_ID;
     currentPlaylistId = playlistSelect.value;
+    // The search box means different things per view (filter vs find) —
+    // carry it across the QUEUE boundary and the first keystroke in the new
+    // view would either filter the queue or find inside a stored playlist.
+    if (wasQueue !== (currentPlaylistId === QUEUE_ID)) {
+      queueFind = null;
+      if (playlistSearch && playlistSearch.value) {
+        playlistSearch.value = "";
+        updatePlaylistSearchClear();
+      }
+    }
     localStorage.setItem("melo-currentPlaylist", currentPlaylistId);
     syncPlaylistChrome();
     clearPlaylistSelection();
@@ -3161,10 +3938,35 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Keep the "now playing" row highlighted in the Playlist window.
   busOn("melo:track-changed", (t: any) => {
     setActiveTrack(t?.id || null);
-    if (t?.id) recordTrackPlayed(t.id);
+    if (t?.id) touchTrackPlayed(t.id);
     embeddedPlaylistContainer.querySelectorAll<HTMLElement>("[data-ep-track]").forEach(row => {
       row.classList.toggle("active", row.dataset.epTrack === (t?.id || null));
     });
+    // Round 76: while the embedded strip is open, it keeps following the
+    // deck — the highlighted row is nudged into view (nearest = no jump if
+    // it already is). While closed this is skipped; the open path re-renders
+    // and centers anyway.
+    if (embeddedPlaylistContainer.offsetParent !== null) {
+      embeddedPlaylistContainer.querySelector<HTMLElement>(".embedded-playlist-row.active")
+        ?.scrollIntoView({ block: "nearest" });
+    }
+  });
+  // The player only counts LISTENS (threshold met) — see player.ts.
+  busOn("melo:play-counted", (p: any) => {
+    if (p?.trackId) void countTrackPlayed(String(p.trackId));
+  });
+  // Round 77: shuffle materialises into the real queue. The player proposes
+  // the new order (track ids, duplicates consumed greedily by the backend);
+  // the DB write lives here, then a plain queue-changed refreshes every
+  // Queue view — the player never listens to its own suggestion, so there
+  // is no re-hydration loop.
+  busOn("melo:queue-shuffled", (p: any) => {
+    if (role !== "main" || !invoke) return;
+    const order = Array.isArray(p?.order) ? p.order.map(String) : [];
+    if (order.length < 2) return;
+    void (async () => {
+      try { await invoke("shuffle_queue_rows", { order }); busEmit("melo:queue-changed", {}); } catch {}
+    })();
   });
   busOn("melo:playback-state", (s: any) => setActiveTrack(s?.track?.id || null));
 

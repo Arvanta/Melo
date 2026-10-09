@@ -27,7 +27,8 @@
   "settings.playback.crossfadeDuration.label": "Crossfade duration",
   "settings.playback.crossfadeDuration.desc": "How long the transition between tracks lasts (1–12 seconds)",
   "settings.general.lyricsSkinLine.label": "Show current lyric line in skins",
-  "settings.general.lyricsSkinLine.desc": "Skins that include a current-lyric slot display the active LRC line where the skin places it. Skins without that slot are unaffected.<br>Currently supported skins: Default - Aria - Halcyon - Haven - Hira - Koto - Mica - Mica 2 - Mist - Rail - Silk Orbit.",
+  "settings.general.lyricsSkinLine.desc": "Shows the active synced lyric line in skins that have a current-lyric slot. Skins without one are unaffected. The features of the selected skin are listed under Settings → Appearance & Skin.",
+  "settings.general.lyricsSkinLine.unsupported": "The selected skin does not support this feature.",
   "settings.appearance.embeddedPlaylist.label": "Embedded Playlist (skins)",
   "settings.appearance.embeddedPlaylist.desc": "If the active skin includes a playlist slot, these control how it looks. Skins without this slot are unaffected.",
   "settings.appearance.embeddedPlaylistCover.label": "Show track cover art",
@@ -55,5 +56,8 @@
   "settings.visualizer.enabled.label": "Enabled visualizers",
   "settings.visualizer.enabled.desc": "Uncheck modes you don't want — they disappear from the player's right-click list and the click cycle",
   "settings.playback.smartPrev.label": "Smart Previous",
-  "settings.playback.smartPrev.desc": "If the track has been playing a while, the first press of Previous restarts it and a second press goes to the previous track. Off: Previous always goes to the previous track."
+  "settings.playback.smartPrev.desc": "If the track has been playing a while, the first press of Previous restarts it and a second press goes to the previous track. Off: Previous always goes to the previous track.",
+  "settings.skinFeatures.currentLyric": "Current lyric line",
+  "settings.skinFeatures.embeddedLyrics": "Embedded lyrics",
+  "settings.skinFeatures.embeddedPlaylist": "Embedded playlist"
 }

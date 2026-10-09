@@ -12,6 +12,7 @@
 // Usage: `node tests/main-ts-helpers.test.mjs`
 // Exit code is the number of failing tests; 0 = all pass.
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,15 +23,19 @@ const repoRoot = path.resolve(here, "..");
 let passed = 0;
 let failed = 0;
 const failures = [];
+let pendingAsync = 0; // round 80b: the old 100ms summary timer printed BEFORE slow
+// async tests (debounce ones) settled, so counts were off by a random 0–2 — and
+// process.exit could even mask a late failure. The summary now waits for all of them.
 
 function test(name, fn) {
   try {
     const r = fn();
     if (r && typeof r.then === "function") {
+      pendingAsync++;
       return r.then(
         () => { console.log("PASS  " + name); passed++; },
         (err) => { console.log("FAIL  " + name + " — " + (err?.message || err)); failed++; failures.push(name); }
-      );
+      ).then(() => { pendingAsync--; });
     }
     console.log("PASS  " + name);
     passed++;
@@ -547,20 +552,45 @@ test("skin geometry self-heal: boots with a custom skin but no saved geometry sn
 //
 // ─────── skin geometry re-enforcement, queue sort/drag, tray close-all ───────
 
-test("every skin re-apply path RE-ENFORCES the skin's declared geometry", () => {
+test("skin re-apply: constraints re-enforced, size snap only on explicit switches (round 74)", () => {
   const src = readSrc("src/skin.ts");
-  // boot re-apply, theme re-apply, skin-changed re-apply — all three must
-  // pass applyGeometry=true, otherwise the PREVIOUS skin's min/max window
-  // constraints stay live and skins render with wrong dimensions.
-  assert.match(src, /applySkinChoice\(savedSkinId, theme, undefined, false, true\)/,
-    "boot re-apply must pass applyGeometry=true");
-  assert.match(src, /applySkinChoice\(activeSkin, t, undefined, false, true\)/,
-    "theme re-apply must pass applyGeometry=true");
+  // Boot + theme re-apply must RE-ENFORCE the skin's declared window
+  // constraints (never applyGeometry=false — the old bug where the PREVIOUS
+  // skin's min/max stayed live) — but must NOT snap the window to the skin's
+  // default size: that wiped the user's resized window on every restart and
+  // every theme toggle, and re-persisted the wrong size (round 74). The
+  // "constraints" mode does exactly that.
+  assert.match(src, /applySkinChoice\(savedSkinId, theme, undefined, false, "constraints"\)/,
+    "boot re-apply must re-enforce constraints WITHOUT a size snap");
+  assert.match(src, /applySkinChoice\(activeSkin, t, undefined, false, "constraints"\)/,
+    "theme re-apply must re-enforce constraints WITHOUT a size snap");
+  // A Settings pick IS an explicit switch: it still snaps to the new skin's size.
   assert.match(src, /applySkinChoice\(skinChoice, currentTheme, undefined, false, true\)/,
     "skin-changed re-apply must pass applyGeometry=true");
   assert.doesNotMatch(src, /applySkinChoice\([^\n]*false, false\)/,
     "no re-apply path may leave applyGeometry=false anymore");
+  // applyCustomSkin flags re-apply events so the main window can tell them
+  // apart from explicit switches.
+  assert.match(src, /applyGeometry === "constraints" \? \{ \.\.\.geometry, constraintsOnly: true \} : geometry/,
+    "re-apply must emit melo:skin-geometry with constraintsOnly");
+  const main = readSrc("src/main.ts");
+  assert.match(main, /const snap = !\(payload && payload\.constraintsOnly\) \|\| sz\.fixed;/,
+    "the geometry handler must skip the size snap on constraintsOnly events");
+  assert.match(main, /if \(sz\.force && snap\) \{/,
+    "the setSize call must be gated on the snap flag");
+  // Non-resizable skins: their size is not a user preference — boot ignores
+  // any saved size and even a constraintsOnly re-apply snaps.
+  assert.match(main, /fixed: geo\.resizable === false/,
+    "getTargetSize must mark non-resizable skins as fixed");
 });
+test("monitor-fallback re-center keeps the resolved startup size (round 74)", () => {
+  const main = readSrc("src/main.ts");
+  assert.match(main, /await mainWin\.setSize\(new LogicalSize\(startupW, startupH\)\);\s*\n\s*await mainWin\.center\(\);/,
+    "off-screen re-center must reuse startupW/H (the user's size), not the skin default sz.w/h");
+  assert.match(main, /let startupW = sz\.w;\s*\n\s*let startupH = sz\.h;\s*\n\s*if \(sz\.force\)/,
+    "the startup size must be resolved above the if so the fallback path can reuse it");
+});
+
 
 test("queue view: sorting enabled and backed by sort_queue + melo:queue-reordered", () => {
   const lib = readSrc("src/library.ts");
@@ -1331,8 +1361,8 @@ test("the Library has a persisted list/albums layout switch that only applies to
     "Album Sheets must be the default layout until the user picks Track List");
   assert.match(main, /class="lib-view-btn active" data-liblayout="albums"/,
     "the Album Sheets button is the markup default");
-  assert.match(lib, /libLayout === "albums" && libView !== "compact" && isLibraryTrackDisplay\(\)/,
-    "sheet mode must be limited to non-compact views and track displays");
+  assert.match(lib, /libLayout === "albums" && libView !== "compact" && libView !== "details" && isLibraryTrackDisplay\(\)/,
+    "sheet mode must exclude compact AND the columned Details view, and stay limited to track displays");
   assert.match(lib, /if \(sheetModeActive\(\)\) \{\s*invalidateLibraryWindow\(\);\s*return renderAlbumSheets/,
     "the renderer must dispatch to the album sheets");
   assert.match(css, /\.lib-sheet-cover \{[^}]*flex: 0 0 180px; width: 180px; height: 180px;/, "cover slot is 180x180");
@@ -1510,14 +1540,46 @@ test("the bundled Rail skin ships current-lyric and is wired into the binary", (
   assert.match(main, /\("rail\.html", DEFAULT_SKIN_RAIL\)/, "Rail must seed on first run");
 });
 
-test("Settings → current-lyric description lists all skins that ship the slot", () => {
+test("Settings → current-lyric description no longer hardcodes a skin list (round 85)", () => {
   const en = readSrc("src/locales/en.json");
-  assert.match(en, /Currently supported skins: Default - Aria - Halcyon - Haven - Hira - Koto - Mica - Mica 2 - Mist - Rail - Silk Orbit\./,
-    "supported-skins line must include Mica, Mica 2, Rail and the earlier lyric skins");
-  // Every listed custom skin must actually expose the engine hook.
-  for (const file of ["aria.html", "halcyon.html", "haven.html", "hira.html", "koto.html", "mica.html", "mica-2.html", "mist.html", "rail.html", "silk-orbit.html"]) {
-    const skin = readSrc(`skins/${file}`);
-    assert.match(skin, /data-melo="current-lyric"/, `${file} is listed as supported but has no current-lyric hook`);
+  assert.doesNotMatch(en, /Currently supported skins/, "the skin list moved to the per-skin feature row");
+  assert.doesNotMatch(en, /Mica 2/, "the retired 'Mica 2' name must be gone from the settings text");
+  assert.match(en, /"settings\.general\.lyricsSkinLine\.unsupported"/, "greyed-out explanation key exists");
+});
+
+test("round 85 · Settings shows the active skin's features on one line (chips + greyed lyric switch)", () => {
+  const main = readSrc("src/main.ts");
+  assert.match(main, /id="skinFeatures" class="skin-features"/, "feature row sits under the skin select");
+  assert.match(main, /id="lyricsSkinLineRow"/, "lyric switch row is addressable for greying");
+  assert.match(main, /settings\.skinFeatures\.currentLyric/, "chip label: current lyric");
+  assert.match(main, /settings\.skinFeatures\.embeddedLyrics/, "chip label: embedded lyrics");
+  assert.match(main, /settings\.skinFeatures\.embeddedPlaylist/, "chip label: embedded playlist");
+  assert.match(main, /busOn\("melo:skin-changed", \(\) => \{\s*clearSkinCapabilityCache\(\);\s*refreshSkinFeatures\(\);/, "skin changes re-derive the row");
+  assert.match(main, /clearSkinCapabilityCache\(\);\s*await populateSkinsDropdown\(\);/, "Refresh button drops the cache first");
+  const css = readSrc("src/app.css");
+  assert.match(css, /\.skin-features \{[^}]*flex-wrap: nowrap/, "chips never wrap (keeps the settings window height)");
+  assert.match(css, /\.skin-feature-unavailable \{[^}]*pointer-events: none/, "greyed switch cannot be toggled");
+});
+
+test("round 85 · feature detection uses the same hook rules as the runtime (findHook)", () => {
+  const skin = readSrc("src/skin.ts");
+  assert.match(skin, /export function detectSkinCapabilities\(htmlText: string\): SkinCapabilities/);
+  assert.match(skin, /has\("skinCurrentLyric", "current-lyric"\) \|\| has\("skinNextLyric", "next-lyric"\)/, "current-lyric = id or data-melo, same as lyric-line.ts");
+  assert.match(skin, /has\("embedded-lyrics", "embedded-lyrics"\)/);
+  assert.match(skin, /has\("embedded-playlist", "embedded-playlist"\)/);
+  assert.match(skin, /new DOMParser\(\)\.parseFromString\(htmlText, "text\/html"\)/, "parsed once, no script execution");
+  assert.match(skin, /if \(cached\) return cached;/, "result is cached per skin");
+  assert.match(skin, /if \(!text\) return NO_SKIN_CAPABILITIES;[\s\S]*?skinCapabilityCache\.set/, "failed reads are not cached");
+  assert.match(skin, /if \(!skinChoice \|\| skinChoice === "default"\) return DEFAULT_SKIN_CAPABILITIES;/, "Default never touches the disk");
+  // Every skin the lyric text used to name must still expose the slot.
+  for (const file of ["aria.html", "halcyon.html", "haven.html", "hira.html", "koto.html", "mica.html", "mist.html", "rail.html", "silk-orbit.html"]) {
+    const html = readSrc(`skins/${file}`);
+    assert.match(html, /data-melo="current-lyric"/, `${file} keeps its current-lyric hook (chip shows ✔)`);
+  }
+  // Skins without the slot are the ones the chip must mark ✘.
+  for (const file of ["lumen.html", "graphite.html", "slate.html", "microline.html", "microline-v.html"]) {
+    const html = readSrc(`skins/${file}`);
+    assert.doesNotMatch(html, /data-melo="current-lyric"|id="skinCurrentLyric"/, `${file} has no lyric slot (chip shows ✘)`);
   }
 });
 
@@ -1539,13 +1601,687 @@ test("About links open via open_external_url (WebView2 cannot target=_blank)", (
     "external anchors should not rely on target=_blank");
 });
 
+// ─── round 69: Explorer multi-select burst ───
+
+test("open-with batches: first batch replaces + plays, later batches in the burst append", () => {
+  const src = readSrc("src/main.ts");
+  assert.match(src, /const OPEN_BURST_MS = \d+;/, "burst window constant");
+  const i = src.indexOf("const inBurst =");
+  assert.ok(i > 0, "burst decision must exist");
+  const blk = src.slice(i, src.indexOf("}, 450);", i));
+  assert.match(blk, /importPaths\?\.\(batch, "append"\)/, "in-burst batches append");
+  assert.match(blk, /importPaths\?\.\(batch, "replace"\)/, "first batch replaces");
+  assert.ok(blk.indexOf('"append"') < blk.indexOf('"replace"'), "append branch returns before replace");
+  assert.match(blk, /melo:play-tracks/, "replace path still starts playback");
+});
+
+// ─── round 70: version bump to 1.1.0 + never replace a published release ───
+
+test("release: every version-declaring file agrees with package.json", () => {
+  const { execFileSync } = childProcess;
+  // The tool is the single source of truth; it exits non-zero on any drift.
+  const out = execFileSync(process.execPath, ["tools/version.mjs", "--check"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  assert.match(out, /All \d+ version sources agree/, "the consistency report must conclude OK");
+  // Independently pin the one file the release TAG is derived from — a broken
+  // tool must not be able to hide a tauri.conf.json/package.json mismatch.
+  const pkg = JSON.parse(readSrc("package.json")).version;
+  const conf = JSON.parse(readSrc("src-tauri/tauri.conf.json")).version;
+  assert.equal(conf, pkg, "tauri-action builds tag v__VERSION__ out of tauri.conf.json");
+  // …and the lock entry, so the user's `cargo check --locked` stays green.
+  const lock = readSrc("src-tauri/Cargo.lock");
+  assert.match(lock, new RegExp(`name = "melo"\\r?\\nversion = "${pkg.replace(/\./g, "\\.")}"`),
+    "Cargo.lock's melo entry must match — otherwise --locked fails");
+});
+
+test("release: the workflow refuses to rebuild an existing tag and never publishes on its own", () => {
+  const wf = readSrc(".github/workflows/build.yml");
+  // The consistency check runs before the guard, and both run before any build.
+  const check = wf.indexOf("node tools/version.mjs --check");
+  const guard = wf.indexOf("git ls-remote --tags origin");
+  const build = wf.indexOf("tauri-apps/tauri-action@v0");
+  assert.ok(check > 0 && guard > check && build > guard,
+    "order must be: version check → duplicate-tag guard → build");
+  // An existing tag must stop the job (no rebuild, no replaced assets).
+  assert.match(wf, /\$remote = git ls-remote --tags origin "refs\/tags\/\$tag"/, "guard reads the remote tag");
+  assert.match(wf, /if \(\$remote\) \{[\s\S]{0,700}?exit 1/, "existing tag must fail the build");
+  // The release stays a draft, is no longer flagged prerelease, and is named v<version>.
+  assert.match(wf, /tagName: v__VERSION__/, "tag comes from tauri.conf.json");
+  assert.match(wf, /releaseName: "v__VERSION__"/, "release title must be exactly v<version>");
+  assert.match(wf, /releaseDraft: true/, "never publish automatically");
+  assert.match(wf, /prerelease: false/, "a real release, not a pre-release");
+  // Racing runs must not create the same tag twice.
+  assert.match(wf, /concurrency:[\s\S]{0,120}cancel-in-progress: false/, "one run per branch at a time");
+  // No leftover patch marker from an earlier edit may sit in the workflow.
+  assert.doesNotMatch(wf, /<\/?old_text>|<\/?new_text>/, "stray patch markers break the disabled job");
+});
+
+// ─── round 71: Mica renamed, drag-drop toast removed ───
+
+test("bundled skins: 'Mica' is the former Mica 2 and Mica 1 is retired", () => {
+  assert.ok(!fs.existsSync(path.join(repoRoot, "skins/mica-2.html")),
+    "skins/mica-2.html must be gone — the name is retired");
+  const mica = readSrc("skins/mica.html");
+  assert.match(mica, /<title>Melo — Mica<\/title>/, "the renamed skin must present itself as Mica");
+  assert.doesNotMatch(mica, /Mica 2|MICA 2/, "no leftover 'Mica 2' branding inside the skin");
+  // The renamed skin keeps everything that made it a shipping skin.
+  assert.match(mica, /data-melo="current-lyric"/, "Mica keeps its current-lyric slot");
+  assert.match(mica, /data-melo="toggle-lyrics"/, "Mica keeps its lyrics-window button");
+  assert.match(mica, /data-min-width="500"/, "Mica keeps the 500x230 window floor");
+  assert.match(mica, /data-min-height="230"/, "Mica keeps the 500x230 window floor");
+});
+
+test("bundled skins: existing installs are migrated once (stock files only)", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  assert.match(main, /const DEFAULT_SKIN_MICA: &str = include_str!\("\.\.\/\.\.\/skins\/mica\.html"\);/,
+    "the bundle must embed skins/mica.html");
+  assert.doesNotMatch(main, /DEFAULT_SKIN_MICA_2/, "the Mica 2 embed must be gone");
+  assert.doesNotMatch(main, /\("mica-2\.html",/, "mica-2.html must no longer be seeded");
+  // The one-time migration: hashes gate both operations so edits survive.
+  assert.match(main, /RETIRED_MICA1_SHA256: &str = "[0-9a-f]{64}"/, "stock Mica 1 hash pinned");
+  assert.match(main, /RETIRED_MICA2_SHA256: &str = "[0-9a-f]{64}"/, "stock Mica 2 hash pinned");
+  assert.match(main, /fn migrate_retired_mica_once\(skins_dir: &Path\)/, "migration fn must exist");
+  const call = main.indexOf("migrate_retired_mica_once(skins_dir);");
+  const seedMarker = main.indexOf('let marker = skins_dir.join(".melo-seeded");');
+  assert.ok(call > 0 && call < seedMarker,
+    "the migration must run even on already-seeded installs (before the seeding early-return)");
+  // It replaces mica.html only on the exact stock Mica 1, and only deletes the stock Mica 2.
+  const fn = main.slice(main.indexOf("fn migrate_retired_mica_once"), main.indexOf("// ---- Tauri Commands ----"));
+  assert.match(fn, /hash_of\(&mica\)\.as_deref\(\) == Some\(RETIRED_MICA1_SHA256\)[\s\S]{0,200}?std::fs::write\(&mica, DEFAULT_SKIN_MICA\)/,
+    "mica.html may only be replaced while it is still the stock Mica 1");
+  assert.match(fn, /hash_of\(&mica2\)\.as_deref\(\) == Some\(RETIRED_MICA2_SHA256\)[\s\S]{0,200}?remove_file\(&mica2\)/,
+    "mica-2.html may only be deleted while it is still the stock Mica 2");
+  assert.match(fn, /\.melo-migrated-mica/, "the migration must be marker-gated (run once)");
+});
+
+test("drag & drop imports show no success toast (the queue is the feedback)", () => {
+  const src = readSrc("src/main.ts");
+  const start = src.indexOf("async function importAndPlayDroppedPaths");
+  const end = src.indexOf("async function expandAndImportDroppedPaths");
+  const drop = src.slice(start, end);
+  assert.ok(start > 0 && end > start, "drop functions must exist");
+  assert.doesNotMatch(drop, /showToast\(`\$\{list\.length\} file\(s\) added`\)/,
+    "a player drop must not toast 'x file(s) added'");
+  assert.match(drop, /showToast\("None of the dropped files could be imported"\)/,
+    "failures must still report themselves");
+  // The playlist-window drop (append mode) follows the same rule.
+  const expand = src.slice(end, src.indexOf("\nif (isTauri && !urlPanel) {", end));
+  assert.doesNotMatch(expand, /showToast\(`\$\{list\.length\} file\(s\) added to the playlist`\)/,
+    "an append drop must not toast either");
+  assert.match(expand, /if \(!list\.length\) showToast\("None of the dropped files could be imported"\)/,
+    "append failures must still report themselves");
+  // Open Files (not a drop) keeps its confirmation.
+  assert.match(src, /busEmit\("melo:play-tracks", \{ tracks: list, index: 0 \}\);\s*showToast\(`\$\{list\.length\} file\(s\) added`\);/,
+    "the Add-files dialog keeps its toast — only drag & drop is silent");
+});
+
+// ─── round 71: Rail menu — lyrics window + equalizer ───
+
+test("Rail: lyrics-window and equalizer live in the context menu, not the rail", () => {
+  const rail = readSrc("skins/rail.html");
+  const aside = rail.slice(rail.indexOf('<aside class="fluent-rail">'), rail.indexOf("</aside>"));
+  // The rail itself no longer carries them…
+  assert.doesNotMatch(aside, /data-melo="toggle-eq"/, "the Equalizer button must leave the rail");
+  assert.doesNotMatch(aside, /data-melo="toggle-lyrics"/, "the Lyrics-window button belongs to the menu");
+  // …the menu carries both, as regular menu entries that close the menu.
+  const menu = rail.slice(rail.indexOf('<div class="fluent-menu-wrap">'), rail.indexOf('class="dismiss-overlay"'));
+  assert.match(menu, /data-melo="toggle-eq"[\s\S]{0,400}?Equalizer/, "menu item opens the Equalizer window");
+  assert.match(menu, /data-melo="toggle-lyrics"[\s\S]{0,400}?Lyrics window/, "menu item opens the Lyrics window");
+  for (const role of ["toggle-eq", "toggle-lyrics"]) {
+    const tag = menu.match(new RegExp(`<label class="menu-item"[^>]*data-melo="${role}"[^>]*>`));
+    assert.ok(tag && /for="micaMenuToggle"/.test(tag[0]),
+      `${role} must be a menu-item label bound to the menu toggle (so the menu closes)`);
+  }
+  // The rest of the rail navigation is untouched.
+  for (const role of ["toggle-embedded-playlist", "toggle-embedded-lyrics", "toggle-library", "toggle-playlist", "toggle-settings"]) {
+    assert.match(aside, new RegExp(`data-melo="${role}"`), `rail must still expose ${role}`);
+  }
+  // The lyrics-window icon is its own (a window carrying a note), not a copy of
+  // the playlist-window icon.
+  const lyrStart = menu.indexOf('data-melo="toggle-lyrics"');
+  const lyrItem = menu.slice(lyrStart, menu.indexOf("</label>", lyrStart));
+  const plButton = aside.slice(aside.indexOf('data-melo="toggle-playlist"'), aside.indexOf("</button>", aside.indexOf('data-melo="toggle-playlist"')));
+  const svg = (s) => (s.match(/<svg[\s\S]*?<\/svg>/) || [""])[0];
+  assert.ok(svg(lyrItem).length > 0 && svg(lyrItem) !== svg(plButton),
+    "the lyrics-window item needs a distinct icon from the playlist window");
+  assert.match(svg(lyrItem), /<circle/, "the lyrics-window icon carries the note head");
+  assert.match(rail, /data-melo="current-lyric"/, "Rail keeps the current-lyric hook");
+});
+
+// ─── round 72: Radial Sunburst ground, Aurora II headroom, Now Playing label ───
+
+test("Radial Sunburst paints no full-canvas ground (no grey wash on the card)", () => {
+  const viz = readSrc("src/visualizer.ts");
+  const start = viz.indexOf("function drawRadial(");
+  const end = viz.indexOf("// Dot Matrix", start);
+  assert.ok(start > 0 && end > start, "drawRadial must exist");
+  const fn = viz.slice(start, end);
+  // The scene must never fill the whole canvas: the corona is ring-limited,
+  // so its fill disc matches the gradient's own (small) end radius.
+  assert.doesNotMatch(fn, /fillRect\(0, 0, w, h\)/, "no full-canvas background wash");
+  assert.match(fn, /const coronaR = inner \* 1\.75;/, "corona radius must be ring-limited");
+  assert.match(fn, /createRadialGradient\(cx, cy, 0, cx, cy, coronaR\)/, "halo gradient must use that radius");
+  assert.match(fn, /g2d\.arc\(cx, cy, coronaR, 0, Math\.PI \* 2\); g2d\.fill\(\)/,
+    "the halo fill must stop at the gradient radius (a square fill would repaint grey corners)");
+  assert.match(fn, /halo\.addColorStop\(1, "rgba\(0,0,0,0\)"\)/, "the corona must fade to fully transparent");
+});
+
+test("Aurora II (and calm Aurora) derive their base from the crest's worst-case reach", () => {
+  const viz = readSrc("src/visualizer.ts");
+  const start = viz.indexOf("function drawAurora(");
+  const end = viz.indexOf("function drawTide(", start);
+  const fn = viz.slice(start, end);
+  assert.ok(start > 0 && end > start, "drawAurora must exist");
+  // The crest's upward travel is amp*(0.55+0.45) + amp*0.35 = 1.35*amp, plus the
+  // spectrum push; the base must be pushed down whenever that would leave less
+  // than 10% of the height above the crest (round 72: the old fixed 0.62–0.98 h
+  // bases let Aurora II's crest shoot ~19px above a 56px strip).
+  assert.match(fn, /const spec = lively \? h \* \(0\.05 \+ 0\.08 \* depth\) : 0;/, "spectrum push term pinned");
+  assert.match(fn, /const reach = amp \* 1\.35 \+ spec;/, "worst-case reach must be computed");
+  assert.match(fn, /const baseY = Math\.max\(h \* \(lively \? 0\.56 \+ 0\.13 \* depth : 0\.62 \+ 0\.12 \* depth\), reach \+ h \* 0\.10\);/,
+    "both scenes must keep a 10% headroom above the highest possible crest");
+  const math = fn.slice(fn.indexOf("const reach ="), fn.indexOf("const speed ="));
+  assert.doesNotMatch(math, /amp \* \(0\.55 \+ 0\.45 \* Math\.sin[\s\S]*h \* 0\.0[0-4]/,
+    "no shrinking of the sine stack to fake the margin");
+});
+
+test("Playlist window calls the queue 'Now Playing' (no '(queue)' suffix)", () => {
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /<option value="\$\{QUEUE_ID\}" \$\{currentPlaylistId === QUEUE_ID \? "selected" : ""\}>▶ Now Playing<\/option>/,
+    "the playlist dropdown option must read exactly '▶ Now Playing'");
+  assert.doesNotMatch(lib, /Now Playing \(queue\)/, "the '(queue)' suffix is retired");
+});
+
 // ─────────────────────────── run + summary ───────────────────────────
 
 // Defer to allow async tests to settle.
-setTimeout(() => {
+setTimeout(function report() {
+  if (pendingAsync > 0) return setTimeout(report, 25); // wait for every async test
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failures.length) {
     console.log("Failures:\n  " + failures.join("\n  "));
   }
   process.exit(failed);
 }, 100);
+
+// ─── round 73: skin reset button, album-sheet count, square tiles, Most Played plays ───
+
+test("Settings → Skins: the 'Reset to Default' button is gone (boot fallback stays)", () => {
+  const src = readSrc("src/main.ts");
+  assert.doesNotMatch(src, /btn-reset-skin-settings/, "no button id left anywhere");
+  assert.doesNotMatch(src, /Reset to Default<\/button>/, "no such button is rendered");
+  // Removing the button must NOT remove the engine's own reset used when the
+  // installed skin file vanishes at boot.
+  assert.match(src, /if \(!exists\) resetSkin\(undefined, false\);/, "boot fallback reset kept");
+  const skin = readSrc("src/skin.ts");
+  assert.match(skin, /export function resetSkin\(/, "skin engine still exports resetSkin");
+});
+
+test("Album sheet meta shows the track count immediately left of the total time", () => {
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /<span class="lib-sheet-measures"><span class="lib-sheet-count">\$\{tracksText\}<\/span><span class="lib-sheet-mins">\$\{minsText\}<\/span><\/span>/,
+    "count and minutes are one right-hand group, count first");
+  assert.match(lib, /const tracksText = `\$\{nTracks\} track\$\{nTracks === 1 \? "" : "s"\}`;/,
+    "singular/plural handled");
+  const css = readSrc("src/app.css");
+  assert.match(css, /\.lib-sheet-measures \{ display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; \}/,
+    "the measures group is styled");
+});
+
+test("Library tiles: covers are square and taller (row 190px, 132px capped both axes)", () => {
+  const lib = readSrc("src/library.ts");
+  // round 83: the 190px belongs to the card predicate (tilesCardsActive), not to
+  // "tiles + groups" — a query under Tiles renders track rows, not cards.
+  assert.match(lib, /if \(tilesCardsActive\(\)\) return 190;/, "tiles card row height raised 148→190");
+  assert.match(lib, /function tilesCardsActive\(\): boolean \{/, "the card predicate exists (round 83)");
+  const css = readSrc("src/app.css");
+  const card = css.slice(css.indexOf(".lib-card .lib-avatar, .lib-card .track-cover-mini {"));
+  const rule = card.slice(0, card.indexOf("}"));
+  assert.match(rule, /max-width: 132px; max-height: 132px;/, "both axes capped at the same size → width == height");
+  assert.match(rule, /align-self: center;/, "centred inside wide columns");
+  assert.match(rule, /aspect-ratio: 1;/, "aspect ratio kept");
+  assert.doesNotMatch(rule, /max-height: calc\(100% - 34px\)/, "the old height-only clip (wide band) is gone");
+});
+
+test("Most Played rows show 'N×' left of the duration (playlist view only)", () => {
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /const AUTO_MOST_PLAYED_ID = "__auto_most_played__";/, "backend auto-id mirrored as a constant");
+  const rStart = lib.indexOf("async function renderPlaylistVirtual(");
+  assert.ok(rStart > 0, "renderPlaylistVirtual found");
+  const render = lib.slice(rStart, rStart + 14000);
+  assert.match(render, /const viewingMostPlayed = currentPlaylistId === AUTO_MOST_PLAYED_ID;/, "badge gated to Most Played");
+  // The badge must be emitted right before the duration span of the row.
+  assert.match(render, /\$\{playsBadge\(track\)\}<span class="t-dur">/, "plays badge sits left of t-dur");
+  assert.match(render, /if \(!Number\.isFinite\(pc\) \|\| pc <= 0\) return "";/, "missing/zero counts render nothing");
+  const css = readSrc("src/app.css");
+  assert.match(css, /\.track-row \.t-plays \{/, "t-plays styled");
+});
+
+test("Rust: playlist_tracks exposes play_count safely (round 73)", () => {
+  const rs = readSrc("src-tauri/src/library_db.rs");
+  assert.match(rs, /#\[serde\(default, skip_serializing_if = "Option::is_none"\)\]\s*pub play_count: Option<i64>,/,
+    "optional JSON field, absent from other commands' rows");
+  const cmd = rs.slice(rs.indexOf("pub async fn playlist_tracks"), rs.indexOf("#[tauri::command]", rs.indexOf("pub async fn playlist_tracks")));
+  assert.match(cmd, /t\.replay_gain,pt\.entry_id,t\.play_count FROM playlist_tracks/, "SELECT exposes play_count as column 14");
+  assert.match(cmd, /row_playlist_track/, "playlist rows use the upgraded mapper");
+  const mapper = rs.slice(rs.indexOf("fn row_playlist_track"), rs.indexOf("const TRACK_SELECT"));
+  assert.match(mapper, /row\.get::<_, Option<i64>>\(14\)\.unwrap_or\(None\)/,
+    "tolerant read: a row without column 14 degrades to None (get returns Err, never panics)");
+  assert.doesNotMatch(rs, /get_checked|get_ref_checked|CheckedRow/,
+    "rusqlite 0.31 REMOVED the checked API — these names must not come back (E0599, round 76b)");
+  // Every other DbTrack construction site must initialize the new field.
+  const lits = (rs.match(/play_count: None/g) || []).length;
+  assert.equal(lits, 3, "every DbTrack literal (mka, tag scan, row mapper) initializes the field");
+});
+
+// ─── round 75 · artist sidebar · column Details view · entity search · queue position hint ───
+
+test("Library views: details renamed to default, new columned details view, one-time migration", () => {
+  const lib = readSrc("src/library.ts");
+  const main = readSrc("src/main.ts");
+  assert.match(lib, /type LibView = "default" \| "details" \| "compact" \| "tiles";/,
+    "four views: default, details, compact, tiles");
+  assert.match(lib, /const LIB_VIEWS: LibView\[\] = \["default", "details", "compact", "tiles"\];/, "the switch lists all four");
+  // Migration: an old saved "details" (which WAS the default view) maps to
+  // "default" exactly once; the marker keeps a later "details" choice intact.
+  assert.match(lib, /saved = "default";\s*try \{ localStorage\.setItem\("melo-lib-view", "default"\); \} catch \{\}/,
+    "one-time details→default migration REWRITES storage (else boot #2 flips into the new view)");
+  assert.match(lib, /localStorage\.setItem\("melo-lib-view-v2", "1"\)/, "the migration marker is written");
+  assert.match(main, /data-libview="default" title="Default"/, "the renamed button ships in the markup");
+  assert.match(main, /data-libview="details" title="Details"/, "the columned Details button ships (round 77: plain label, placed after Tiles)");
+});
+
+test("Details view: column model, persistence, and the Columns menu contract", () => {
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /type LibColId = "artist" \| "album" \| "albumArtist" \| "genre" \| "year" \| "duration";/,
+    "the configurable columns (title pinned, plays NOT offered — library rows carry no play_count)");
+  assert.match(lib, /localStorage\.setItem\("melo-lib-cols-order", JSON\.stringify\(libColOrder\)\)/, "order persists");
+  assert.match(lib, /localStorage\.setItem\("melo-lib-cols-off", JSON\.stringify\(\[\.\.\.libColOff\]\)\)/, "the hidden set persists");
+  assert.match(lib, /if \(!localStorage\.getItem\("melo-lib-cols-off"\)\)/, "first run defaults to artist+album+duration");
+  // the Columns button only exists in this view
+  assert.match(lib, /colsBtn\.hidden = libView !== "details";/, "the Columns button is details-view-only");
+  assert.match(lib, /menu\.innerHTML = `<div class="lcm-head">Columns<\/div><div class="lcm-title-pin">Title <span>always shown<\/span><\/div>/,
+    "the menu pins Title and lists the reorderable rest");
+  assert.match(lib, /if \(order\.length === LIB_COL_IDS\.length\) libColOrder = order;/, "drag reorder rebuilds the order from the DOM");
+  // rows + header share one grid template
+  assert.match(lib, /<div class="track-row lib-cols virtual-row"/, "column rows use the shared grid class");
+  assert.match(lib, /<div class="lib-col-head lib-cols\$\{groupColsOn/, "the sticky header reuses the shared grid class");
+  assert.match(lib, /trackList\.style\.setProperty\("--lib-cols", libColsGrid\(\)\);/, "the grid template flows via a custom property");
+  assert.match(lib, /if \(libView === "details"\) return 40;/, "one tight 40px line per track");
+  assert.match(lib, /if \(libView === "compact" \|\| libView === "details"\) return 1;/, "the column view is single-column");
+});
+
+test("Search shows ENTITIES: artist/album filters list names, All shows grouped sections", () => {
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /if \(isEntityFilterSearch\(\)\) \{\s*invalidateLibraryWindow\(\);\s*return renderEntitySearch\(\);\s*\}/,
+    "the renderer dispatches to entity search before sheets/tracks");
+  assert.match(lib, /libTab !== "playlists" && !!librarySearch && \(librarySearchField === "artist" \|\| librarySearchField === "album"\)/,
+    "entity mode = artist/album filter with a query, never the playlists tab");
+  // the entity list hits library_groups directly (name-matched SQL there) — no Rust change
+  assert.match(lib, /invoke<Page<GroupRow>>\("library_groups", \{\s*kind, search: librarySearch, artist: null, limit: LIB_ENTITY_SEARCH_LIMIT/,
+    "the entity list queries library_groups (name match)");
+  // All-mode sections: artists and albums, capped, above the (still virtual) track list
+  assert.match(lib, /const \[pa, pb\] = await Promise\.all\(\[/, "All-mode sections fetch artists+albums in parallel");
+  assert.match(lib, /limit: LIB_SEARCH_SECTION_LIMIT, offset: 0, includeTotal: true/, "sections cap at 10 with totals");
+  assert.match(lib, /if \(!artists\.length && !albums\.length\) \{ hideLibSearchSections\(\); return; \}/, "empty sections stay hidden");
+  assert.match(lib, /void renderSearchSectionsAll\(\);/, "the track-list render also (re)builds the sections");
+  // clicking a result navigates AND clears the query
+  assert.match(lib, /function drillFromSearchGroup\(/, "the drill helper exists");
+  assert.match(lib, /librarySearch = "";\s*if \(searchInput\) searchInput\.value = "";\s*updateSearchClear\(\);/,
+    "the drill clears the search box");
+  assert.match(lib, /const parts = String\(group\.key \|\| ""\)\.split\("\\0"\);\s*selectedArtist = parts\[0\] \|\| null;\s*selectedAlbum = parts\[1\] \|\| group\.name;/,
+    "an album result scopes to that album (artist\0album key)");
+});
+
+test("Artist sidebar: toolbar button enabled only on the artist tabs, names only", () => {
+  const lib = readSrc("src/library.ts");
+  const main = readSrc("src/main.ts");
+  assert.match(main, /id="btn-lib-artistbar"/, "the toolbar button exists next to the other library buttons");
+  assert.match(main, /id="libArtistSidebarList"/, "the sidebar list container exists in the markup");
+  assert.match(main, /<aside id="libArtistSidebar" class="lib-artist-sidebar" hidden/, "it starts hidden");
+  assert.match(lib, /function artistSidebarActive\(\): boolean \{ return libTab === "artists" \|\| libTab === "album-artists"; \}/,
+    "enabled only on the Artists / Album Artist tab");
+  assert.match(lib, /btn\.disabled = !artistSidebarActive\(\);/, "the button reflects availability");
+  assert.match(lib, /localStorage\.setItem\("melo-lib-artistbar", artistSidebarOpen \? "1" : "0"\)/, "the toggle persists");
+  assert.match(lib, /<button type="button" class="lib-side-artist\$\{g\.name === selectedArtist \? " active" : ""\}" data-side-artist="\$\{esc\(g\.name\)\}" title="\$\{esc\(g\.name\)\}">\$\{esc\(g\.name\)\}<\/button>/,
+    "rows carry the artist NAME ONLY (plus the active highlight)");
+  assert.match(lib, /data-side-artist="\$\{esc\(g\.name\)\}"[^>]*>\$\{esc\(g\.name\)\}<\/button>/, "no counts/durations in the sidebar rows");
+  // clicking a name switches the artist and stays usable while drilled in
+  assert.match(lib, /selectedArtist = name;\s*selectedAlbum = null;\s*selectedGenre = null;\s*savedGroupsScrollTop = 0;/,
+    "a sidebar click re-scopes to that artist");
+  assert.match(lib, /artistSidebarCache = null;\n    invalidateLibraryWindow\(\);/, "library changes invalidate the sidebar cache");
+  assert.match(lib, /if \(on\) b\.scrollIntoView\(\{ block: "nearest" \}\);/, "the active artist is kept in view");
+});
+
+test("Playlist next/previous starts from the CLICKED track (queue position hint)", () => {
+  const lib = readSrc("src/library.ts");
+  const player = readSrc("src/player.ts");
+  assert.match(lib, /async function playFromDbQueue\(focus: Track, announce = true, queueHint\?: number\)/, "the sender takes a hint");
+  assert.match(lib, /fromQueue: true, queueHint: Number\.isInteger\(queueHint\) \? queueHint : undefined/, "the hint rides on the bus event");
+  assert.equal((lib.match(/playFromDbQueue\(focus, true, (absIndex|index)\);/g) || []).length, 3,
+    "all three fromQueue callers (library rows, playlist window, playlists tab) pass the hint");
+  assert.match(player, /hydrateFullQueue\(gen, p\.tracks\[0\], p\.queueHint\);/, "the player receives the hint");
+  assert.match(player, /String\(all\[hint as number\]\.id\) === String\(focusTrack\.id\)/,
+    "the hint is only trusted when the queue row at that index is the clicked track");
+  assert.match(player, /if \(focus < 0 && hint == null && focusTrack\.playlistEntryId != null\)/,
+    "entry-id matching stays for queue-view rows only (foreign ids can false-match)");
+  assert.match(player, /if \(focus < 0\) focus = all\.findIndex\(t => t\.id === focusTrack\.id\);/,
+    "last resort: first occurrence of the track, never position 0 blindly");
+  // the QUEUE view's direct emit stays untouched (no hint → entry-id path)
+  assert.match(lib, /if \(currentPlaylistId === QUEUE_ID\) \{\s*busEmit\("melo:play-tracks", \{ tracks: \[focus\], index: 0, fromQueue: true \}\);/,
+    "queue-view clicks keep the entry-id lookup (correct id space there)");
+});
+
+test("shuffle materialises into the real queue order (round 76→77), no per-press dice", () => {
+  const player = readSrc("src/player.ts");
+  const lib = readSrc("src/library.ts");
+  // the dice are gone: no random index roll on Next/press anymore
+  assert.doesNotMatch(player, /Math\.floor\(Math\.random\(\) \* queue\.length\)/,
+    "next/prev no longer roll a fresh random index per press");
+  assert.doesNotMatch(player, /shuffleDeck|deckPosOf|buildShuffleDeck/,
+    "the private in-memory deck is gone (round 77: the queue array IS the order)");
+  // permutation machinery + pinning rule
+  assert.match(player, /function shuffleInPlace\(a: number\[\]\) \{/, "Fisher-Yates kept");
+  assert.match(player, /const t = a\[i\]; a\[i\] = a\[j\]; a\[j\] = t;/, "proper swap");
+  assert.match(player, /function applyShuffleToQueue\(\) \{\s*const n = queue\.length;\s*if \(n < 2\) return;/,
+    "materialiser exists and is a no-op for tiny queues");
+  assert.match(player, /queue = \[cur, \.\.\.rest\]\.map\(i => queue\[i\]\);\s*currentIndex = 0;/,
+    "permuted array becomes the queue with the playing track pinned at position 0");
+  assert.match(player, /busEmit\("melo:queue-shuffled", \{ order: queue\.map\(t => String\(t\.id\)\) \}\)/,
+    "the proposed order is broadcast for the DB write");
+  // every trigger point
+  assert.match(player, /if \(isShuffle\) applyShuffleToQueue\(\);\s*toast\(isShuffle \? "Shuffle on" : "Shuffle off"\);/,
+    "toggle ON materialises immediately");
+  assert.match(player, /if \(isShuffle\) \{\s*\/\/ New pass[\s\S]*?applyShuffleToQueue\(\);\s*return Math\.min\(1, queue\.length - 1\);/,
+    "repeat-all pass boundary reshuffles and starts at position 1 (no immediate repeat)");
+  assert.match(player, /if \(focus >= 0\) currentIndex = focus;\s*\/\/ Round 77[\s\S]*?if \(isShuffle\) applyShuffleToQueue\(\);/,
+    "a DB re-hydrate under shuffle re-materialises the order (view never diverges)");
+  assert.match(player, /if \(p\.fromQueue\) hydrateFullQueue\(gen, p\.tracks\[0\], p\.queueHint\);\s*\/\/ A full-array handoff[\s\S]*?else if \(isShuffle\) applyShuffleToQueue\(\);/,
+    "direct play-tracks handoff applies it too");
+  // plain walks = history; no deck branches remain in nav
+  assert.match(player, /\/\/ Round 77: with shuffle the array itself carries the pass order[\s\S]*?let prv = currentIndex - 1;/,
+    "Previous is the plain index walk — the real history of the displayed order");
+  // library side applies it once, only main writes, and no loop back
+  assert.match(lib, /busOn\("melo:queue-shuffled", \(p: any\) => \{\s*if \(role !== "main" \|\| !invoke\) return;/,
+    "only the main window applies the proposed order");
+  assert.match(lib, /await invoke\("shuffle_queue_rows", \{ order \}\); busEmit\("melo:queue-changed", \{\}\);/,
+    "DB write, then the ordinary queue-changed refresh (player has no such listener → no loop)");
+  assert.doesNotMatch(player, /busOn\("melo:queue-changed"/, "the player never LISTENS to queue-changed (self-broadcast would loop)");
+});
+
+test("play counts only after a real listen (round 76 threshold), never at start", () => {
+  const player = readSrc("src/player.ts");
+  const lib = readSrc("src/library.ts");
+  assert.match(player, /Math\.min\(30000, s\.durMs \/ 2\) : 30000/, "threshold = min(30s, half the duration), unknown → 30s");
+  assert.match(player, /s\.listenedMs \+= Date\.now\(\) - s\.resumeAt;/, "wall-clock accumulation while unpaused");
+  assert.match(player, /if \(s\.counted \|\| !s\.id\) return;/, "each pass counts at most once");
+  assert.match(player, /busEmit\("melo:play-counted", \{ trackId: s\.id \}\);/, "count travels over the bus, DB stays out of the player");
+  assert.match(player, /beginPlaySession\(t\); \/\/ settles the outgoing track's count, too/, "switching tracks settles the previous one");
+  assert.match(player, /window\.addEventListener\("pagehide", \(\) => evaluatePlaySession\(\)\);/, "quit/reload flushes an earned count");
+  assert.match(player, /if \(el === audio\) resumeSession\(\);/, "play restarts the meter");
+  assert.match(player, /accumulateSession\(\); \/\/ paused: the listen meter stops here/, "pause freezes the meter");
+  assert.match(player, /if \(repeatMode === "one" && queue\[currentIndex\]\) playSession = newSession\(queue\[currentIndex\]\);/,
+    "repeat-one: every loop is a fresh session (counts once per pass)");
+  assert.match(player, /evaluatePlaySession\(\); \/\/ the crossfaded-out track settles here/, "crossfade handoff settles the outgoing track");
+  assert.equal((player.match(/evaluatePlaySession\(\);/g) || []).length, 4,
+    "settling happens at exactly the four boundaries (switch, ended, pause, pagehide) — no polling");
+  // library side: start = touch only; count = the new bus event
+  assert.match(lib, /await invoke\("touch_track_last_played", \{ trackId \}\);/, "track start stamps last_played_at only");
+  assert.match(lib, /if \(t\?\.id\) touchTrackPlayed\(t\.id\);/, "track-changed touches, never counts");
+  assert.match(lib, /busOn\("melo:play-counted", \(p: any\) => \{\s*if \(p\?\.trackId\) void countTrackPlayed\(String\(p\.trackId\)\);/, "the counted event lands in record_track_play");
+  assert.match(lib, /await invoke\("record_track_play", \{ trackId \}\);/, "count command kept, now threshold-gated");
+  assert.doesNotMatch(lib, /recordTrackPlayed/, "the old start-of-track counting function is gone");
+});
+
+test("embedded playlist & lyrics stages open ON the current item (round 76)", () => {
+  const lib = readSrc("src/library.ts");
+  const main = readSrc("src/main.ts");
+  const lyr = readSrc("src/lyrics.ts");
+  // playlist strip: centered on render (open path) + follow on change (open only)
+  assert.match(lib, /const activeRow = embeddedPlaylistContainer\.querySelector<HTMLElement>\("\.embedded-playlist-row\.active"\);/,
+    "the re-render looks for the now-playing row");
+  assert.match(lib, /scrollHeight > embeddedPlaylistContainer\.clientHeight \+ 8/, "only when the list actually scrolls (no jitter on short playlists)");
+  assert.match(lib, /embeddedPlaylistContainer\.scrollTop \+= \(ar\.top - br\.top\) - \(embeddedPlaylistContainer\.clientHeight \/ 2 - ar\.height \/ 2\);/,
+    "centering uses rect math, not offsetTop (container isn't the offsetParent)");
+  assert.match(lib, /if \(embeddedPlaylistContainer\.offsetParent !== null\) \{\s*embeddedPlaylistContainer\.querySelector<HTMLElement>\("\.embedded-playlist-row\.active"\)\s*\?\.scrollIntoView\(\{ block: "nearest" \}\);/,
+    "while OPEN, track changes nudge the strip; while closed it stays put");
+  // stage announcement → lyrics snap
+  assert.match(main, /new CustomEvent\("melo:player-stage", \{ detail: \{ mode \} \}\)/, "setStageMode announces the switch in-document");
+  assert.match(lyr, /if \(mode !== "lyrics" \|\| !lyricsContainer\) return;/, "only the lyrics stage, only a real container");
+  assert.match(lyr, /lyricsContainer\.scrollTo\(\{ top: Math\.max\(0, top\), behavior: "auto" \}\);/, "instant snap on open (no smooth crawl from the top)");
+  assert.match(lyr, /if \(elements\) \{\s*document\.addEventListener\("melo:player-stage"/, "the embedded instance only — panel windows unaffected");
+});
+
+test("round 77 · library polish: header count, sidebar sync, badge, button order, scrollbar", () => {
+  const lib = readSrc("src/library.ts");
+  const main = readSrc("src/main.ts");
+  const css = readSrc("src/app.css");
+  // (A) the Playlists-tab right-pane head no longer repeats the sidebar count
+  const pane = lib.slice(lib.indexOf("async function renderLibraryPlaylists"), lib.indexOf("async function renderLibraryVirtualInner"));
+  assert.doesNotMatch(pane, /\{page\.total\} track\$\{/, "duplicate count is gone from the content head");
+  assert.ok(pane.includes("matching \u201c${esc(librarySearch)}\u201d</span>` : \"\""),
+    "a search echo replaces it only when a query is active");
+  // (B) the artist-mode label IS the Artists-tab trigger → must re-sync controls
+  const modeBtn = lib.slice(lib.indexOf("artistModeButton?.addEventListener"), lib.indexOf("Only the small arrow opens the choice menu."));
+  assert.match(modeBtn, /syncArtistSidebarControls\(\);\s*if \(artistSidebarOpen\) void renderArtistSidebarData\(\);/,
+    "returning via the label re-enables the button and re-shows the sidebar");
+  // (D) every render re-syncs the sidebar highlight, cheaply
+  const wrapper = lib.slice(lib.indexOf("async function renderLibraryVirtual(reset"), lib.indexOf("async function renderLibraryVirtualInner"));
+  assert.match(wrapper, /libraryRenderBusy = false;\s*\/\/ Round 77: one funnel[\s\S]*?syncArtistSidebarActive\(\);/,
+    "single funnel in the render wrapper covers search/drill/Back/sheets");
+  assert.match(lib, /if \(sideSyncedArtist === sel\) return;/, "change-guarded: scroll renders skip the row walk");
+  // (F) Most Played count badge in the LIBRARY pane too (was playlist-window only)
+  assert.match(pane, /const libTabMostPlayed = selected\.kind === "auto" && selected\.id === AUTO_MOST_PLAYED_ID;/,
+    "the badge keys off the auto Most Played selection");
+  assert.match(pane, /\$\{libPlaysBadge\(track\)\}<span class="t-dur">/, "count sits left of the duration, same as the window rows");
+  // (G) view button order + plain "Details" label
+  const switches = main.slice(main.indexOf('id="libViewSwitch"'), main.indexOf("btn-lib-columns"));
+  const order = ["default", "compact", "tiles", "details"].map(v => switches.indexOf(`data-libview="${v}"`));
+  assert.ok(order.every(i => i >= 0) && order.every((v, i) => i === 0 || v > order[i - 1]),
+    "Default · Compact · Tiles · Details, with Details last before the Columns button");
+  assert.match(main, /data-libview="details" title="Details">/, "title is just \"Details\"");
+  assert.doesNotMatch(main, /Details — sortable columns/);
+  // (C) the sidebar list reserves its scrollbar instead of painting over names
+  assert.match(css, /\.lib-artist-sidebar-list \{[^}]*scrollbar-gutter: stable/, "gutter reserved");
+  assert.match(css, /\.lib-artist-sidebar-list::-webkit-scrollbar \{ width: 6px; \}/, "and thinned for chromium");
+  // (H) group rows get a fixed column line in Details view
+  assert.match(lib, /const groupColsOn = libView === "details" && libraryMode\(\) === "groups" && !librarySearch;/,
+    "details turns the group roots into column lines too");
+  assert.ok(lib.includes('return 40; // round 77: group roots too'), "40px line height for groups as well");
+  // grid alignment hardening (the harness caught a !important blanket mis-aligning rows)
+  assert.ok(lib.includes("padding-left:8px;padding-right:6px;margin-left:0;margin-right:0"),
+    "group grid rows carry inline padding + margin reset (blanket !important padding must not shift them)");
+  assert.ok(css.includes("#trackList[data-lib-view=\"details\"] .lib-item.lib-cols,\n#trackList[data-lib-view=\"details\"] .track-row.lib-cols { padding-left: 8px !important; padding-right: 6px !important; }"),
+    "a same-weight !important override at higher specificity re-aligns BOTH row kinds with the header");
+  assert.ok(lib.includes('class="lc g-count">${group.count}'), "count column in the group row");
+  assert.match(css, /\.lib-item\.lib-cols \.g-count \{ text-align: right;[^}]*tabular-nums/, "count right-aligned tabular");
+});
+
+// ───────────────────────────────────────────────────────── round 78: Find-in-Queue
+test("round 78 · the queue search box is a finder: enabled, non-destructive, Enter-cycling", () => {
+  const SRC = fs.readFileSync(path.join(repoRoot, "src", "library.ts"), "utf8");
+  const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
+
+  // the queue search box is a FINDER now: never disabled, never a filter
+  assert.ok(/playlistSearch\.disabled = false;/.test(SRC), "r78: the queue view no longer disables the search box");
+  assert.ok(!/playlistSearch\.disabled = viewingQueue/.test(SRC), "r78: blanket disable is gone");
+  assert.ok(SRC.includes('viewingQueue ? "Find in queue…" : "Search playlist…"'), "r78: placeholder flips between find and filter");
+
+  // typing in the queue runs the finder and returns — no clearPlaylistSelection, no debounce re-render
+  const si = SRC.indexOf('playlistSearch?.addEventListener("input"');
+  assert.ok(si > 0 && SRC.slice(si, si + 420).includes('if (currentPlaylistId === QUEUE_ID) { void queueFindStep("first"); return; }'), "r78: queue keystrokes bypass the filter pipeline");
+
+  // Enter cycles, Shift+Enter backwards, F3 too — both wired
+  assert.equal((SRC.match(/event\.shiftKey \? "prev" : "next"/g) || []).length, 2, "r78: Enter + F3 both cycle next/prev");
+  assert.ok(SRC.includes('if (!playlistSearch || currentPlaylistId !== QUEUE_ID) return;'), "r78: cycling only lives in the queue view");
+
+  // the finder reads the FULL queue through queue_tracks only — no playlist_tracks, no writes
+  const qi = SRC.indexOf("async function queueFindStep");
+  const qe = SRC.indexOf("queueFindHighlight();\n  }", qi); // the finder's own closing lines
+  const qslice = qi > 0 && qe > qi ? SRC.slice(qi, qe) : "";
+  assert.ok(qi > 0 && qslice.includes('invoke<Page<Track>>("queue_tracks", { limit: 5000, offset: 0 })'), "r78: matches span the whole queue, not the virtual window");
+  assert.ok(!qslice.includes("playlist_tracks"), "r78: the finder never touches stored-playlist data");
+  assert.ok(!/invoke[^\n]*(reorder|remove|clear|replace|persist|shuffle)[^\n]*queue/i.test(qslice), "r78: find-in-queue issues zero data ops");
+  assert.ok(qslice.includes("a miss must also UNMARK"), "r78: a no-match search clears the old highlight");
+
+  // filter↔find semantics never leak across the QUEUE boundary; resync after every paint
+  assert.ok(SRC.includes("const wasQueue = currentPlaylistId === QUEUE_ID;"), "r78: playlist switch guards the queue boundary");
+  assert.ok(SRC.includes("queueFindStamp++;"), "r78: renders invalidate the cached match list");
+  assert.ok(SRC.includes("if (reset) void queueFindResync(); else queueFindHighlight();"), "r78/r80: re-query on data paints, RE-ATTACH ONLY on scroll paints (cycle no longer resets)");
+
+  // the mark is CSS-owned (themable via --accent), pinned here
+  assert.ok(CSS.includes(".track-row.pl-find"), "r78: highlight rule ships in app.css");
+});
+
+// ───────────────────────────────────────────────────────── round 79: find chip, sidebar, discography details
+test("round 79 · find chip + Prev/Next, sidebar boot paint, no flex-squash, details discography", () => {
+  const SRC = fs.readFileSync(path.join(repoRoot, "src", "library.ts"), "utf8");
+  const MAIN = fs.readFileSync(path.join(repoRoot, "src", "main.ts"), "utf8");
+  const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
+
+  // the count chip + Prev/Next live in the footer markup and only show for a queue query
+  assert.ok(MAIN.includes('id="queue-find-nav" hidden'), "r79: nav group ships hidden");
+  assert.ok(MAIN.includes('id="queueFindPrev"') && MAIN.includes('id="queueFindNext"') && MAIN.includes('id="queueFindCount"'), "r79: chip + both buttons are real elements, not placeholder text");
+  assert.ok(SRC.includes('if (queueFindNav) queueFindNav.hidden = !on;'), "r79: visibility driven by queue-view + non-empty query");
+  assert.ok(!SRC.includes("Enter jumps to the next`"), "r79: placeholder no longer carries status text (invisible while typing — the user's complaint)");
+
+  // buttons keep input focus (mousedown guard) and Enter still means next
+  assert.ok(SRC.includes('btn.addEventListener("mousedown", event => event.preventDefault());'), "r79: Prev/Next keep focus in the box so Enter chains");
+  assert.ok((SRC.match(/qfBind\(queueFind(Next|Prev), "(next|prev)"\);/g) || []).length === 2, "r79: both buttons bound");
+
+  // chip state stays in sync with every box mutation + view switch
+  assert.ok(SRC.includes('queueFindStatus(); // round 79: find chip + Prev/Next follow the box state'), "r79: updatePlaylistSearchClear syncs the chip");
+  assert.ok(SRC.includes('queueFindStatus(); // round 79: chip only exists in the queue view'), "r79: chrome syncs the chip");
+  assert.ok(SRC.includes('.toggle("miss", !n)'), "r79: miss state is red-flagged");
+  assert.ok(SRC.includes("const cyc = n > 1;"), "r79: cycling buttons disable when there is nothing to cycle");
+
+  // sidebar boot paint: loadCore (after the bridge) renders it once — the module-level
+  // call cannot work because `invoke` is still null there
+  assert.ok(SRC.includes("if (artistSidebarOpen && artistSidebarActive() && !artistSidebarCache) void renderArtistSidebarData();"), "r79: cold webview onto Artists shows names without toggling");
+
+  // crowded sidebars must not flex-squash name rows
+  assert.ok(CSS.includes(".lib-side-artist { flex: 0 0 auto;"), "r79: rows keep full height; the list scrolls instead");
+
+  // artist discography in Details view = real aligned columns
+  assert.ok(SRC.includes('if (detailsOn) trackList.style.setProperty("--lib-cols", libColsGrid());'), "r79: discography gets the user's column grid too");
+  assert.ok(SRC.includes('`<div class="track-row lib-cols" data-track-id="${esc(track.id)}" data-album-index="${ai}" data-track-index="${ti}">${libColsRowCells(track, ti)}</div>`'), "r79: column track line, per-album numbering");
+  assert.ok(SRC.includes("libView !== \"compact\" && !detailsOn;"), "r79: two-col album grid yields to the column grid");
+  assert.ok(SRC.includes("background:var(--card);margin:0 6px"), "r79: discography header mirrors the rows' 6px lateral margin (604@157 both)");
+});
+
+// ───────────────────────────────────────────────────────── round 80: weight, header drag, cycle
+test("round 80 · lc-title 400, drag-to-reorder headers, find-cycle survives scroll paints", () => {
+  const SRC = fs.readFileSync(path.join(repoRoot, "src", "library.ts"), "utf8");
+  const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
+
+  assert.ok(CSS.includes(".lc-title { font-weight: 400; }"), "r80: Details titles at body weight (user request)");
+
+  // Round 81 SUPERSEDES the r80 HTML5 wiring: Tauri's dragDropEnabled (needed for OS file
+  // drops via onDragDropEvent) makes WebView2 reject HTML5 drags — the ⃠ cursor the user
+  // kept seeing. Reordering is POINTER-based now; no draggable attribute may return.
+  assert.ok(!SRC.includes('draggable="true" data-col-id'), "r81: header spans are NOT HTML5-draggable anymore");
+  assert.ok(!SRC.includes('<div class="lcm-item" draggable'), "r81: menu rows likewise");
+  assert.ok(SRC.includes('trackList?.addEventListener("pointerdown"') && SRC.includes('trackList?.addEventListener("pointermove"'), "r81: delegated pointer listeners on #trackList");
+  assert.ok(SRC.includes("try { span.setPointerCapture(event.pointerId); } catch {}"), "r81: capture guarded (synthetic/handoff pointers)");
+  assert.ok(SRC.includes('target.classList.add(event.clientX < r.left + r.width / 2 ? "col-over" : "col-over-r");'), "r81: left/right half picks the insertion side");
+  assert.ok(SRC.includes("libColOrder = order;") && SRC.includes("persistLibColumns();"), "r80/r81: drop reorders the same persisted order the menu uses");
+  assert.ok(CSS.includes(".lib-col-head .lc-draggable { cursor: grab; user-select: none; touch-action: none; }"), "r81: grab affordance + touch-action");
+  assert.ok(CSS.includes(".lib-col-head .lc-draggable.col-over-r { box-shadow: inset -2px 0 0 var(--accent); }"), "r81: right-side drop indicator");
+
+  // the reset-loop fix: scroll paints re-attach, data paints re-query; stale rows hunt ONCE
+  assert.ok(SRC.includes("if (reset) void queueFindResync(); else queueFindHighlight();"), "r80: Enter/Next survive the scroll-triggered repaint");
+  assert.ok(SRC.includes('if (queueFindHunt === key) return;'), "r80: the keep-hunt cannot loop");
+  assert.ok(SRC.includes('async function queueFindStep(dir: "first" | "next" | "prev" | "keep")'), "r80: keep-mode re-queries at the same cycle position");
+
+  // release notes — the delivery doc lives OUTSIDE the repo (next to HANDOFF
+  // in the zip layout), so a CI checkout that only contains the app tree must
+  // not choke on it: the pin is enforced when the file is present, skipped
+  // when it isn't. Tests never read past the repo root.
+  const notesPath = path.join(repoRoot, "..", "RELEASE-NOTES-1.1.0.md");
+  if (fs.existsSync(notesPath)) {
+    const NOTES = fs.readFileSync(notesPath, "utf8");
+    assert.ok(NOTES.includes("Round 80") || NOTES.includes("round 80"), "r80: release note present");
+  }
+});
+
+// ───────────────────────────────────────────────────────── round 81: root-tab sizing
+test("round 81 · 12px root names, 3px cover radius (default 36px, details 28px)", () => {
+  const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
+  assert.ok(CSS.includes(".lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 12px;"), "r81: Default root names 14→12 (only Default — compact/tiles/details keep own rules)");
+  assert.ok(CSS.includes('#trackList[data-lib-view="details"] .lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 12px; }'), "r81: Details root names 14→12");
+  assert.ok(CSS.includes('#trackList[data-lib-view="default"] .lib-item:not(.lib-card) .lib-avatar { border-radius: 3px !important; }'), "r81: Default keeps 36px covers, radius 9→3");
+  assert.ok(CSS.includes('#trackList[data-lib-view="details"] .lib-item .lib-avatar { width: 28px; height: 28px; border-radius: 3px !important; }'), "r81: Details root covers 36→28 + 3px (discography heads untouched)");
+});
+
+// ───────────────────────────────────────────────────────── round 82: label-press drags + 3px everywhere
+test("round 82 · menu rows drag from anywhere (label included), checkboxes stay clickable, cover radii 3px", () => {
+  const SRC = fs.readFileSync(path.join(repoRoot, "src", "library.ts"), "utf8");
+  const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
+
+  // r81's bug: the pointerdown guard skipped label targets — the label spans
+  // nearly the whole row, so real users could never start a drag.
+  assert.ok(!SRC.includes('closest("label,input")) return;'), "r82: no label exclusion on menu drag start");
+  assert.ok(SRC.includes("if (e.button !== 0) return;"), "r82: press anywhere (any target) arms the drag");
+  assert.ok(SRC.includes("if (!lcmMoved && Math.abs(e.clientY - lcmStartY) < 4) return;"), "r82: 4px intent threshold separates click from drag");
+  assert.ok(SRC.includes('menu.dataset.lcmPointerBound'), "r82: menu-level listeners bind once per menu element");
+  assert.ok(SRC.includes("window.addEventListener(\"pointerup\", endLcm);"), "r82: releasing outside the menu still commits");
+  assert.ok(SRC.includes("setTimeout(() => { lcmSwallowClick = false; }, 0);"), "r82: stale swallow-click flag self-clears");
+  assert.ok(SRC.includes("lcmSwallowClick = false; // a stale swallow flag must never survive a reopen"), "r82: flag also reset on open");
+
+  // all cover corners in the listed rules collapse to 3px
+  assert.ok(CSS.includes(".lib-avatar {\n  width: 36px; height: 36px; border-radius: 3px;"), "r82: base avatar 3px");
+  assert.ok(CSS.includes(".lib-avatar.lib-avatar-album { border-radius: 3px; }"), "r82: album avatar variant 3px");
+  assert.ok(CSS.includes(".lib-avatar {\n  border-radius: 3px !important;"), "r82: blanket avatar 3px");
+  assert.ok(CSS.includes(".lib-avatar.lib-avatar-album {\n  border-radius: 3px !important;"), "r82: blanket album avatar 3px");
+  assert.ok(CSS.includes(".track-cover-mini {\n  border-radius: 3px !important;"), "r82: mini covers 3px");
+  assert.ok(CSS.includes("aspect-ratio: 1; border-radius: 3px !important;"), "r82: tiles card covers 3px too");
+  assert.ok(CSS.includes('data-pl-view="compact"] .track-row .track-cover-mini { width: 22px; height: 22px; border-radius: 3px;'), "r82: compact playlist mini covers joined the 3px pass");
+  assert.ok(!CSS.includes("border-radius: 9px !important;\n  box-shadow: 0 2px 6px"), "r82: the 9px avatar override is gone");
+  assert.ok(!CSS.includes(".track-cover-mini {\n  border-radius: 7px !important;"), "r82: the 7px mini-cover override is gone");
+});
+
+// ───────────────────────────────────────────────────────── round 83: tiles search rows + translucent artist sidebar
+test("round 83 · Tiles: only real card grids get the 190px row height (searched tracks stay 54px)", () => {
+  const SRC = fs.readFileSync(path.join(repoRoot, "src", "library.ts"), "utf8");
+
+  // One predicate decides BOTH the row height and the row template, so the two
+  // can never disagree again (that disagreement was the bug: a query under
+  // Tiles + Track List painted 54px-tall track rows into 190px-tall slots).
+  assert.ok(SRC.includes("function tilesCardsActive(): boolean {"), "r83: tilesCardsActive() helper exists");
+  assert.ok(SRC.includes('if (libView !== "tiles" || libraryMode() !== "groups" || librarySearch) return false;'), "r83: no cards outside the tiles group roots / never while searching");
+  assert.ok(SRC.includes('return !((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);'), "r83: an artist drill-in is not a card grid either");
+  assert.ok(SRC.includes("if (tilesCardsActive()) return 190;"), "r83: row height follows the card predicate");
+  assert.ok(SRC.includes("const card = tilesCardsActive();"), "r83: the card template follows the SAME predicate");
+  // anti-pins: the old height condition ignored the search state
+  assert.ok(!SRC.includes('if (libView === "tiles" && libraryMode() === "groups") return 190;'), "r83: the search-blind 190px condition is gone");
+  assert.ok(!SRC.includes('const card = libView === "tiles" && libraryMode() === "groups" && !librarySearch;'), "r83: the duplicated inline card condition is gone");
+  // untouched neighbours
+  assert.ok(SRC.includes('if (libView === "compact") return 36;'), "r83: compact row height unchanged");
+  assert.ok(SRC.includes('if (libView === "details") return 40;'), "r83: details row height unchanged");
+});
+
+test("round 83 · artist sidebar background is 35% of --track-bg (translucent)", () => {
+  const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
+  const rule = CSS.split("\n").find(l => l.startsWith(".lib-artist-sidebar {"));
+  assert.ok(rule, "r83: .lib-artist-sidebar rule present");
+  assert.ok(rule.includes("background: color-mix(in srgb, var(--track-bg) 35%, transparent);"), "r83: sidebar uses color-mix(in srgb, var(--track-bg) 35%, transparent)");
+  assert.ok(!rule.includes("background: var(--card)"), "r83: the solid --card background is gone from the sidebar");
+  // the list/rows stay transparent so the tint actually shows through
+  assert.ok(CSS.includes(".lib-side-artist { flex: 0 0 auto; display: block; width: 100%; text-align: left; border: 0; background: transparent;"), "r83: sidebar rows stay transparent");
+});
+
+// ───────────────────────────────────────────────────────── round 84: tiles resize keeps covers constant, count varies
+test("round 84 · Tiles columns: fixed 132px covers, only the COUNT changes on resize", () => {
+  const SRC = fs.readFileSync(path.join(repoRoot, "src", "library.ts"), "utf8");
+  // Each column must be ≥ ~156px so the avatar (col minus padding/gap) always
+  // reaches its 132px cap → constant cover size; and the column count must be
+  // uncapped so widening the window adds cards instead of stretching them.
+  assert.ok(SRC.includes('if (libView === "tiles") return Math.max(2, Math.floor((width + GRID_GAP) / 156));'), "r84: 156px divisor, no upper cap");
+  assert.ok(!SRC.includes("Math.min(6, Math.floor((width + GRID_GAP) / 118))"), "r84: the old ÷118 capped-at-6 formula is gone");
+  assert.ok(!/libView === "tiles"\) return Math\.max\(2, Math\.min\(6,/.test(SRC), "r84: no 6-column cap remains on the tiles branch");
+  // the 132px cap that the divisor relies on is still present in the card CSS
+  const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
+  assert.ok(CSS.includes("max-width: 132px; max-height: 132px;"), "r84: covers still capped at 132 both axes");
+});

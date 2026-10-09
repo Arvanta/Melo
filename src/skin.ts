@@ -137,7 +137,7 @@ function cleanTrustedSkinHtml(html: string): string {
     .replace(/\son[a-z][a-z0-9_-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
-export function applyCustomSkin(htmlText: string, toast?: (m: string) => void, applyGeometry = true) {
+export function applyCustomSkin(htmlText: string, toast?: (m: string) => void, applyGeometry: boolean | "constraints" = true) {
   htmlText = cleanTrustedSkinHtml(htmlText);
   const playerCard = document.getElementById("playerCard") as HTMLElement;
   if (!playerCard) return;
@@ -195,15 +195,19 @@ export function applyCustomSkin(htmlText: string, toast?: (m: string) => void, a
   }
 
   // Persist the window geometry declared by a full skin. Always saved (so a
-  // restart can honour it), but the resize event is emitted only when the
-  // user explicitly picks/imports a skin — re-applying the same skin at
-  // boot or on a theme change must NOT snap the window back to the skin's
-  // default size.
+  // restart can honour it). The melo:skin-geometry event carries a
+  // constraintsOnly flag on RE-APPLIES (boot / theme change): the main window
+  // then re-enforces min/max/resizable but keeps the user's current window
+  // size. Only an explicit pick/import (applyGeometry === true) may snap the
+  // window to the skin's declared size — snapping on a re-apply used to undo
+  // the boot size-restore ~150ms after startup and PERSIST the wrong size,
+  // so resized custom-skin windows reverted to the skin default after every
+  // restart or theme switch (round 74).
   if (isFull) {
     const geometry = parseSkinGeometry(htmlText);
     if (geometry) {
       localStorage.setItem("melo-skin-geometry", JSON.stringify(geometry));
-      if (applyGeometry) busEmit("melo:skin-geometry", geometry);
+      if (applyGeometry) busEmit("melo:skin-geometry", applyGeometry === "constraints" ? { ...geometry, constraintsOnly: true } : geometry);
     } else {
       localStorage.removeItem("melo-skin-geometry");
     }
@@ -254,7 +258,7 @@ export async function listInstalledSkins(): Promise<SkinItem[]> {
 export async function loadSkinFromDisk(
   filenameOrPath: string,
   toast?: (m: string) => void,
-  applyGeometry = true,
+  applyGeometry: boolean | "constraints" = true,
   token?: number,
   silentFail = false
 ): Promise<boolean> {
@@ -295,7 +299,7 @@ export async function loadSkinFromDisk(
   return false;
 }
 
-export async function applySkinChoice(skinChoice: string, currentTheme: "light" | "dark", toast?: (m: string) => void, broadcast = true, applyGeometry = true): Promise<boolean> {
+export async function applySkinChoice(skinChoice: string, currentTheme: "light" | "dark", toast?: (m: string) => void, broadcast = true, applyGeometry: boolean | "constraints" = true): Promise<boolean> {
   // Claim the race token: any older in-flight switch becomes a no-op.
   const token = ++skinApplyToken;
   const guardedToast = toast
@@ -357,12 +361,14 @@ export function setupSkinEngine(toast: (m: string) => void) {
 
   if (savedSkinId && savedSkinId !== "default") {
     setTimeout(() => {
-      // Boot re-application RE-ENFORCES the skin's declared geometry
-      // (applyGeometry=true): with `false`, the PREVIOUS skin's min/max/
-      // resizable constraints stayed on the OS window and skins booted
-      // height-locked or at wrong sizes. If the saved skin can no longer be
-      // loaded (removed from disk), fall back to Default without an error.
-      applySkinChoice(savedSkinId, theme, undefined, false, true).catch?.(() => {
+      // Boot re-application RE-ENFORCES the skin's window constraints with
+      // mode "constraints": constraints yes, size-snap NO. The window size at
+      // boot is owned by the saved-geometry restore in main.ts (the user's own
+      // resized size); snapping to the skin's declared size here used to undo
+      // it ~150ms after startup AND persist that wrong size (round 74). A skin
+      // that can no longer be loaded still falls back to Default without an
+      // error.
+      applySkinChoice(savedSkinId, theme, undefined, false, "constraints").catch?.(() => {
         resetSkin(undefined, false);
       });
     }, 150);
@@ -371,9 +377,10 @@ export function setupSkinEngine(toast: (m: string) => void) {
   busOn("melo:theme", (t: any) => {
     const activeSkin = localStorage.getItem("melo-active-skin-id");
     if (activeSkin && activeSkin !== "default") {
-      // applyGeometry=true: a theme re-apply must also restore the skin's
-      // declared window constraints, not keep stale ones.
-      applySkinChoice(activeSkin, t, undefined, false, true);
+      // A theme re-apply re-enforces the skin's declared window CONSTRAINTS
+      // (mode "constraints") but must NOT reset the user's window size — the
+      // toggle changes colors, not geometry (round 74).
+      applySkinChoice(activeSkin, t, undefined, false, "constraints");
     }
   });
 
@@ -482,4 +489,88 @@ export function setupSkinEngine(toast: (m: string) => void) {
   });
 
   (window as any).LumiSkin = { applyCustomSkin, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk };
+}
+
+// ---------------------------------------------------------------------
+// Skin feature detection (round 85)
+//
+// The Settings → Appearance & Skin row shows which of three features the
+// selected skin supports. The source of truth is the skin's own hooks, read
+// with the same rules the runtime uses (findHook: legacy id OR data-melo):
+//   currentLyric     ← #skinCurrentLyric / #skinNextLyric / data-melo current-lyric | next-lyric
+//   embeddedLyrics   ← #embedded-lyrics   / data-melo embedded-lyrics
+//   embeddedPlaylist ← #embedded-playlist / data-melo embedded-playlist
+// The file is parsed once per skin and cached. DOMParser does not run
+// scripts or load resources, so this stays cheap and side-effect free.
+// ---------------------------------------------------------------------
+
+export interface SkinCapabilities {
+  currentLyric: boolean;
+  embeddedLyrics: boolean;
+  embeddedPlaylist: boolean;
+}
+
+/** The built-in Default skin ships all three hooks (see main.ts player template). */
+export const DEFAULT_SKIN_CAPABILITIES: SkinCapabilities = {
+  currentLyric: true,
+  embeddedLyrics: true,
+  embeddedPlaylist: true,
+};
+
+const NO_SKIN_CAPABILITIES: SkinCapabilities = {
+  currentLyric: false,
+  embeddedLyrics: false,
+  embeddedPlaylist: false,
+};
+
+export function detectSkinCapabilities(htmlText: string): SkinCapabilities {
+  const doc = new DOMParser().parseFromString(htmlText, "text/html");
+  const has = (id: string, role: string) =>
+    !!doc.getElementById(id) || !!doc.querySelector(`[data-melo="${role}"]`);
+  return {
+    currentLyric: has("skinCurrentLyric", "current-lyric") || has("skinNextLyric", "next-lyric"),
+    embeddedLyrics: has("embedded-lyrics", "embedded-lyrics"),
+    embeddedPlaylist: has("embedded-playlist", "embedded-playlist"),
+  };
+}
+
+const skinCapabilityCache = new Map<string, SkinCapabilities>();
+
+/** Drop cached results: call after a skin is imported, refreshed or deleted. */
+export function clearSkinCapabilityCache(): void {
+  skinCapabilityCache.clear();
+}
+
+/**
+ * Capabilities of a skin choice (the stored skin id / filename). Reads the
+ * file through the same channels as loadSkinFromDisk. Failed reads are not
+ * cached, so a skin that appears later is picked up on the next refresh.
+ */
+export async function getSkinCapabilities(skinChoice: string): Promise<SkinCapabilities> {
+  if (!skinChoice || skinChoice === "default") return DEFAULT_SKIN_CAPABILITIES;
+  let targetFile = skinChoice;
+  if (!targetFile.endsWith(".html") && !targetFile.endsWith(".htm")) targetFile += ".html";
+
+  const cached = skinCapabilityCache.get(targetFile);
+  if (cached) return cached;
+
+  let text = "";
+  if (isTauri) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const content: string = await invoke("read_skin_file", { filenameOrPath: targetFile });
+      if (content && content.trim().length > 0) text = content;
+    } catch {}
+  }
+  if (!text) {
+    try {
+      const resp = await fetch(`skins/${targetFile}`);
+      if (resp.ok) text = await resp.text();
+    } catch {}
+  }
+  if (!text) return NO_SKIN_CAPABILITIES;
+
+  const caps = detectSkinCapabilities(text);
+  skinCapabilityCache.set(targetFile, caps);
+  return caps;
 }

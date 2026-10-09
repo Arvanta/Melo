@@ -493,11 +493,15 @@ body.row-reordering, body.row-reordering * { cursor: grabbing !important; user-s
 .track-row .t-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-row .t-artist { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-row .t-dur { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+/* Most Played: play count sits directly left of the duration (round 73). */
+.track-row .t-plays { font-size: 10px; color: var(--text-muted); flex: 0 0 auto; margin-right: 8px; font-variant-numeric: tabular-nums; }
 /* Group (artist/album/genre) row titles in the Library — slightly larger
    than track titles, but smaller than the previous 16px body default */
-.lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Round 81 (user): root-tab names at 12px in Default — reads as data, same
+   rationale as the Details titles below. Compact/tiles keep their own sizes. */
+.lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .lib-item:not(.lib-card):not(.track-row) .t-artist { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.track-cover-mini { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; background: var(--track-bg); flex-shrink: 0; }
+.track-cover-mini { width: 32px; height: 32px; border-radius: 3px; object-fit: cover; background: var(--track-bg); flex-shrink: 0; }
 .chip { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: var(--track-bg); color: var(--text-soft); border: 1px solid var(--card-border); cursor: pointer; white-space: nowrap; }
 .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
 .tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--card-border); overflow-x: auto; align-items: center; }
@@ -518,8 +522,16 @@ body.row-reordering, body.row-reordering * { cursor: grabbing !important; user-s
   box-sizing: border-box;
 }
 .lib-card .lib-avatar, .lib-card .track-cover-mini {
-  width: 100% !important; height: auto !important; aspect-ratio: 1; border-radius: 8px !important;
-  font-size: 22px; flex-shrink: 1; min-height: 0; max-height: calc(100% - 34px);
+  /* round 82: 3px corners in every view, tiles included (user request). */
+  width: 100% !important; height: auto !important; aspect-ratio: 1; border-radius: 3px !important;
+  font-size: 22px; flex-shrink: 1; min-height: 0;
+  /* Round 73: square AND as tall as the row allows. The old cap
+     (100% - 34px of a 148px row ≈ 90px) clipped only the HEIGHT on wide
+     columns, so the art became a wide band. The row is 190px now and BOTH
+     axes are capped at the cover's full slot (190 - 8 margin - 16 padding -
+     ~34 text = 132), centred — so width and height are always the same size
+     and the cover is 132px where it used to top out near 90. */
+  max-width: 132px; max-height: 132px; align-self: center;
 }
 .lib-card .t-title {
   font-size: 11px; font-weight: 650; line-height: 1.25; text-align: center;
@@ -538,7 +550,7 @@ body.row-reordering, body.row-reordering * { cursor: grabbing !important; user-s
 #trackList[data-lib-view="compact"] .track-cover-mini { width: 22px; height: 22px; }
 #trackList[data-lib-view="compact"] .t-title { font-size: 11px; font-weight: 600; }
 #trackList[data-lib-view="compact"] .t-artist { font-size: 10px; }
-#trackList[data-lib-view="details"] .lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 14px; }
+#trackList[data-lib-view="details"] .lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 12px; }
 #trackList[data-lib-view="compact"] .t-dur { font-size: 10px; }
 .tab { padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; background: transparent; color: var(--text-soft); white-space: nowrap; }
 .tab.active { background: var(--track-bg); color: var(--text); }
@@ -718,13 +730,13 @@ body.tauri-main.custom-skin-active .app-shell { min-width: 0 !important; }
 [data-theme="dark"] .lib-item { border-color: rgba(255,255,255,0.04); }
 .lib-item:hover { background: var(--track-bg); }
 .lib-avatar {
-  width: 36px; height: 36px; border-radius: 8px;
+  width: 36px; height: 36px; border-radius: 3px;
   background: linear-gradient(135deg, #8fb9e8, #d6b8e0);
   color: white; display: grid; place-items: center;
   font-weight: 700; font-size: 14px; flex-shrink: 0;
   background-size: cover; background-position: center;
 }
-.lib-avatar.lib-avatar-album { border-radius: 8px; }
+.lib-avatar.lib-avatar-album { border-radius: 3px; }
 
 /* Group row counts (artists/genres/albums subtitles) — smaller & dimmer */
 .lib-item .lib-count {
@@ -1171,6 +1183,25 @@ and embedded panel) and artist albums. */
 .panel-library .panel-body::-webkit-scrollbar,
 .panel-playlist .panel-body::-webkit-scrollbar { width: 9px; height: 9px; }
 .artist-album-chips::-webkit-scrollbar { width: 6px; height: 6px; }
+/* Round 80: the sticky header labels are real drag handles (see libColsHeader). */
+/* Round 81 (user): tighter covers at the root tabs — Default keeps the 36px
+   sheet but loses the soft 9px round (3px now); Details shrinks the avatar
+   to 28px alongside the same 3px radius so the 12px name line balances. */
+#trackList[data-lib-view="default"] .lib-item:not(.lib-card) .lib-avatar { border-radius: 3px !important; }
+#trackList[data-lib-view="details"] .lib-item .lib-avatar { width: 28px; height: 28px; border-radius: 3px !important; }
+.lib-col-head .lc-draggable { cursor: grab; user-select: none; touch-action: none; }
+.lib-col-head .lc-draggable.dragging { opacity: .4; cursor: grabbing; }
+.lib-col-head .lc-draggable.col-over { box-shadow: inset 2px 0 0 var(--accent); }
+.lib-col-head .lc-draggable.col-over-r { box-shadow: inset -2px 0 0 var(--accent); }
+.queue-find-nav { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; height: 28px; padding: 0 4px; border: 1px solid var(--card-border); border-radius: 8px; background: var(--track-bg); }
+.queue-find-nav[hidden] { display: none; }
+.queue-find-count { font-size: 10.5px; color: var(--text-muted); min-width: 30px; text-align: center; font-variant-numeric: tabular-nums; }
+.queue-find-count.miss { color: #e5484d; }
+.queue-find-btn { width: 20px; height: 22px; padding: 0; justify-content: center; font-size: 13px; line-height: 1; }
+.queue-find-btn:disabled { opacity: .35; }
+/* Round 78 · Find-in-Queue flash: the queue view is never filtered, the
+   match is only marked (accent-tinted row + inset ring, above .active). */
+#winPlaylistTracks .track-row.pl-find { background: color-mix(in srgb, var(--accent) 24%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
 #trackList::-webkit-scrollbar-track,
 #winPlaylistTracks::-webkit-scrollbar-track,
 #lyricsContainer::-webkit-scrollbar-track,
@@ -1404,22 +1435,26 @@ LIBRARY & PLAYLIST — professional redesign (v0.8.0)
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-/* Track mini-cover */
+/* Track mini-cover — round 82: cover corners collapse to 3px everywhere
+   (was 9/8/7 depending on which rule won); consistent with the r81 density pass. */
 .track-cover-mini {
-  border-radius: 7px !important;
+  border-radius: 3px !important;
   box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
 .lib-avatar {
-  border-radius: 9px !important;
+  border-radius: 3px !important;
   box-shadow: 0 2px 6px rgba(0,0,0,0.14);
   overflow: hidden;
 }
 .lib-avatar.lib-avatar-album {
-  border-radius: 9px !important;
+  border-radius: 3px !important;
 }
 
-/* Group rows (artist/album/genre) — more visual weight */
-.lib-item:not(.lib-card):not(.track-row) {
+/* Group rows (artist/album/genre) — more visual weight.
+   Round 77: Details-view group rows (.lib-cols) are excluded — their padding
+   is inline (kept in sync with the sticky header) and the !important 12px +
+   6px margin here used to slide every column a few px left of the header. */
+.lib-item:not(.lib-card):not(.track-row):not(.lib-cols) {
   padding: 10px 12px !important;
   margin: 3px 6px;
 }
@@ -1818,7 +1853,7 @@ hover changes ONLY the glyph color — never a background (the base
 
 /* Compact playlist view: the virtual list measures rows itself; these
    rules only shrink the painted content so a 36px row stays legible. */
-#winPlaylistTracks[data-pl-view="compact"] .track-row .track-cover-mini { width: 22px; height: 22px; border-radius: 4px; }
+#winPlaylistTracks[data-pl-view="compact"] .track-row .track-cover-mini { width: 22px; height: 22px; border-radius: 3px; /* round 82 */ }
 #winPlaylistTracks[data-pl-view="compact"] .track-row .t-title { font-size: 11px; line-height: 1.2; }
 #winPlaylistTracks[data-pl-view="compact"] .track-row .t-artist { font-size: 9.5px; line-height: 1.2; }
 
@@ -2141,6 +2176,10 @@ few-px band where scrolled rows peek through. */
   margin: 2px 0 8px; font-size: 11px; color: var(--text-muted);
 }
 .lib-sheet-sub { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* count + total time stay together as one right-hand group; the count is the
+   left member of it (round 73). */
+.lib-sheet-measures { display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; }
+.lib-sheet-count { flex: 0 0 auto; }
 .lib-sheet-mins { flex: 0 0 auto; }
 .lib-sheet-tracks { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 12px; }
 /* Two columns (filled top-to-bottom) once each column has ~260 px; otherwise one. */
@@ -2209,3 +2248,106 @@ few-px band where scrolled rows peek through. */
 .lib-sheet-row.now-playing .ls-title { color: var(--accent); font-weight: 650; }
 .track-row.now-playing .num,
 .lib-sheet-row.now-playing .ls-num { color: var(--accent); font-weight: 700; }
+
+/* ═══════════════ round 75 · artist sidebar · column Details view ═══════════════ */
+
+/* Library body split: sidebar + (search sections / track list) column */
+.lib-body-split { flex: 1; display: flex; min-height: 0; }
+.lib-main-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.lib-alone-btn { margin-left: -6px; }
+
+/* Artist list sidebar: names ONLY, compact, always jumpable */
+/* Translucent panel (round 83): 35% of --track-bg over whatever sits behind it,
+   so the sidebar reads as part of the window instead of a solid card. */
+.lib-artist-sidebar { width: 142px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--card-border); background: color-mix(in srgb, var(--track-bg) 35%, transparent); }
+/* a class display would beat the [hidden] attribute — keep the toggle honest */
+.lib-artist-sidebar[hidden] { display: none; }
+.lib-artist-sidebar-head { font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; padding: 8px 10px 5px; }
+.lib-artist-sidebar-list { flex: 1; overflow-y: auto; padding: 0 6px 8px; display: flex; flex-direction: column; gap: 1px; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; scrollbar-gutter: stable; }
+/* round 77: WebView2 paints a classic (space-less, OVERLAYING) scrollbar here —
+   with no gutter reservation long artist names slid under it and looked
+   "printed on top of each other". Thin + gutter-stable keeps the text clear. */
+.lib-artist-sidebar-list::-webkit-scrollbar { width: 6px; }
+.lib-artist-sidebar-list::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; }
+.lib-artist-sidebar-list::-webkit-scrollbar-track { background: transparent; }
+/* Round 79: rows are children of a flex column — with default flex-shrink:1
+   a crowded sidebar SQUASHED every ~22px name row to ~10px (measured), and
+   the ellipsis-clipped text read as names piled on each other. Shrink off;
+   the list already scrolls. */
+.lib-side-artist { flex: 0 0 auto; display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text); font-size: 11.5px; font-family: inherit; padding: 4px 8px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-side-artist:hover { background: var(--track-bg); }
+.lib-side-artist.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 600; }
+.lib-side-empty { padding: 8px; font-size: 10.5px; color: var(--text-muted); }
+
+/* "All"-filter search sections: artists first, then albums, tracks below */
+.lib-search-sections { border-bottom: 1px solid var(--card-border); background: var(--card); padding: 8px 10px 9px; flex-shrink: 0; }
+.lib-search-sections[hidden] { display: none; }
+.lse-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 4px 14px; }
+.lse-sec h4 { margin: 0 0 3px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 700; }
+.lse-row { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--text); font-size: 12px; font-family: inherit; padding: 3px 6px; border-radius: 6px; cursor: pointer; text-align: left; }
+.lse-row:hover { background: var(--track-bg); }
+.lse-row .t-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lse-row .lib-count { font-size: 10px; }
+.lse-avatar { width: 22px; height: 22px; border-radius: 5px; flex-shrink: 0; font-size: 10px; }
+
+/* Artist/Album field search: the entity list REPLACES the track rows */
+.les-head { padding: 8px 12px 6px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 700; }
+.les-row { display: flex; align-items: center; gap: 9px; padding: 6px 12px; cursor: pointer; border-radius: 8px; margin: 0 6px; min-width: 0; }
+.les-row:hover { background: var(--card); }
+.les-row .t-title { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Details view: aligned columns (grid shared by header + rows via --lib-cols) */
+.lib-cols { display: grid; grid-template-columns: var(--lib-cols, 26px minmax(120px, 2.2fr) 30px); align-items: center; gap: 10px; }
+/* round 77: Details view at the group roots — Name · Details · Tracks */
+.lib-item.lib-cols .lc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-item.lib-cols .g-count { text-align: right; font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* round 77: also covers group rows (.lib-item) — the panel-window-scoped
+   .lib-item padding rule out-specifies a plain class pair, so the Details
+   override must ride on the #trackList id like the track rows always did. */
+#trackList[data-lib-view="details"] .lib-col-head.lib-cols { padding-left: 8px; padding-right: 6px; }
+#trackList[data-lib-view="details"] .lib-cols { gap: 10px; }
+/* round 77: the blanket 8px/10px !important padding for .lib-item/.track-row
+   beat the Details alignment — same-weight !important at higher specificity
+   wins and puts BOTH header and rows on exactly 8/6. */
+#trackList[data-lib-view="details"] .lib-item.lib-cols,
+#trackList[data-lib-view="details"] .track-row.lib-cols { padding-left: 8px !important; padding-right: 6px !important; }
+.lib-col-head { padding: 6px 8px 5px; border-bottom: 1px solid var(--card-border); font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; }
+.lib-col-head .lc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 12px; color: var(--text); }
+/* Round 80 (user): 600 was too loud for a data grid — Details titles read at body weight. */
+.lc-title { font-weight: 400; }
+.lc-sub { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.lc-right { text-align: right; padding-right: 4px; }
+
+/* Columns menu: toggles + drag-to-reorder */
+.lib-cols-menu { position: absolute; top: 126px; right: 12px; width: 208px; background: var(--card); border: 1px solid var(--card-border); border-radius: 10px; padding: 8px; z-index: 30; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); display: flex; flex-direction: column; gap: 1px; }
+.lib-cols-menu[hidden] { display: none; }
+.lcm-head { font-size: 9.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--text-muted); font-weight: 700; margin: 2px 4px 5px; }
+.lcm-title-pin { font-size: 11.5px; font-weight: 600; padding: 4px 6px; color: var(--text); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--card-border); margin-bottom: 3px; }
+.lcm-title-pin span { font-size: 9px; font-weight: 400; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.lcm-item { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px; cursor: grab; font-size: 11.5px; user-select: none; touch-action: none; }
+.lcm-item:hover { background: var(--track-bg); }
+.lcm-item.dragging { opacity: .4; }
+.lcm-handle { color: var(--text-muted); font-size: 10px; letter-spacing: -2px; cursor: grab; }
+.lcm-check { display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer; min-width: 0; }
+.lcm-hint { font-size: 9px; color: var(--text-muted); padding: 5px 6px 1px; }
+
+/* ── Skin feature row (round 85): Settings → Appearance & Skin ──
+   Three read-only chips on ONE line so the Settings window height stays
+   put. Yes = filled accent mark, no = outlined grey mark. */
+.skin-features {
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 14px;
+  min-width: 0; overflow: hidden; white-space: nowrap;
+  font-size: 11px; color: var(--text-soft);
+}
+.skin-feature { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.skin-feature-mark {
+  display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; flex: 0 0 auto;
+}
+.skin-feature-mark svg { width: 9px; height: 9px; }
+.skin-feature.yes .skin-feature-mark { background: var(--accent); color: #fff; }
+.skin-feature.no { opacity: 0.7; }
+.skin-feature.no .skin-feature-mark { background: var(--track-bg); color: var(--text-soft); border: 1px solid var(--card-border); }
+.skin-feature-note { font-size: 11px; color: var(--text-soft); margin-top: 3px; }
+/* The lyric switch stays visible but inert when the active skin has no slot. */
+.skin-feature-unavailable { opacity: 0.45; pointer-events: none; }

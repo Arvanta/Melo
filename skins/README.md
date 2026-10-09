@@ -221,8 +221,15 @@ Rules the engine follows:
 
 - **Opt-in per skin.** No `current-lyric` / `next-lyric` element in your
   markup → nothing happens at all, and no lyrics are fetched (no Rust
-  lookup, no LRCLIB request). The *default* skin doesn't use these hooks;
-  its embedded lyrics panel already highlights the active line.
+  lookup, no LRCLIB request). The built-in *default* skin ships the
+  `current-lyric` slot too, so it shows the line like any other skin.
+- **Shown in Settings automatically.** Settings → Appearance & Skin
+  reads your markup and shows a ✔ or ✘ for "Current lyric line",
+  "Embedded lyrics" and "Embedded playlist". Those marks come only from
+  these hooks (`current-lyric` or `next-lyric`, `embedded-lyrics`,
+  `embedded-playlist`, by `data-melo` or by the legacy id), so there is
+  nothing extra to declare. When your skin has no `current-lyric` slot,
+  the "Show current lyric line in skins" switch is greyed out.
 - **Only a synced `.lrc` can drive it.** Lyrics without timestamps (plain
   text) have no "current" line, so the slots stay hidden.
 - **Nothing to show → the slot is hidden by the engine.** It sets

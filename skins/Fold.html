@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Fold</title>
+<style>
+  /* FOLD — compact, calm and deliberately minimal. */
+  :root {
+    --fd-bg: #101214;
+    --fd-surface: #181b1e;
+    --fd-surface-hi: #202428;
+    --fd-ink: #edf0ec;
+    --fd-muted: #919994;
+    --fd-faint: #66706b;
+    --fd-line: rgba(255,255,255,.08);
+    --fd-hover: rgba(255,255,255,.07);
+    --fd-shadow: 0 22px 52px rgba(0,0,0,.34), 0 2px 8px rgba(0,0,0,.2);
+    --accent: #9bc2b0;
+    --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 32%, transparent);
+    --visualizer: var(--accent);
+    --fd-play-ink: #10201a;
+  }
+  :root[data-theme="light"] {
+    --fd-bg: #eef0ec;
+    --fd-surface: #fbfcf9;
+    --fd-surface-hi: #ffffff;
+    --fd-ink: #202724;
+    --fd-muted: #68716c;
+    --fd-faint: #929a95;
+    --fd-line: rgba(30,40,35,.10);
+    --fd-hover: rgba(30,40,35,.06);
+    --fd-shadow: 0 20px 46px rgba(45,58,50,.15), 0 2px 8px rgba(45,58,50,.07);
+    --accent: #477d69;
+    --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 25%, transparent);
+    --visualizer: var(--accent);
+    --fd-play-ink: #f8fbf8;
+  }
+
+  * { box-sizing: border-box; }
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center;
+    background: radial-gradient(56% 70% at 50% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 72%), var(--fd-bg);
+    color: var(--fd-ink);
+    font-family: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+
+  /* The #melo-player branch is for standalone preview; #playerCard is the
+     actual host after Melo imports a full HTML skin. */
+  #melo-player,
+  #playerCard,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(620px, 100%);
+    height: 200px;
+    min-width: 600px;
+    min-height: 200px;
+    margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    container-type: size; container-name: fold;
+    --fd-cover: clamp(152px, calc(100cqh - 48px), 200px);
+    display: grid; grid-template-rows: 30px minmax(0, 1fr);
+    color: var(--fd-ink);
+    background:
+      radial-gradient(48% 128% at 0% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 68%),
+      linear-gradient(135deg, var(--fd-surface-hi), var(--fd-surface));
+    border: 1px solid var(--fd-line);
+    border-radius: 18px;
+    box-shadow: var(--fd-shadow);
+    font-family: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-width: 0 !important; min-height: 0 !important; max-height: 100vh !important;
+    border-radius: 18px !important; box-shadow: none !important;
+  }
+
+  /* Title bar */
+  .fd-bar {
+    height: 30px; min-width: 0; padding: 0 8px 0 11px;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--fd-line);
+    -webkit-app-region: drag;
+  }
+  .fd-mark { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); flex: 0 0 auto; }
+  .fd-name { font-size: 9px; font-weight: 750; letter-spacing: .17em; color: var(--fd-muted); }
+  /* CSS-only outside-click close: a hidden checkbox opens the menu and a
+     transparent player-sized label closes it. No application JavaScript is needed. */
+  .fd-menu-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .fd-menu { position: relative; -webkit-app-region: no-drag; }
+  .fd-menu-button {
+    width: 22px; height: 22px; display: grid; place-items: center;
+    cursor: pointer; border-radius: 7px; color: var(--fd-muted);
+  }
+  .fd-menu-button:hover, #fd-menu-toggle:checked ~ .fd-bar .fd-menu-button { color: var(--fd-ink); background: var(--fd-hover); }
+  .fd-menu-button span, .fd-menu-button span::before, .fd-menu-button span::after {
+    width: 3px; height: 3px; display: block; border-radius: 50%; background: currentColor; content: "";
+  }
+  .fd-menu-button span { position: relative; }
+  .fd-menu-button span::before { position: absolute; top: -6px; }
+  .fd-menu-button span::after { position: absolute; top: 6px; }
+  .fd-menu-scrim { display: none; position: absolute; inset: 0; z-index: 10; cursor: default; -webkit-app-region: no-drag; }
+  #fd-menu-toggle:checked ~ .fd-menu-scrim { display: block; }
+  .fd-pop {
+    display: none; position: absolute; z-index: 20; top: 27px; left: 0;
+    width: 162px; padding: 5px; border: 1px solid var(--fd-line); border-radius: 10px;
+    background: color-mix(in srgb, var(--fd-surface-hi) 92%, transparent);
+    box-shadow: 0 14px 28px rgba(0,0,0,.2); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+  #fd-menu-toggle:checked ~ .fd-bar .fd-pop { display: block; }
+  .fd-top-actions { display: flex; align-items: center; gap: 1px; -webkit-app-region: no-drag; }
+  .fd-top-btn {
+    width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
+    border: 0; border-radius: 6px; color: var(--fd-muted); background: transparent; cursor: pointer;
+    transition: color .15s ease, background .15s ease;
+  }
+  .fd-top-btn:hover { color: var(--fd-ink); background: var(--fd-hover); }
+  .fd-top-btn svg { width: 12px; height: 12px; }
+  .fd-pop button {
+    width: 100%; height: 26px; padding: 0 8px; display: flex; align-items: center; gap: 8px;
+    border: 0; border-radius: 6px; background: transparent; color: var(--fd-muted); cursor: pointer;
+    font: 560 10px/1 Inter, "Segoe UI", system-ui, sans-serif; text-align: left;
+  }
+  .fd-pop button:hover { color: var(--fd-ink); background: var(--fd-hover); }
+  .fd-pop svg { width: 12px; height: 12px; flex: 0 0 auto; }
+  .fd-pop .fd-pop-sep { height: 1px; margin: 4px 3px; background: var(--fd-line); }
+  .fd-win { margin-left: auto; display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
+  .fd-win button {
+    width: 23px; height: 22px; padding: 0; display: grid; place-items: center;
+    border: 0; border-radius: 6px; background: transparent; color: var(--fd-muted); cursor: pointer;
+  }
+  .fd-win button:hover { color: var(--fd-ink); background: var(--fd-hover); }
+  .fd-win button.close:hover { color: #fff; background: #d7575b; }
+  .fd-win svg { width: 11px; height: 11px; }
+
+  /* Compact content */
+  .fd-body {
+    min-width: 0; min-height: 0; padding: 9px 11px;
+    display: grid; grid-template-columns: var(--fd-cover) minmax(0, 1fr); gap: 13px;
+  }
+  .fd-cover {
+    position: relative; width: var(--fd-cover); height: var(--fd-cover); overflow: hidden; align-self: center;
+    border-radius: 12px; background: color-mix(in srgb, var(--accent) 11%, var(--fd-surface));
+    box-shadow: inset 0 0 0 1px var(--fd-line), 0 8px 18px -10px rgba(0,0,0,.5);
+  }
+  .fd-cover img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .fd-fallback {
+    width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent);
+    background: radial-gradient(circle at 30% 24%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 54%), var(--fd-surface);
+  }
+  .fd-fallback svg { width: 43px; height: 43px; opacity: .85; }
+  .fd-fallback::after { content: "MELO"; position: absolute; bottom: 9px; left: 0; right: 0; text-align: center; color: var(--fd-faint); font-size: 7px; font-weight: 750; letter-spacing: .25em; }
+
+  /* Extra height is reserved for the visualizer. Metadata, seek and transport
+     stay compact while the visualizer grows alongside the square cover. */
+  .fd-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(24px, 1fr) 15px 28px; gap: 4px; }
+  .fd-meta { min-width: 0; }
+  .fd-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; font-weight: 650; line-height: 1.2; letter-spacing: -.016em; }
+  .fd-sub { margin-top: 2px; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--fd-muted); font-size: 10px; font-weight: 500; }
+  .fd-sub span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .fd-artist { flex: 0 1 auto; }
+  .fd-album { flex: 0 1 auto; color: var(--fd-faint); }
+  .fd-dot { flex: 0 0 auto; width: 3px; height: 3px; border-radius: 50%; background: var(--fd-faint); }
+  .fd-sub:has(.fd-album:empty) .fd-dot { display: none; }
+  .fd-info { margin-top: 5px; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--fd-faint); font-size: 8px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+  .fd-info > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .fd-chip { flex: 0 0 auto; padding: 2px 5px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); }
+  .fd-chip:empty { display: none; }
+  .fd-lyric {
+    display: block; flex: 1 1 90px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    color: color-mix(in srgb, var(--accent) 84%, var(--fd-muted)); font-size: 9px; font-weight: 580; letter-spacing: .014em; text-transform: none;
+    text-shadow: 0 1px 7px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .fd-lyric:empty, .fd-lyric.melo-lyric-empty { display: none !important; }
+  .fd-lyric::before {
+    content: ""; display: inline-block; width: 4px; height: 4px; margin: 0 6px 1px 0;
+    border-radius: 50%; background: var(--accent); vertical-align: middle;
+    box-shadow: 0 0 5px var(--accent-glow);
+  }
+  /* Quiet Signal: a new line gains focus through color and a small halo on
+     its marker — no sliding, resizing or background flash. */
+  .fd-lyric.melo-lyric-tick { animation: fd-lyric-focus .72s ease-out both; }
+  .fd-lyric.melo-lyric-tick::before { animation: fd-lyric-pulse .82s ease-out both; }
+
+  .fd-viz { position: relative; min-width: 0; min-height: 24px; overflow: hidden; border-radius: 8px; background: color-mix(in srgb, var(--fd-ink) 3%, transparent); cursor: pointer; }
+  .fd-viz::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 38%, color-mix(in srgb, var(--accent) 4%, transparent)); }
+  .fd-viz canvas { position: relative; width: 100% !important; height: 100% !important; display: block; }
+
+  .fd-seek { min-width: 0; display: grid; grid-template-columns: 29px minmax(0, 1fr) 29px; align-items: center; gap: 7px; }
+  .fd-time { color: var(--fd-faint); font-size: 8px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .fd-time.end { text-align: right; }
+  .fd-range { width: 100%; height: 13px; margin: 0; padding: 0; appearance: none; -webkit-appearance: none; outline: none; background: transparent; cursor: pointer; }
+  .fd-range::-webkit-slider-runnable-track { height: 3px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0, var(--accent) var(--progress, 0%), color-mix(in srgb, var(--fd-ink) 13%, transparent) var(--progress, 0%), color-mix(in srgb, var(--fd-ink) 13%, transparent) 100%); }
+  .fd-range::-moz-range-track { height: 3px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0, var(--accent) var(--progress, 0%), color-mix(in srgb, var(--fd-ink) 13%, transparent) var(--progress, 0%), color-mix(in srgb, var(--fd-ink) 13%, transparent) 100%); }
+  .fd-range::-webkit-slider-thumb { width: 9px; height: 9px; margin-top: -3px; border: 0; border-radius: 50%; appearance: none; -webkit-appearance: none; background: var(--fd-surface-hi); box-shadow: 0 0 0 2px var(--accent); opacity: 0; transition: opacity .14s ease; }
+  .fd-range::-moz-range-thumb { width: 9px; height: 9px; border: 0; border-radius: 50%; background: var(--fd-surface-hi); box-shadow: 0 0 0 2px var(--accent); opacity: 0; transition: opacity .14s ease; }
+  .fd-range:hover::-webkit-slider-thumb, .fd-range:active::-webkit-slider-thumb, .fd-range:hover::-moz-range-thumb, .fd-range:active::-moz-range-thumb { opacity: 1; }
+
+  .fd-bottom { min-width: 0; display: flex; align-items: center; gap: 2px; }
+  .fd-btn { width: 25px; height: 25px; padding: 0; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--fd-muted); background: transparent; cursor: pointer; transition: color .15s ease, background .15s ease, transform .15s ease; }
+  .fd-btn:hover { color: var(--fd-ink); background: var(--fd-hover); }
+  .fd-btn:active { transform: scale(.93); }
+  .fd-btn.active { color: var(--accent); background: var(--accent-soft); }
+  .fd-btn svg { width: 13px; height: 13px; }
+  .fd-play { width: 32px; height: 28px; margin: 0 3px; border-radius: 8px; color: var(--fd-play-ink); background: var(--accent); }
+  .fd-play:hover { color: var(--fd-play-ink); background: color-mix(in srgb, var(--accent) 85%, var(--fd-ink)); }
+  .fd-play svg { width: 15px; height: 15px; }
+  .fd-vol { min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 5px; }
+  .fd-vol-ico { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 6px; color: var(--fd-faint); background: transparent; cursor: pointer; }
+  .fd-vol-ico:hover { color: var(--fd-ink); background: var(--fd-hover); }
+  .fd-vol-ico.muted { opacity: .45; }
+  .fd-vol-ico svg { width: 12px; height: 12px; }
+  .fd-vol .fd-range { width: 68px; }
+  .fd-vol .fd-range::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) 0, var(--accent) var(--vol, 60%), color-mix(in srgb, var(--fd-ink) 13%, transparent) var(--vol, 60%), color-mix(in srgb, var(--fd-ink) 13%, transparent) 100%); }
+  .fd-vol .fd-range::-moz-range-track { background: linear-gradient(to right, var(--accent) 0, var(--accent) var(--vol, 60%), color-mix(in srgb, var(--fd-ink) 13%, transparent) var(--vol, 60%), color-mix(in srgb, var(--fd-ink) 13%, transparent) 100%); }
+  .fd-pct { display: none; }
+
+  @keyframes fd-lyric-focus {
+    0% { color: color-mix(in srgb, var(--accent) 52%, var(--fd-muted)); text-shadow: 0 1px 1px transparent; }
+    58% { color: var(--accent); text-shadow: 0 1px 11px var(--accent-glow); }
+    100% { color: color-mix(in srgb, var(--accent) 84%, var(--fd-muted)); text-shadow: 0 1px 7px color-mix(in srgb, var(--accent) 18%, transparent); }
+  }
+  @keyframes fd-lyric-pulse {
+    0% { box-shadow: 0 0 0 0 var(--accent-soft); }
+    52% { box-shadow: 0 0 0 4px transparent; }
+    100% { box-shadow: 0 0 5px var(--accent-glow); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fd-btn, .fd-range::-webkit-slider-thumb, .fd-range::-moz-range-thumb { transition: none !important; }
+    .fd-lyric, .fd-lyric::before { animation: none !important; }
+  }
+</style>
+</head>
+<body data-window-width="620" data-window-height="200" data-min-width="600" data-min-height="200" data-max-width="800" data-max-height="260" data-resizable="true">
+<div id="melo-player">
+  <input class="fd-menu-toggle" id="fd-menu-toggle" type="checkbox" aria-label="Open menu" />
+  <header class="fd-bar" data-tauri-drag-region>
+    <span class="fd-mark" aria-hidden="true"></span>
+    <span class="fd-name">FOLD</span>
+    <div class="fd-menu">
+      <label class="fd-menu-button" for="fd-menu-toggle" title="Menu"><span aria-hidden="true"></span></label>
+      <div class="fd-pop">
+        <button type="button" data-melo="add-files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>Add files</button>
+        <button type="button" data-melo="add-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Add folder</button>
+        <div class="fd-pop-sep" aria-hidden="true"></div>
+        <button type="button" data-melo="theme-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11z"/></svg>Theme</button>
+      </div>
+    </div>
+    <div class="fd-top-actions" aria-label="Player windows">
+      <button class="fd-top-btn" type="button" data-melo="toggle-library" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M10 4v16M15 4v16M20 4v16"/></svg></button>
+      <button class="fd-top-btn" type="button" data-melo="toggle-playlist" title="Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 12h12M4 18h8"/><circle cx="19" cy="17" r="3"/></svg></button>
+      <button class="fd-top-btn" type="button" data-melo="toggle-eq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></button>
+      <button class="fd-top-btn" type="button" data-melo="toggle-lyrics" title="Lyrics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10v16H5zM15 8h4v8h-4"/></svg></button>
+      <button class="fd-top-btn" type="button" data-melo="toggle-settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+    </div>
+    <div class="fd-win">
+      <button type="button" data-melo="minimize" title="Minimize" aria-label="minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+      <button class="close" type="button" data-melo="close" title="Close" aria-label="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+    </div>
+  </header>
+  <label class="fd-menu-scrim" for="fd-menu-toggle" aria-label="Close menu"></label>
+
+  <div class="fd-body">
+    <div class="fd-cover">
+      <img data-melo="cover" alt="" style="display:none" />
+      <div class="fd-fallback" data-melo="cover-fallback"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="32" cy="32" r="4" fill="currentColor" stroke="none"/><circle cx="32" cy="32" r="13" stroke-width="1.7"/><circle cx="32" cy="32" r="23" stroke-width="1.25" opacity=".55"/></svg></div>
+    </div>
+
+    <section class="fd-main">
+      <div class="fd-meta">
+        <div class="fd-title" data-melo="title">Nothing playing</div>
+        <div class="fd-sub"><span class="fd-artist" data-melo="artist">Add music to begin</span><span class="fd-dot" aria-hidden="true"></span><span class="fd-album" data-melo="album"></span></div>
+        <div class="fd-info"><span class="fd-chip" data-melo="codec"></span><span data-melo="specs"></span><span class="fd-lyric" data-melo="current-lyric" aria-live="polite"></span></div>
+      </div>
+      <div class="fd-viz" data-melo="visualizer" data-bars="30"></div>
+      <div class="fd-seek"><span class="fd-time" data-melo="current-time">0:00</span><input class="fd-range" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" /><span class="fd-time end" data-melo="duration">0:00</span></div>
+      <div class="fd-bottom">
+        <button class="fd-btn" type="button" data-melo="shuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+        <button class="fd-btn" type="button" data-melo="prev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+        <button class="fd-btn" type="button" data-melo="stop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
+        <button class="fd-btn fd-play" type="button" data-melo="play" title="Play / Pause"><svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button>
+        <button class="fd-btn" type="button" data-melo="next" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+        <button class="fd-btn" type="button" data-melo="repeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+        <div class="fd-vol"><button class="fd-vol-ico" type="button" data-melo="volume-icon" title="Mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4zM15.5 9a5 5 0 0 1 0 6"/></svg></button><input class="fd-range" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" /><span class="fd-pct" data-melo="volume-pct">60%</span></div>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

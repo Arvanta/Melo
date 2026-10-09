@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod instance_guard;
 mod library_db;
 
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -55,11 +56,49 @@ const DEFAULT_SKIN_HAVEN: &str = include_str!("../../skins/haven.html");
 const DEFAULT_SKIN_HIRA: &str = include_str!("../../skins/hira.html");
 const DEFAULT_SKIN_KOTO: &str = include_str!("../../skins/koto.html");
 const DEFAULT_SKIN_LUMEN: &str = include_str!("../../skins/lumen.html");
+// "Mica" is the skin formerly shipped as "Mica 2"; Mica 1 is retired. The two
+// hashes let the one-time migration below recognise the old *stock* files on a
+// disk that was seeded before the rename — anything the user edited is left
+// alone (the project never overwrites user edits).
 const DEFAULT_SKIN_MICA: &str = include_str!("../../skins/mica.html");
-const DEFAULT_SKIN_MICA_2: &str = include_str!("../../skins/mica-2.html");
+const RETIRED_MICA1_SHA256: &str = "25d4ea46500789773eed08abcd8a3a822ba966d9bbcfba195e463bd85f000485";
+const RETIRED_MICA2_SHA256: &str = "15ffd3d332577bc18a8f2c3a1ea86ede58e7be9fc284603563ce638fd681c084";
 const DEFAULT_SKIN_MICROLINE_V: &str = include_str!("../../skins/microline-v.html");
 const DEFAULT_SKIN_MIST: &str = include_str!("../../skins/mist.html");
 const DEFAULT_SKIN_RAIL: &str = include_str!("../../skins/rail.html");
+// Round 86: five more bundled community skins (fresh installs only, see
+// ensure_default_skins_on_disk; existing installs are not changed).
+const DEFAULT_SKIN_BEAN: &str = include_str!("../../skins/bean.html");
+const DEFAULT_SKIN_BEAN_COMPACT: &str = include_str!("../../skins/bean-compact.html");
+const DEFAULT_SKIN_FOLD: &str = include_str!("../../skins/Fold.html");
+const DEFAULT_SKIN_LILT: &str = include_str!("../../skins/lilt.html");
+const DEFAULT_SKIN_PRISM: &str = include_str!("../../skins/Prism.html");
+
+/// Every skin shipped in `skins/` (the guide is handled separately). They are
+/// written into the user's skins folder when missing — see
+/// `sync_bundled_skins_once`.
+const BUNDLED_SKINS: &[(&str, &str)] = &[
+    ("full-html-example.html", DEFAULT_SKIN_FULL_EXAMPLE),
+    ("slate.html", DEFAULT_SKIN_SLATE),
+    ("silk-orbit.html", DEFAULT_SKIN_SILK_ORBIT),
+    ("microline.html", DEFAULT_SKIN_MICROLINE),
+    ("aria.html", DEFAULT_SKIN_ARIA),
+    ("graphite.html", DEFAULT_SKIN_GRAPHITE),
+    ("halcyon.html", DEFAULT_SKIN_HALCYON),
+    ("haven.html", DEFAULT_SKIN_HAVEN),
+    ("hira.html", DEFAULT_SKIN_HIRA),
+    ("koto.html", DEFAULT_SKIN_KOTO),
+    ("lumen.html", DEFAULT_SKIN_LUMEN),
+    ("mica.html", DEFAULT_SKIN_MICA),
+    ("microline-v.html", DEFAULT_SKIN_MICROLINE_V),
+    ("mist.html", DEFAULT_SKIN_MIST),
+    ("rail.html", DEFAULT_SKIN_RAIL),
+    ("bean.html", DEFAULT_SKIN_BEAN),
+    ("bean-compact.html", DEFAULT_SKIN_BEAN_COMPACT),
+    ("Fold.html", DEFAULT_SKIN_FOLD),
+    ("lilt.html", DEFAULT_SKIN_LILT),
+    ("Prism.html", DEFAULT_SKIN_PRISM),
+];
 
 // ---- Helpers ----
 
@@ -213,7 +252,59 @@ fn get_skins_dir(app: &tauri::AppHandle) -> PathBuf {
     p
 }
 
+/// Install-time sync of the bundled skins (round 88).
+///
+/// A marker named after a hash of the bundled set records that this exact set
+/// was already applied. On the first launch of a build with a new set — a fresh
+/// install, an upgrade over an older install, or a build that bundles different
+/// skins — every bundled skin that is MISSING from the folder is written. After
+/// that the marker stops the sync, so a skin the user deletes stays deleted
+/// across restarts. It comes back only if the bundled set itself changes, i.e.
+/// on a later release that ships different skins.
+fn sync_bundled_skins_once(skins_dir: &Path) {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for &(name, content) in BUNDLED_SKINS {
+        hasher.update(name.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(content.as_bytes());
+        hasher.update(b"\0");
+    }
+    let digest = format!("{:x}", hasher.finalize());
+    let marker = skins_dir.join(format!(".melo-bundle-{}", &digest[..16]));
+    if marker.exists() {
+        return;
+    }
+    for &(name, content) in BUNDLED_SKINS {
+        let f = skins_dir.join(name);
+        if !f.exists() {
+            let _ = std::fs::write(f, content);
+        }
+    }
+    let _ = std::fs::write(
+        &marker,
+        "Melo synced the bundled skins for this release; user deletions are respected.",
+    );
+    // Drop markers left by earlier bundled sets so the folder stays tidy.
+    if let Ok(entries) = std::fs::read_dir(skins_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(".melo-bundle-") && entry.path() != marker {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
 fn ensure_default_skins_on_disk(skins_dir: &Path) {
+    // One-time bundled-skins migrations run on every launch (each gated by its
+    // own marker) so already-seeded installs pick up renames and retirements.
+    migrate_retired_mica_once(skins_dir);
+    // Bundled skins missing from the folder are added once per bundled set —
+    // on fresh installs AND on upgraded installs (runs before the seed guard).
+    sync_bundled_skins_once(skins_dir);
+
     // One-time seeding: bundled skins are written on the very first run only.
     // A marker file records the seeding, so skins the user deletes are NEVER
     // resurrected and the dropdown reflects the folder's real contents
@@ -267,10 +358,14 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
         ("koto.html", DEFAULT_SKIN_KOTO),
         ("lumen.html", DEFAULT_SKIN_LUMEN),
         ("mica.html", DEFAULT_SKIN_MICA),
-        ("mica-2.html", DEFAULT_SKIN_MICA_2),
         ("microline-v.html", DEFAULT_SKIN_MICROLINE_V),
         ("mist.html", DEFAULT_SKIN_MIST),
         ("rail.html", DEFAULT_SKIN_RAIL),
+        ("bean.html", DEFAULT_SKIN_BEAN),
+        ("bean-compact.html", DEFAULT_SKIN_BEAN_COMPACT),
+        ("Fold.html", DEFAULT_SKIN_FOLD),
+        ("lilt.html", DEFAULT_SKIN_LILT),
+        ("Prism.html", DEFAULT_SKIN_PRISM),
     ] {
         let f = skins_dir.join(fname);
         if !f.exists() {
@@ -280,6 +375,42 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
 
     // Seeding complete — from now on the skins folder belongs to the user.
     let _ = std::fs::write(&marker, "Melo seeded this folder once; user deletions are respected.");
+}
+
+/// One-time migration (round 71): the bundled skin set changed from
+/// "Mica + Mica 2" to a single "Mica" (the file formerly shipped as Mica 2).
+/// Installs seeded earlier still hold the old pair on disk, so:
+///   * `mica.html` is replaced with the new Mica — but ONLY while it is still
+///     the byte-exact stock Mica 1 (hash-checked); an edited file is the
+///     user's and is never touched;
+///   * `mica-2.html` is deleted only when it is the byte-exact stock Mica 2,
+///     so a customised copy is never destroyed.
+/// Safe to run on a fresh install (nothing matches) and on a re-run (marker).
+fn migrate_retired_mica_once(skins_dir: &Path) {
+    use sha2::{Digest, Sha256};
+    let marker = skins_dir.join(".melo-migrated-mica");
+    if marker.exists() {
+        return;
+    }
+    let hash_of = |p: &Path| -> Option<String> {
+        std::fs::read(p).ok().map(|b| {
+            let mut h = Sha256::new();
+            h.update(&b);
+            format!("{:x}", h.finalize())
+        })
+    };
+    let mica = skins_dir.join("mica.html");
+    if hash_of(&mica).as_deref() == Some(RETIRED_MICA1_SHA256) {
+        let _ = std::fs::write(&mica, DEFAULT_SKIN_MICA);
+    }
+    let mica2 = skins_dir.join("mica-2.html");
+    if hash_of(&mica2).as_deref() == Some(RETIRED_MICA2_SHA256) {
+        let _ = std::fs::remove_file(&mica2);
+    }
+    let _ = std::fs::write(
+        &marker,
+        "Mica 1 retired; Mica 2 renamed to Mica. Stock files only.",
+    );
 }
 
 // ---- Tauri Commands ----
@@ -670,11 +801,11 @@ fn write_tags(path: String, tags: TagWriteRequest) -> Result<(), String> {
     Ok(())
 }
 fn main() {
-    // Remember this instance's own "open with" paths up front so the
-    // frontend can drain them at boot via get_cli_tracks. For the primary
-    // instance the parsed tracks are discarded — the boot polls surface the
-    // buffered paths.
-    let _ = parse_args_and_push(&std::env::args().collect::<Vec<_>>());
+    // Cold-start guard: later processes of an Explorer multi-select wait here
+    // until the primary's single-instance window exists, so none of them can
+    // slip through the plugin's mutex-without-window gap and become a second
+    // primary. See instance_guard.rs.
+    instance_guard::wait_for_primary_if_booting();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -714,6 +845,8 @@ fn main() {
             library_db::library_tracks,
             library_db::list_playlists,
             library_db::record_track_play,
+            library_db::touch_track_last_played,
+            library_db::shuffle_queue_rows,
             library_db::create_playlist,
             library_db::rename_playlist,
             library_db::delete_playlist,
@@ -763,6 +896,13 @@ fn main() {
             write_tags,
         ])
         .setup(|app| {
+            // Remember this instance's own "open with" paths so the frontend
+            // can drain them at boot via get_cli_tracks. Runs only in the
+            // primary (companions exit inside the single-instance plugin
+            // before setup), and before any page script can poll. The parsed
+            // tracks are discarded - the boot polls surface the buffered paths.
+            let _ = parse_args_and_push(&std::env::args().collect::<Vec<_>>());
+
             let library_state = library_db::LibraryState::new(app.handle())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             app.manage(library_state);

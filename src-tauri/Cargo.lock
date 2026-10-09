@@ -2276,7 +2276,7 @@ dependencies = [
 
 [[package]]
 name = "melo"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "crossbeam-channel",
  "image",

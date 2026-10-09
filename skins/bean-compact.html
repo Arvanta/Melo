@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Bean Compact</title>
+<style>
+  /*
+   * Bean Compact — polished Fluent mini-player
+   * (no stage modes, no visualizer)
+   *
+   * top     → brand · lyric · win
+   * now     → cover | title / artist·album | tools
+   *                                      | specs
+   * foot    → transport · seek · volume
+   */
+  :root {
+    --nk-bg: #e8ecf4;
+    --nk-card: #f3f5fb;
+    --nk-card-2: #eef1f8;
+    --nk-surface: #ffffff;
+    --nk-ink: #1a1d24;
+    --nk-soft: #5c6573;
+    --nk-mute: #8a93a3;
+    --nk-line: rgba(26, 29, 36, .08);
+    --nk-line-2: rgba(26, 29, 36, .14);
+    --nk-wash: rgba(26, 29, 36, .055);
+    --nk-radius: 14px;
+    --nk-shadow:
+      0 18px 40px -18px rgba(32, 40, 64, .32),
+      0 2px 8px rgba(32, 40, 64, .07),
+      inset 0 1px 0 rgba(255, 255, 255, .72);
+    --card-border: rgba(26, 29, 36, .09);
+    --accent: #4f6ef7;
+    --accent-hover: color-mix(in srgb, var(--accent) 82%, #0c1230);
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 32%, transparent);
+    --track-bg: rgba(26, 29, 36, .10);
+    --nk-play-fg: #f5f7ff;
+    --nk-sheen: linear-gradient(135deg, rgba(255,255,255,.55), transparent 42%);
+  }
+  html[data-theme="dark"], [data-theme="dark"] {
+    --nk-bg: #0b0d12;
+    --nk-card: #13161e;
+    --nk-card-2: #171b25;
+    --nk-surface: #1c212c;
+    --nk-ink: #eceef4;
+    --nk-soft: #a4adbc;
+    --nk-mute: #7a8496;
+    --nk-line: rgba(236, 238, 244, .08);
+    --nk-line-2: rgba(236, 238, 244, .14);
+    --nk-wash: rgba(236, 238, 244, .06);
+    --nk-shadow:
+      0 20px 48px rgba(0, 0, 0, .55),
+      0 2px 8px rgba(0, 0, 0, .35),
+      inset 0 1px 0 rgba(255, 255, 255, .05);
+    --card-border: rgba(255, 255, 255, .08);
+    --accent: #8fa4ff;
+    --accent-hover: color-mix(in srgb, var(--accent) 86%, #fff);
+    --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 36%, transparent);
+    --track-bg: rgba(236, 238, 244, .12);
+    --nk-play-fg: #0e121c;
+    --nk-sheen: linear-gradient(135deg, rgba(255,255,255,.08), transparent 42%);
+  }
+
+  * { box-sizing: border-box; }
+
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center; overflow: hidden;
+    background:
+      radial-gradient(70% 55% at 12% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%),
+      radial-gradient(50% 40% at 90% 100%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 55%),
+      var(--nk-bg);
+    color: var(--nk-ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(500px, 100%);
+    height: 132px;
+    min-width: 380px;
+    min-height: 132px;
+    max-height: 132px;
+    margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    container-type: size;
+    container-name: nookc;
+    display: flex;
+    flex-direction: column;
+    background:
+      var(--nk-sheen),
+      radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 48%),
+      linear-gradient(180deg, var(--nk-card) 0%, var(--nk-card-2) 100%);
+    color: var(--nk-ink);
+    border: 1px solid var(--card-border);
+    border-radius: var(--nk-radius);
+    box-shadow: var(--nk-shadow);
+    font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    border-radius: var(--nk-radius) !important; box-shadow: none !important;
+  }
+
+  /* soft top hairline */
+  #melo-player::before,
+  body.tauri-main .player-card::before,
+  body.custom-skin-active .player-card::before {
+    content: "";
+    position: absolute; z-index: 1;
+    top: 0; left: 10%; right: 10%; height: 1px;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 55%, transparent), transparent);
+    pointer-events: none;
+  }
+
+  /* ========== TOP CHROME ========== */
+  .nk-top {
+    position: relative; z-index: 5;
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 6px 0 8px;
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+  .nk-top > * {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
+  .nk-menu { position: relative; flex-shrink: 0; }
+  .nk-menu > input {
+    position: absolute; width: 1px; height: 1px;
+    opacity: 0; pointer-events: none;
+  }
+  .nk-brand {
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    height: 22px; padding: 0 9px 0 6px;
+    border-radius: 999px;
+    font-size: 11px; font-weight: 650; letter-spacing: -.01em;
+    color: var(--nk-ink);
+    background: color-mix(in srgb, var(--nk-surface) 78%, transparent);
+    border: 1px solid var(--nk-line);
+    box-shadow: 0 1px 2px rgba(0,0,0,.04), inset 0 1px 0 rgba(255,255,255,.35);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+  }
+  .nk-brand:hover,
+  .nk-menu > input:checked ~ .nk-brand {
+    background: color-mix(in srgb, var(--nk-surface) 92%, var(--accent-soft));
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--nk-line));
+  }
+  .nk-mark {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: block; flex-shrink: 0;
+    background:
+      radial-gradient(circle at 32% 28%,
+        color-mix(in srgb, #fff 62%, var(--accent)) 0%,
+        var(--accent) 52%,
+        color-mix(in srgb, var(--accent) 65%, #000) 100%);
+    box-shadow:
+      0 0 0 1.5px color-mix(in srgb, var(--accent) 30%, transparent),
+      0 0 7px color-mix(in srgb, var(--accent) 48%, transparent);
+  }
+  .nk-menu-pop {
+    display: none; position: absolute; z-index: 50;
+    top: calc(100% + 5px); left: 0; min-width: 156px;
+    padding: 5px; flex-direction: column; gap: 1px;
+    background: color-mix(in srgb, var(--nk-surface) 94%, transparent);
+    color: var(--nk-ink);
+    border: 1px solid var(--nk-line-2);
+    border-radius: 11px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .28);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .nk-menu > input:checked ~ .nk-menu-pop { display: flex; }
+  .nk-menu-item {
+    display: flex; align-items: center; gap: 8px;
+    height: 28px; padding: 0 8px; border-radius: 7px;
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    background: transparent; color: var(--nk-ink);
+  }
+  .nk-menu-item:hover { background: var(--nk-wash); }
+  .nk-menu-item svg { width: 13px; height: 13px; color: var(--nk-soft); flex-shrink: 0; }
+  .nk-dismiss {
+    display: none; position: fixed; inset: 0; z-index: 40;
+  }
+  .nk-menu > input:checked ~ .nk-dismiss { display: block; }
+
+  /*
+   * Lyric is only as wide as the current line (max-content), centered in the
+   * top bar. It no longer flex-grows across the chrome — empty space stays
+   * -webkit-app-region: drag so the window is easy to move.
+   */
+  .nk-top-lyric {
+    position: absolute;
+    left: 50%;
+    top: 5px;
+    transform: translateX(-50%);
+    z-index: 2;
+    width: max-content;
+    max-width: min(58%, calc(100% - 168px)); /* leave room for brand + win */
+    height: 22px;
+    margin: 0;
+    padding: 0 2px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    color: color-mix(in srgb, var(--accent) 88%, var(--nk-ink));
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: .01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-align: center;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+    pointer-events: auto;
+  }
+  .nk-top-lyric:empty,
+  .nk-top-lyric.melo-lyric-empty { display: none; }
+
+  .nk-win {
+    margin-left: auto;
+    display: flex; gap: 0; flex-shrink: 0;
+  }
+  .nk-win button {
+    width: 28px; height: 22px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 7px;
+    background: transparent; color: var(--nk-mute); cursor: pointer;
+    transition: color .12s ease;
+  }
+  .nk-win button:hover { background: transparent; color: var(--nk-ink); }
+  .nk-win button.close:hover { background: transparent; color: #e81123; }
+  .nk-win button svg { width: 11px; height: 11px; }
+
+  /* ========== NOW PLAYING ========== */
+  .nk-now {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex; align-items: center; gap: 11px;
+    padding: 3px 10px 1px;
+  }
+
+  .nk-cover {
+    position: relative;
+    width: 50px; height: 50px; flex-shrink: 0;
+    border-radius: 11px; overflow: hidden;
+    background: var(--nk-surface);
+    border: 1px solid color-mix(in srgb, var(--nk-line-2) 80%, var(--accent-soft));
+    box-shadow:
+      0 6px 14px -6px rgba(0, 0, 0, .28),
+      0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent),
+      inset 0 1px 0 rgba(255,255,255,.18);
+  }
+  .nk-cover::after {
+    content: "";
+    position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(145deg, rgba(255,255,255,.22), transparent 40%, rgba(0,0,0,.12) 100%);
+  }
+  .nk-cover img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .nk-fallback {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    background:
+      radial-gradient(90% 90% at 28% 18%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 68%),
+      linear-gradient(145deg,
+        color-mix(in srgb, var(--nk-surface) 55%, var(--accent)),
+        color-mix(in srgb, var(--nk-card) 80%, #1a2030));
+    color: color-mix(in srgb, var(--accent) 75%, #fff);
+  }
+  .nk-fallback svg { width: 18px; height: 18px; opacity: .95; filter: drop-shadow(0 1px 2px rgba(0,0,0,.2)); }
+
+  .nk-meta {
+    flex: 1 1 auto; min-width: 0;
+    display: flex; flex-direction: column; gap: 4px;
+    justify-content: center;
+  }
+  .nk-title-row {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+  }
+  .nk-title {
+    min-width: 0; flex: 1 1 auto;
+    font-size: 15.5px; font-weight: 680; letter-spacing: -.015em;
+    color: var(--nk-ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.18;
+  }
+  .nk-byline {
+    display: flex; align-items: center; gap: 5px; min-width: 0;
+    font-size: 11px; font-weight: 520; color: var(--nk-soft);
+    white-space: nowrap; overflow: hidden;
+  }
+  .nk-byline > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .nk-byline [data-melo="artist"] { flex: 0 1 auto; max-width: 55%; }
+  .nk-album { flex: 0 1 auto; color: var(--nk-mute); max-width: 45%; }
+  .nk-dot {
+    width: 3px; height: 3px; border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 45%, var(--nk-mute));
+    flex-shrink: 0; opacity: .75;
+  }
+  .nk-meta-ico {
+    flex-shrink: 0; color: var(--nk-soft);
+    display: grid; place-items: center;
+    opacity: .92;
+  }
+  .nk-meta-ico svg { width: 12px; height: 12px; display: block; }
+  .nk-title-row .nk-meta-ico {
+    color: var(--nk-soft); /* fixed ink — not track-tinted accent */
+    width: 15px; height: 15px;
+    background: none;
+  }
+  .nk-title-row .nk-meta-ico svg { width: 15px; height: 15px; }
+  .nk-meta-ico.is-album { color: var(--nk-mute); opacity: .9; }
+  .nk-byline:has(.nk-album:empty) .nk-dot,
+  .nk-byline:has(.nk-album:empty) .nk-meta-ico.is-album { display: none; }
+
+  /* tools capsule + specs under */
+  .nk-side {
+    flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: flex-end;
+    justify-content: center; gap: 4px;
+    padding-left: 2px;
+    align-self: stretch;
+  }
+  .nk-tools {
+    display: flex; gap: 1px; flex-shrink: 0;
+    padding: 2px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--nk-surface) 70%, transparent);
+    border: 1px solid var(--nk-line);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  .nk-tools button {
+    width: 24px; height: 22px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 7px;
+    background: transparent; color: var(--nk-mute); cursor: pointer;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
+  }
+  .nk-tools button:hover {
+    background: var(--nk-wash); color: var(--nk-ink);
+    transform: translateY(-0.5px);
+  }
+  .nk-tools button.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .nk-tools button svg { width: 13px; height: 13px; }
+
+  .nk-meta-bits {
+    display: flex; align-items: center; gap: 5px;
+    justify-content: flex-end;
+    min-height: 16px;
+    padding: 1px 2px 0;
+    font-size: 9px; font-weight: 650; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--nk-mute);
+    max-width: 148px;
+  }
+  .nk-meta-bits > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nk-chip {
+    flex-shrink: 0; padding: 2px 6px; border-radius: 999px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+    font-weight: 700;
+  }
+  .nk-chip:empty { display: none; }
+
+  /* ========== FOOT ========== */
+  .nk-body {
+    flex-shrink: 0;
+    padding: 1px 10px 7px;
+    display: flex; flex-direction: column; gap: 0;
+  }
+
+  .nk-foot {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    column-gap: 6px;
+    min-width: 0;
+    height: 36px;
+    min-height: 36px;
+    max-height: 36px;
+    padding: 0 4px 0 2px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--nk-surface) 55%, transparent);
+    border: 1px solid color-mix(in srgb, var(--nk-line) 80%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
+    box-sizing: border-box;
+  }
+  /* every direct child is a flex box centered on the same mid-line */
+  .nk-foot > * {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center;
+    align-self: center !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box;
+    line-height: 1 !important;
+  }
+  .nk-foot > .nk-controls { justify-content: flex-start; gap: 0; }
+  .nk-foot > .nk-seek { justify-content: stretch; min-width: 0; overflow: hidden; }
+  .nk-foot > .nk-vol { justify-content: flex-end; gap: 2px; }
+  .nk-foot > .nk-time.is-elapsed { justify-content: flex-end; }
+  .nk-foot > .nk-time.is-duration { justify-content: flex-start; }
+
+  .nk-controls {
+    flex-shrink: 0;
+  }
+  .nk-btn {
+    width: 26px; height: 26px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 50%;
+    background: transparent; color: var(--nk-soft); cursor: pointer;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
+    flex-shrink: 0;
+  }
+  .nk-btn:hover { background: var(--nk-wash); color: var(--nk-ink); }
+  .nk-btn.active { color: var(--accent); background: var(--accent-soft); }
+  .nk-btn svg { width: 13px; height: 13px; display: block; }
+  .nk-btn.nk-play {
+    width: 26px; height: 26px;
+    background:
+      radial-gradient(circle at 30% 28%, color-mix(in srgb, #fff 28%, var(--accent)), var(--accent) 58%);
+    color: var(--nk-play-fg);
+    box-shadow:
+      0 5px 14px var(--accent-glow),
+      0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+      inset 0 1px 0 rgba(255,255,255,.28);
+    margin: 0 2px;
+  }
+  .nk-btn.nk-play:hover {
+    background:
+      radial-gradient(circle at 30% 28%, color-mix(in srgb, #fff 34%, var(--accent-hover)), var(--accent-hover) 58%);
+    transform: scale(1.06);
+  }
+  .nk-btn.nk-play svg { width: 14px; height: 14px; }
+
+  .nk-seek {
+    min-width: 0;
+    overflow: hidden;
+    width: 100%;
+  }
+  .nk-time {
+    flex-shrink: 0;
+    font-size: 9.5px; font-weight: 650; color: var(--nk-mute);
+    font-variant-numeric: tabular-nums;
+    font-family: "Cascadia Mono", "Segoe UI Variable Text", Consolas, monospace;
+    min-width: 3.2em;
+    white-space: nowrap;
+  }
+  .nk-vol {
+    flex-shrink: 0;
+  }
+  .nk-vol-ico {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: grid; place-items: center;
+    color: var(--nk-soft); cursor: pointer;
+    flex-shrink: 0;
+    transition: background .12s ease, color .12s ease;
+  }
+  .nk-vol-ico:hover { background: var(--nk-wash); color: var(--nk-ink); }
+  .nk-vol-ico.muted { color: #e81123; }
+  .nk-vol-ico svg { width: 13px; height: 13px; display: block; }
+
+  .nk-range {
+    -webkit-appearance: none; appearance: none;
+    outline: none; cursor: pointer;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    /* fill the foot cell height so the track sits on true vertical center */
+    height: 36px !important;
+    display: block;
+  }
+  .nk-range.is-seek { width: 100%; min-width: 0; flex: 1 1 auto; }
+  .nk-range.is-vol { width: 48px; flex: 0 0 48px; }
+  .nk-range.is-seek::-webkit-slider-runnable-track {
+    height: 3.5px; border-radius: 999px;
+    box-shadow: inset 0 0.5px 1px rgba(0,0,0,.08);
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--accent) 78%, #fff) 0%,
+      var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%),
+      var(--track-bg) 100%);
+  }
+  .nk-range.is-seek::-moz-range-track {
+    height: 3.5px; border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--accent) 78%, #fff) 0%,
+      var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%),
+      var(--track-bg) 100%);
+  }
+  .nk-range.is-vol::-webkit-slider-runnable-track {
+    height: 3.5px; border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%, var(--accent) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .nk-range.is-vol::-moz-range-track {
+    height: 3.5px; border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%, var(--accent) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .nk-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 11px; height: 11px; margin-top: -3.75px; border-radius: 50%;
+    background: #fff; border: 0;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--nk-ink) 10%, transparent),
+      0 1px 5px rgba(0,0,0,.18),
+      0 0 0 3px color-mix(in srgb, var(--accent) 0%, transparent);
+    opacity: 0; transform: scale(.5);
+    transition: opacity .12s ease, transform .12s ease, box-shadow .12s ease;
+  }
+  .nk-range::-moz-range-thumb {
+    width: 11px; height: 11px; border-radius: 50%; border: 0; background: #fff;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--nk-ink) 10%, transparent), 0 1px 5px rgba(0,0,0,.18);
+    opacity: 0; transform: scale(.5);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .nk-range:hover::-webkit-slider-thumb,
+  .nk-range:active::-webkit-slider-thumb,
+  .nk-range:hover::-moz-range-thumb,
+  .nk-range:active::-moz-range-thumb {
+    opacity: 1; transform: scale(1);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+      0 1px 6px rgba(0,0,0,.2),
+      0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+
+</style>
+</head>
+<body
+  data-window-width="500"
+  data-window-height="132"
+  data-min-width="380"
+  data-min-height="132"
+  data-max-width="640"
+  data-max-height="132"
+  data-resizable="true">
+<div id="melo-player">
+
+  <!-- top chrome -->
+  <div class="nk-top">
+    <div class="nk-menu">
+      <input id="nkcMenuToggle" type="checkbox" />
+      <label class="nk-brand" for="nkcMenuToggle" title="Menu">
+        <span class="nk-mark" aria-hidden="true"></span>
+        Melo
+      </label>
+      <div class="nk-menu-pop">
+        <label class="nk-menu-item" for="nkcMenuToggle" data-melo="add-files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+          Add files
+        </label>
+        <label class="nk-menu-item" for="nkcMenuToggle" data-melo="add-folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Add folder
+        </label>
+        <label class="nk-menu-item" for="nkcMenuToggle" data-melo="theme-toggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          Theme
+        </label>
+      </div>
+      <label class="nk-dismiss" for="nkcMenuToggle" aria-label="Close menu"></label>
+    </div>
+
+    <div class="nk-top-lyric" data-melo="current-lyric" aria-live="polite" title="Current lyric"></div>
+
+    <div class="nk-win">
+      <button type="button" data-melo="minimize" title="Minimize" aria-label="minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button type="button" class="close" data-melo="close" title="Close" aria-label="close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- now playing: small cover + 2-line meta | tools above specs -->
+  <div class="nk-now">
+    <div class="nk-cover">
+      <img data-melo="cover" alt="" style="display:none" />
+      <div class="nk-fallback" data-melo="cover-fallback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      </div>
+    </div>
+    <div class="nk-meta">
+      <div class="nk-title-row">
+        <span class="nk-meta-ico" aria-hidden="true" title="Track">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </span>
+        <div class="nk-title" data-melo="title">Nothing playing</div>
+      </div>
+      <div class="nk-byline">
+        <span class="nk-meta-ico" aria-hidden="true" title="Artist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5c1.2-3.2 3.4-4.8 6.5-4.8s5.3 1.6 6.5 4.8"/></svg>
+        </span>
+        <span data-melo="artist">Add music to begin</span>
+        <span class="nk-dot" aria-hidden="true"></span>
+        <span class="nk-meta-ico is-album" aria-hidden="true" title="Album">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="2.2"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/></svg>
+        </span>
+        <span class="nk-album" data-melo="album"></span>
+      </div>
+    </div>
+
+    <div class="nk-side">
+      <div class="nk-tools">
+        <button type="button" id="btnToggleLibrary" data-melo="toggle-library" title="Library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
+        </button>
+        <button type="button" id="btnTogglePlaylist" data-melo="toggle-playlist" title="Queue window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>
+        </button>
+        <button type="button" id="btnToggleEq" data-melo="toggle-eq" title="Equalizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        </button>
+        <button type="button" id="btnToggleLyrics" data-melo="toggle-lyrics" title="Lyrics window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+        </button>
+        <button type="button" id="btnOpenSettings" data-melo="toggle-settings" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        </button>
+      </div>
+      <div class="nk-meta-bits">
+        <span class="nk-chip" data-melo="codec"></span>
+        <span data-melo="specs"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- transport -->
+  <div class="nk-body">
+    <div class="nk-foot">
+      <div class="nk-controls">
+        <button class="nk-btn" type="button" data-melo="shuffle" title="Shuffle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg>
+        </button>
+        <button class="nk-btn" type="button" data-melo="prev" title="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
+        </button>
+        <button class="nk-btn" type="button" data-melo="stop" title="Stop">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+        <button class="nk-btn nk-play" type="button" data-melo="play" title="Play / Pause">
+          <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button class="nk-btn" type="button" data-melo="next" title="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
+        </button>
+        <button class="nk-btn" type="button" data-melo="repeat" title="Repeat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
+      </div>
+
+      <span class="nk-time is-elapsed" data-melo="current-time">0:00</span>
+      <div class="nk-seek">
+        <input class="nk-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
+      </div>
+      <span class="nk-time is-duration" data-melo="duration">0:00</span>
+
+      <div class="nk-vol">
+        <span class="nk-vol-ico" data-melo="volume-icon" title="Mute">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h4l5 4V6L7 10H3z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
+        </span>
+        <input class="nk-range is-vol" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" />
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

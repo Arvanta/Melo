@@ -15,6 +15,12 @@ on:
       - 'LICENSE'
   workflow_dispatch:
 
+# One build at a time per branch. Two simultaneous runs would race to create the
+# same tag / release; a queued run waits for the current one instead.
+concurrency:
+  group: build-melo-${{ github.ref }}
+  cancel-in-progress: false
+
 # required so tauri-action can create the draft release
 permissions:
   contents: write
@@ -33,15 +39,17 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      - name: Guard — refuse to overwrite an already-published version tag
+      - name: Version — every version-declaring file must agree
+        shell: pwsh
+        run: node tools/version.mjs --check
+
+      - name: Guard — never rebuild or replace an existing version tag
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -53,10 +61,11 @@ jobs:
             exit 0
           }
           if ($remote) {
-            Write-Error "Tag $tag already exists on the remote. Bump the version in package.json, package-lock.json, src-tauri/Cargo.toml, src-tauri/Cargo.lock, src-tauri/tauri.conf.json, src/main.ts, src/lyrics.ts and README.md before building — refusing to rebuild or replace an existing release."
+            Write-Error "Tag $tag already exists on the remote, so Melo $version has already been built. Refusing to rebuild it or to replace/reupload its release assets - every older release (v1.0.0, v0.8.1, ...) stays exactly as it is."
+            Write-Host "::error::Fix: bump the version, commit and push again:  node tools/version.mjs <new-version>"
             exit 1
           }
-          Write-Host "$tag is a brand-new tag — safe to build."
+          Write-Host "$tag is a brand-new tag - safe to build. Existing releases are not touched by this run."
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -67,16 +76,26 @@ jobs:
       - name: Run frontend tests
         run: node tests/main-ts-helpers.test.mjs
 
+      - name: Run Rust static tests
+        run: node --test tests/rust-static.test.mjs
+
       - name: Build Tauri (Windows x64)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # __VERSION__ comes from src-tauri/tauri.conf.json (checked to equal
+          # package.json above), so the tag always matches the installers.
           tagName: v__VERSION__
           releaseName: "v__VERSION__"
-          releaseBody: "Automated build of Melo for Windows"
+          releaseBody: |
+            Melo __VERSION__ for Windows (x64) — MSI and NSIS (setup.exe) installers attached below.
+
+            This release was created as a **draft**: review it and press Publish when you are happy.
+            Previous releases and their tags are never rebuilt, replaced or reused by this workflow.
+          # Draft first: nothing becomes public until you publish it yourself.
           releaseDraft: true
-          prerelease: true
+          prerelease: false
           args: --target x86_64-pc-windows-msvc
 
       - name: Upload artifact (msi/exe)
@@ -90,6 +109,8 @@ jobs:
 
   build-linux-macos:
     if: false # فعال کنید اگر برای لینوکس/مک هم می‌خواهید
+    # Note: this job must NOT create a release for the same tag - give it a
+    # distinct release (or releaseId) and its own duplicate-tag guard.
     strategy:
       matrix:
         platform: [macos-latest, ubuntu-latest]
@@ -102,6 +123,6 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
-      - uses: tauri-apps/tauri-action@v0</old_text>
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
