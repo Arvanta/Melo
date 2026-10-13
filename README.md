@@ -43,8 +43,6 @@ Melo's main window is fully re-skinnable. Every skin is a single HTML file you c
   </tr>
 </table>
 
-Melo ships with a collection of ready-made skins. The Settings window shows which features the selected skin supports (current lyric line, embedded lyrics, embedded playlist). Want to make your own? See the **[Skin Authoring Guide](skins/README.md)**.
-
 ---
 
 ## ✨ Features
