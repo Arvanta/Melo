@@ -83,7 +83,6 @@ Melo's main window is fully re-skinnable. Every skin is a single HTML file you c
 
 ### 🪟 Windows Integration
 - Library, Playlist, Equalizer, Lyrics and Settings open as separate windows
-- Single instance: opening a file from Explorer plays it in the running window
 - System tray menu with playback controls
 
 </td>
