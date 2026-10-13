@@ -61,11 +61,11 @@ Melo's main window is fully re-skinnable. Every skin is a single HTML file you c
 - Synced `.lrc` files and embedded lyrics
 - Active line highlight, auto-scroll and click-to-seek
 - Current lyric line can appear in skins that support it
+- Melo can now search for lyrics online when a track has none, so you don't have to add .lrc files by hand.
 
 ### 🎛️ Equalizer
 - 10 bands from 31 Hz to 16 kHz
 - 12 presets, plus Reset
-- Your settings persist across restarts
 
 </td>
 <td width="50%" valign="top">
