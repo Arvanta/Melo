@@ -1361,8 +1361,8 @@ test("the Library has a persisted list/albums layout switch that only applies to
     "Album Sheets must be the default layout until the user picks Track List");
   assert.match(main, /class="lib-view-btn active" data-liblayout="albums"/,
     "the Album Sheets button is the markup default");
-  assert.match(lib, /libLayout === "albums" && libView !== "compact" && libView !== "details" && isLibraryTrackDisplay\(\)/,
-    "sheet mode must exclude compact AND the columned Details view, and stay limited to track displays");
+  assert.match(lib, /libLayout === "albums" && libView !== "details" && isLibraryTrackDisplay\(\)/,
+    "sheet mode must exclude the columned Details view, and stay limited to track displays");
   assert.match(lib, /if \(sheetModeActive\(\)\) \{\s*invalidateLibraryWindow\(\);\s*return renderAlbumSheets/,
     "the renderer must dispatch to the album sheets");
   assert.match(css, /\.lib-sheet-cover \{[^}]*flex: 0 0 180px; width: 180px; height: 180px;/, "cover slot is 180x180");
@@ -1517,7 +1517,7 @@ test("unpainted-only artwork lookups: already-painted covers are not re-requeste
 test("README and Settings → About both expose the donate URL", () => {
   const readme = readSrc("README.md");
   const main = readSrc("src/main.ts");
-  assert.match(readme, /## ❤️ Donate/, "README must have a Donate section");
+  assert.match(readme, /arvanta\.github\.io/, "README must link the donate page (footer, round 90 layout)");
   assert.match(readme, /https:\/\/arvanta\.github\.io/, "README must link to arvanta.github.io");
   assert.match(main, /https:\/\/arvanta\.github\.io/, "About tab must link to arvanta.github.io");
   assert.match(main, />Donate ↗</, "About tab must show a Donate link");
@@ -1603,16 +1603,18 @@ test("About links open via open_external_url (WebView2 cannot target=_blank)", (
 
 // ─── round 69: Explorer multi-select burst ───
 
-test("open-with batches: first batch replaces + plays, later batches in the burst append", () => {
+test("open-with: every Explorer open REPLACES the queue; arrivals coalesce on a sliding timer", () => {
   const src = readSrc("src/main.ts");
-  assert.match(src, /const OPEN_BURST_MS = \d+;/, "burst window constant");
-  const i = src.indexOf("const inBurst =");
-  assert.ok(i > 0, "burst decision must exist");
-  const blk = src.slice(i, src.indexOf("}, 450);", i));
-  assert.match(blk, /importPaths\?\.\(batch, "append"\)/, "in-burst batches append");
-  assert.match(blk, /importPaths\?\.\(batch, "replace"\)/, "first batch replaces");
-  assert.ok(blk.indexOf('"append"') < blk.indexOf('"replace"'), "append branch returns before replace");
-  assert.match(blk, /melo:play-tracks/, "replace path still starts playback");
+  assert.match(src, /const OPEN_COALESCE_RUNNING_MS = 1000;/, "running-app coalescing is 1s");
+  assert.match(src, /const OPEN_COALESCE_COLD_MS = 2500;/, "cold start coalesces longer");
+  assert.match(src, /if \(src === "poll" && paths\.length\) launchedWithFiles = true;/, "cold start = files found by the boot drain");
+  assert.match(src, /launchedWithFiles && performance\.now\(\) < COLD_START_PHASE_MS/, "cold-start leniency expires after boot");
+  const i = src.indexOf("const queueOpenPaths");
+  const blk = src.slice(i, src.indexOf("// Drains the Rust CLI buffer", i));
+  assert.match(blk, /window\.clearTimeout\(pendingOpenTimer\)/, "every arrival restarts the timer");
+  assert.match(blk, /importPaths\?\.\(batch, "replace"\)/, "the batch replaces the queue");
+  assert.ok(!/"append"/.test(blk), "no append path for Explorer opens");
+  assert.match(blk, /melo:play-tracks/, "replace path starts playback");
 });
 
 // ─── round 70: version bump to 1.1.0 + never replace a published release ───
@@ -1834,7 +1836,7 @@ test("Library tiles: covers are square and taller (row 190px, 132px capped both 
   const lib = readSrc("src/library.ts");
   // round 83: the 190px belongs to the card predicate (tilesCardsActive), not to
   // "tiles + groups" — a query under Tiles renders track rows, not cards.
-  assert.match(lib, /if \(tilesCardsActive\(\)\) return 190;/, "tiles card row height raised 148→190");
+  assert.match(lib, /if \(tilesCardsActive\(\)\) return tilesRowHeight\(\);/, "tiles row height follows the column width (round 110)");
   assert.match(lib, /function tilesCardsActive\(\): boolean \{/, "the card predicate exists (round 83)");
   const css = readSrc("src/app.css");
   const card = css.slice(css.indexOf(".lib-card .lib-avatar, .lib-card .track-cover-mini {"));
@@ -1881,9 +1883,11 @@ test("Rust: playlist_tracks exposes play_count safely (round 73)", () => {
 test("Library views: details renamed to default, new columned details view, one-time migration", () => {
   const lib = readSrc("src/library.ts");
   const main = readSrc("src/main.ts");
-  assert.match(lib, /type LibView = "default" \| "details" \| "compact" \| "tiles";/,
-    "four views: default, details, compact, tiles");
-  assert.match(lib, /const LIB_VIEWS: LibView\[\] = \["default", "details", "compact", "tiles"\];/, "the switch lists all four");
+  assert.match(lib, /type LibView = "default" \| "details" \| "tiles";/,
+    "three views: default, details, tiles (v1.2.0 removed Compact)");
+  assert.match(lib, /const LIB_VIEWS: LibView\[\] = \["default", "details", "tiles"\];/, "the switch lists all three");
+  assert.match(lib, /if \(saved === "compact"\) \{\s*saved = "default";/, "a saved Compact view migrates to Default");
+  assert.doesNotMatch(main, /data-libview="compact"/, "the Compact button is gone from the markup");
   // Migration: an old saved "details" (which WAS the default view) maps to
   // "default" exactly once; the marker keeps a later "details" choice intact.
   assert.match(lib, /saved = "default";\s*try \{ localStorage\.setItem\("melo-lib-view", "default"\); \} catch \{\}/,
@@ -1901,7 +1905,7 @@ test("Details view: column model, persistence, and the Columns menu contract", (
   assert.match(lib, /localStorage\.setItem\("melo-lib-cols-off", JSON\.stringify\(\[\.\.\.libColOff\]\)\)/, "the hidden set persists");
   assert.match(lib, /if \(!localStorage\.getItem\("melo-lib-cols-off"\)\)/, "first run defaults to artist+album+duration");
   // the Columns button only exists in this view
-  assert.match(lib, /colsBtn\.hidden = libView !== "details";/, "the Columns button is details-view-only");
+  assert.match(lib, /colsBtn\.hidden = false;\s*colsBtn\.disabled = libView !== "details";/, "the Columns button is always visible, enabled only in Details");
   assert.match(lib, /menu\.innerHTML = `<div class="lcm-head">Columns<\/div><div class="lcm-title-pin">Title <span>always shown<\/span><\/div>/,
     "the menu pins Title and lists the reorderable rest");
   assert.match(lib, /if \(order\.length === LIB_COL_IDS\.length\) libColOrder = order;/, "drag reorder rebuilds the order from the DOM");
@@ -1910,7 +1914,12 @@ test("Details view: column model, persistence, and the Columns menu contract", (
   assert.match(lib, /<div class="lib-col-head lib-cols\$\{groupColsOn/, "the sticky header reuses the shared grid class");
   assert.match(lib, /trackList\.style\.setProperty\("--lib-cols", libColsGrid\(\)\);/, "the grid template flows via a custom property");
   assert.match(lib, /if \(libView === "details"\) return 40;/, "one tight 40px line per track");
-  assert.match(lib, /if \(libView === "compact" \|\| libView === "details"\) return 1;/, "the column view is single-column");
+  assert.match(lib, /if \(libView === "details"\) return 1;/, "the column view is single-column");
+  // v1.2.0: Columns… is a Details-only control — hidden AND disabled elsewhere, and the
+  // class display (grid) must not defeat the [hidden] attribute.
+  assert.match(lib, /colsBtn\.hidden = false;\s*colsBtn\.disabled = libView !== "details";/, "Columns… visible but disabled outside Details");
+  assert.match(lib, /if \(libView !== "details"\) \{ hideColumnsMenu\(\); return; \}/, "the click handler refuses to open the menu outside Details");
+  assert.ok(readSrc("src/app.css").includes(".lib-view-btn[hidden] { display: none !important; }"), "[hidden] beats .lib-view-btn display");
 });
 
 test("Search shows ENTITIES: artist/album filters list names, All shows grouped sections", () => {
@@ -1940,19 +1949,24 @@ test("Artist sidebar: toolbar button enabled only on the artist tabs, names only
   const main = readSrc("src/main.ts");
   assert.match(main, /id="btn-lib-artistbar"/, "the toolbar button exists next to the other library buttons");
   assert.match(main, /id="libArtistSidebarList"/, "the sidebar list container exists in the markup");
-  assert.match(main, /<aside id="libArtistSidebar" class="lib-artist-sidebar" hidden/, "it starts hidden");
+  assert.match(main, /<aside id="libArtistSidebar" class="lib-artist-sidebar" aria-label="Artist list" aria-hidden="true">/, "it starts closed");
   assert.match(lib, /function artistSidebarActive\(\): boolean \{ return libTab === "artists" \|\| libTab === "album-artists"; \}/,
     "enabled only on the Artists / Album Artist tab");
-  assert.match(lib, /btn\.disabled = !artistSidebarActive\(\);/, "the button reflects availability");
   assert.match(lib, /localStorage\.setItem\("melo-lib-artistbar", artistSidebarOpen \? "1" : "0"\)/, "the toggle persists");
-  assert.match(lib, /<button type="button" class="lib-side-artist\$\{g\.name === selectedArtist \? " active" : ""\}" data-side-artist="\$\{esc\(g\.name\)\}" title="\$\{esc\(g\.name\)\}">\$\{esc\(g\.name\)\}<\/button>/,
-    "rows carry the artist NAME ONLY (plus the active highlight)");
-  assert.match(lib, /data-side-artist="\$\{esc\(g\.name\)\}"[^>]*>\$\{esc\(g\.name\)\}<\/button>/, "no counts/durations in the sidebar rows");
+  assert.match(lib, /btn\.disabled = !available;/, "the button reflects availability (v1.2.0 label toggle)");
+  assert.match(lib, /const label = open \? "Hide artist list" : "Show artist list";/, "Show / Hide artist list label");
+  // v1.2.0 redesign: rows = avatar + name + icon stats; NO All/Favorites chips, NO footer yet
+  assert.match(lib, /class="las-row\$\{i < 24 \? " las-anim" : ""\}\$\{on \? " active" : ""\}"[^`]*data-side-artist="\$\{esc\(name\)\}"/, "rows carry data-side-artist + the active highlight");
+  assert.doesNotMatch(main, /side-chip|sideChipFav|side-foot|libSideFoot/, "no All/Favorites tabs and no totals footer");
+  assert.match(main, /id="libSideSearch"/, "quick find box");
+  assert.match(main, /id="libSideRail"/, "A–Z rail");
   // clicking a name switches the artist and stays usable while drilled in
   assert.match(lib, /selectedArtist = name;\s*selectedAlbum = null;\s*selectedGenre = null;\s*savedGroupsScrollTop = 0;/,
     "a sidebar click re-scopes to that artist");
   assert.match(lib, /artistSidebarCache = null;\n    invalidateLibraryWindow\(\);/, "library changes invalidate the sidebar cache");
   assert.match(lib, /if \(on\) b\.scrollIntoView\(\{ block: "nearest" \}\);/, "the active artist is kept in view");
+  assert.doesNotMatch(main, /class="lib-view-btn lib-alone-btn" id="btn-lib-artistbar"/, "the old icon-only button is replaced by the labelled toggle");
+  assert.match(main, /class="lib-side-toggle" id="btn-lib-artistbar"/, "labelled Show artist list toggle");
 });
 
 test("Playlist next/previous starts from the CLICKED track (queue position hint)", () => {
@@ -2078,14 +2092,14 @@ test("round 77 · library polish: header count, sidebar sync, badge, button orde
   assert.match(pane, /\$\{libPlaysBadge\(track\)\}<span class="t-dur">/, "count sits left of the duration, same as the window rows");
   // (G) view button order + plain "Details" label
   const switches = main.slice(main.indexOf('id="libViewSwitch"'), main.indexOf("btn-lib-columns"));
-  const order = ["default", "compact", "tiles", "details"].map(v => switches.indexOf(`data-libview="${v}"`));
+  const order = ["default", "tiles", "details"].map(v => switches.indexOf(`data-libview="${v}"`));
   assert.ok(order.every(i => i >= 0) && order.every((v, i) => i === 0 || v > order[i - 1]),
-    "Default · Compact · Tiles · Details, with Details last before the Columns button");
+    "Default · Tiles · Details, with Details last before the Columns button");
   assert.match(main, /data-libview="details" title="Details">/, "title is just \"Details\"");
   assert.doesNotMatch(main, /Details — sortable columns/);
   // (C) the sidebar list reserves its scrollbar instead of painting over names
-  assert.match(css, /\.lib-artist-sidebar-list \{[^}]*scrollbar-gutter: stable/, "gutter reserved");
-  assert.match(css, /\.lib-artist-sidebar-list::-webkit-scrollbar \{ width: 6px; \}/, "and thinned for chromium");
+  assert.match(css, /\.las-list \{[^}]*scrollbar-width: thin/, "thin scrollbar");
+  assert.match(css, /\.las-list::-webkit-scrollbar \{ width: 6px; \}/, "and thinned for chromium");
   // (H) group rows get a fixed column line in Details view
   assert.match(lib, /const groupColsOn = libView === "details" && libraryMode\(\) === "groups" && !librarySearch;/,
     "details turns the group roots into column lines too");
@@ -2162,12 +2176,12 @@ test("round 79 · find chip + Prev/Next, sidebar boot paint, no flex-squash, det
   assert.ok(SRC.includes("if (artistSidebarOpen && artistSidebarActive() && !artistSidebarCache) void renderArtistSidebarData();"), "r79: cold webview onto Artists shows names without toggling");
 
   // crowded sidebars must not flex-squash name rows
-  assert.ok(CSS.includes(".lib-side-artist { flex: 0 0 auto;"), "r79: rows keep full height; the list scrolls instead");
+  assert.ok(CSS.includes(".las-row {") && !/\.las-row \{[^}]*flex-shrink: 1/.test(CSS), "r79 (v1.2.0 las-row): rows keep full height; the list scrolls instead");
 
   // artist discography in Details view = real aligned columns
   assert.ok(SRC.includes('if (detailsOn) trackList.style.setProperty("--lib-cols", libColsGrid());'), "r79: discography gets the user's column grid too");
   assert.ok(SRC.includes('`<div class="track-row lib-cols" data-track-id="${esc(track.id)}" data-album-index="${ai}" data-track-index="${ti}">${libColsRowCells(track, ti)}</div>`'), "r79: column track line, per-album numbering");
-  assert.ok(SRC.includes("libView !== \"compact\" && !detailsOn;"), "r79: two-col album grid yields to the column grid");
+  assert.ok(SRC.includes("columns > 1 && !detailsOn;"), "r79: two-col album grid yields to the column grid");
   assert.ok(SRC.includes("background:var(--card);margin:0 6px"), "r79: discography header mirrors the rows' 6px lateral margin (604@157 both)");
 });
 
@@ -2250,26 +2264,29 @@ test("round 83 · Tiles: only real card grids get the 190px row height (searched
   // can never disagree again (that disagreement was the bug: a query under
   // Tiles + Track List painted 54px-tall track rows into 190px-tall slots).
   assert.ok(SRC.includes("function tilesCardsActive(): boolean {"), "r83: tilesCardsActive() helper exists");
-  assert.ok(SRC.includes('if (libView !== "tiles" || libraryMode() !== "groups" || librarySearch) return false;'), "r83: no cards outside the tiles group roots / never while searching");
+  assert.ok(SRC.includes('if (libraryMode() !== "groups" || librarySearch) return false;'), "r83: no cards outside the group roots / never while searching");
+  assert.ok(SRC.includes('return libView === "tiles" && groupRootActive();'), "r83: tiles cards only at the group roots");
   assert.ok(SRC.includes('return !((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);'), "r83: an artist drill-in is not a card grid either");
-  assert.ok(SRC.includes("if (tilesCardsActive()) return 190;"), "r83: row height follows the card predicate");
+  assert.ok(SRC.includes("if (defaultGroupCardsActive()) return 74;"), "v1.2.0: Default group cards get a 74px slot");
+  assert.ok(SRC.includes("if (tilesCardsActive()) return tilesRowHeight();"), "r83: row height follows the card predicate");
   assert.ok(SRC.includes("const card = tilesCardsActive();"), "r83: the card template follows the SAME predicate");
   // anti-pins: the old height condition ignored the search state
   assert.ok(!SRC.includes('if (libView === "tiles" && libraryMode() === "groups") return 190;'), "r83: the search-blind 190px condition is gone");
   assert.ok(!SRC.includes('const card = libView === "tiles" && libraryMode() === "groups" && !librarySearch;'), "r83: the duplicated inline card condition is gone");
   // untouched neighbours
-  assert.ok(SRC.includes('if (libView === "compact") return 36;'), "r83: compact row height unchanged");
+  assert.ok(!SRC.includes('if (libView === "compact") return 36;'), "v1.2.0: the Compact row height is gone");
   assert.ok(SRC.includes('if (libView === "details") return 40;'), "r83: details row height unchanged");
 });
 
 test("round 83 · artist sidebar background is 35% of --track-bg (translucent)", () => {
   const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
-  const rule = CSS.split("\n").find(l => l.startsWith(".lib-artist-sidebar {"));
-  assert.ok(rule, "r83: .lib-artist-sidebar rule present");
+  const start = CSS.indexOf(".lib-artist-sidebar {\n  position: relative;");
+  assert.ok(start >= 0, "r83: .lib-artist-sidebar rule present");
+  const rule = CSS.slice(start, CSS.indexOf("}", start));
   assert.ok(rule.includes("background: color-mix(in srgb, var(--track-bg) 35%, transparent);"), "r83: sidebar uses color-mix(in srgb, var(--track-bg) 35%, transparent)");
   assert.ok(!rule.includes("background: var(--card)"), "r83: the solid --card background is gone from the sidebar");
-  // the list/rows stay transparent so the tint actually shows through
-  assert.ok(CSS.includes(".lib-side-artist { flex: 0 0 auto; display: block; width: 100%; text-align: left; border: 0; background: transparent;"), "r83: sidebar rows stay transparent");
+  // rows only tint on hover/active, so the translucent panel shows through
+  assert.ok(/\.las-row \{[^}]*border: 1px solid transparent/.test(CSS) && !/\.las-row \{[^}]*background:/.test(CSS), "r83: sidebar rows stay transparent at rest");
 });
 
 // ───────────────────────────────────────────────────────── round 84: tiles resize keeps covers constant, count varies
@@ -2278,10 +2295,224 @@ test("round 84 · Tiles columns: fixed 132px covers, only the COUNT changes on r
   // Each column must be ≥ ~156px so the avatar (col minus padding/gap) always
   // reaches its 132px cap → constant cover size; and the column count must be
   // uncapped so widening the window adds cards instead of stretching them.
-  assert.ok(SRC.includes('if (libView === "tiles") return Math.max(2, Math.floor((width + GRID_GAP) / 156));'), "r84: 156px divisor, no upper cap");
+  assert.ok(SRC.includes('if (libView === "tiles") return Math.max(2, Math.floor((width - 24 + TILE_GAP) / (TILE_MIN_COL + TILE_GAP)));'), "r110: column count from the minimum card width + 16px gap, list inset 12px per side, no upper cap");
   assert.ok(!SRC.includes("Math.min(6, Math.floor((width + GRID_GAP) / 118))"), "r84: the old ÷118 capped-at-6 formula is gone");
   assert.ok(!/libView === "tiles"\) return Math\.max\(2, Math\.min\(6,/.test(SRC), "r84: no 6-column cap remains on the tiles branch");
   // the 132px cap that the divisor relies on is still present in the card CSS
   const CSS = fs.readFileSync(path.join(repoRoot, "src", "app.css"), "utf8");
   assert.ok(CSS.includes("max-width: 132px; max-height: 132px;"), "r84: covers still capped at 132 both axes");
+});
+
+test("v1.2.0 · rail jump uses per-letter sections, fixed 260px playlist sidebar, arrow keys, brand menu, taskbar raise", () => {
+  const lib = readSrc("src/library.ts"), css = readSrc("src/app.css"), main = readSrc("src/main.ts"), player = readSrc("src/player.ts");
+  // flat sticky labels all pin to the top → rects collapse → only downward jumps worked
+  assert.match(lib, /<section class="las-sec" data-letter=/, "each letter run is its own section");
+  assert.match(lib, /\.las-sec\[data-letter=/, "the rail jumps to the SECTION, not a sticky label");
+  assert.match(css, /\.library-playlist-split \{\s*display: grid;\s*grid-template-columns: 260px minmax\(0, 1fr\);/, "playlist sidebar fixed at 260px");
+  assert.doesNotMatch(css, /library-playlist-split \{ grid-template-columns: minmax\(125px/, "no narrow-window override of the 260px sidebar");
+  assert.doesNotMatch(lib, /if \(libTab === "artists"\) \{\s*libTab = "album-artists";/, "an album drill from search no longer switches the tab (Artists stays Artists)");
+  assert.match(lib, /already on the grouping but drilled into an artist → back to its root/, "clicking the active grouping label returns to the root");
+  assert.match(player, /t === "range" && e\.code\.startsWith\("Arrow"\)\) e\.preventDefault\(\)/, "focused sliders never step on the arrow keys");
+  assert.match(main, /id="brandMenuBtn"/, "logo + Melo is the menu trigger");
+  assert.match(main, /closest\("#brandMenuWrap"\)\) setOpen\(false\)/, "any outside pointerdown closes the menu");
+  assert.match(main, /melo:win-active/, "windows report focus so a taskbar click can raise the panels");
+  assert.match(readSrc("src-tauri/capabilities/default.json"), /allow-set-always-on-top/, "raise permission granted");
+});
+
+test("v1.2.0 · artist panel: exact fixed heights (stable scroll) and no width transition", () => {
+  const css = readSrc("src/app.css");
+  assert.match(css, /\.las-row \{[^}]*height: 48px;[^}]*contain-intrinsic-size: 0 48px;/s, "rows: fixed 48px, intrinsic size equals it (no `auto`)");
+  assert.match(css, /\.las-group \{[^}]*height: 26px;/s, "letter labels: fixed 26px");
+  assert.doesNotMatch(css, /contain-intrinsic-size: auto 46px/, "the guessed 46px estimate is gone");
+  const rule = css.slice(css.indexOf(".lib-artist-sidebar {\n  position: relative;"));
+  assert.doesNotMatch(rule.slice(0, rule.indexOf("}")), /transition: width/, "the panel no longer animates width (list reflow per frame)");
+  assert.match(css, /@keyframes lasPanelIn \{ from \{ opacity: 0; transform: translateX\(-18px\); \}/, "contents slide in with transform + opacity");
+});
+
+test("v1.2.0 · artist panel loads the FULL list (paged, under the backend 5000 clamp)", () => {
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /const PAGE = 2000;/, "2000 per request");
+  assert.match(lib, /includeTotal: offset === 0/, "total only on the first page");
+  assert.match(lib, /if \(items\.length < PAGE\) break;/, "short page ends the loop");
+  assert.doesNotMatch(lib, /library_groups", \{ kind, search: null, artist: null, limit: 5000/, "no more single 5000 shot");
+});
+
+test("v1.2.0 mini player: switch, persistence, markup, bus contract", () => {
+  const lib = readSrc("src/library.ts"), main = readSrc("src/main.ts"), pl = readSrc("src/player.ts"), css = readSrc("src/app.css");
+  assert.match(main, /id="libMiniToggle"/, "top switch exists");
+  assert.match(main, /id="libMini"/, "mini bar markup exists");
+  assert.match(lib, /melo-lib-mini/, "switch state persists in localStorage");
+  assert.match(pl, /busOn\("melo:set-volume"/, "player accepts volume commands");
+  assert.match(pl, /melo:volume-state/, "player reports volume/mute state");
+  assert.match(css, /container-name:\s*libmini/, "one/two-row layout is a container query");
+  assert.ok(!/backdrop-filter/.test(css.slice(css.indexOf(".lib-mini"), css.indexOf(".lib-mini") + 4000)), "no backdrop-filter in the mini bar");
+  assert.match(lib, /"#ABCDEFGHIJKLMNOPQRSTUVWXYZ"/, "rail starts with #");
+  assert.match(css, /#trackList\[data-grp\]\s*\{[^}]*#FCFCFD/, "light group backdrop is #FCFCFD");
+});
+
+test("v1.2.0 taskbar raise verifies real focus instead of a stale id set", () => {
+  const main = readSrc("src/main.ts");
+  assert.match(main, /const anyFocused = async/, "focus is confirmed via isFocused");
+  assert.ok(!/const active = new Set<string>\(\)/.test(main), "no stale-prone active set");
+});
+
+test("v1.2.0 playback-position IPC is gated by open consumer panels", () => {
+  const bus = readSrc("src/bus.ts"), pl = readSrc("src/player.ts"), main = readSrc("src/main.ts");
+  assert.match(bus, /let tauriEmit/, "the Tauri emit module is imported once and cached");
+  assert.match(bus, /const POSITION_CONSUMERS = new Set\(\["lyrics", "library"\]\)/, "only lyrics + library consume the position");
+  assert.match(bus, /export function busEmitPosition/, "gated position emitter exists");
+  assert.match(bus, /isTauri && openPositionConsumers\.size > 0/, "IPC only while a consumer panel is open");
+  assert.match(pl, /busEmitPosition\(el\.currentTime \|\| 0\)/, "timeupdate uses the gated emitter");
+  assert.ok(!/busEmit\("melo:playback-position"/.test(pl), "no ungated position emit in the player");
+  assert.match(pl, /seekBar\.value !== String\(sec\)/, "seek bar/clock repaint only when the second changes");
+  assert.match(main, /setPositionConsumer\(panel, visible\);/, "panel visibility registers consumers");
+  assert.match(pl, /maybeStartCrossfade\(\);/, "crossfade check still runs on every tick");
+});
+
+test("v1.2.0 gapless: crossfade length 0 preloads + precisely starts the next deck", () => {
+  const pl = readSrc("src/player.ts"), main = readSrc("src/main.ts"), st = readSrc("src/settings.ts"), en = readSrc("src/locales/en.json");
+  assert.match(pl, /Math\.min\(12, Math\.max\(0, raw\)\)/, "duration 0 is allowed (gapless)");
+  assert.match(pl, /if \(crossfadeDurationSec\(\) === 0\) \{ handleGapless\(nxt, remaining\); return; \}/, "gapless branch in maybeStartCrossfade");
+  assert.match(pl, /async function prepareGapless/, "next track is preloaded on the idle deck");
+  assert.match(pl, /async function startGapless/, "precise start");
+  assert.match(pl, /function cancelCrossfade\(\) \{\s*clearGapless\(\);/, "any cancel (skip/seek/queue change) drops the preload + timer");
+  assert.match(st, /name: "crossfadeDuration"[^\n]*min: 0, max: 12/, "setting allows 0");
+  assert.match(main, /id="crossfadeDurationRange" min="0" max="12"/, "slider reaches 0");
+  assert.match(main, /clamped === 0 \? "Gapless"/, "slider shows Gapless at 0");
+  assert.match(en, /Crossfade & gapless/, "settings label mentions gapless");
+});
+
+test("v1.2.0 default skin: controls keep their position for untagged tracks", () => {
+  const css = readSrc("src/app.css");
+  assert.match(css, /\.player-main \.track-meta \.track-album \{ line-height: 1\.3; min-height: 1\.3em; \}/, "album line reserves its height");
+});
+
+test("v1.2.0 crossfade value label has a fixed width (slider must not resize at Gapless)", () => {
+  assert.match(readSrc("src/app.css"), /#crossfadeDurationValue \{ width: 50px; min-width: 50px; \}/);
+});
+
+test("v1.2.0 waveform seek bar: Rust peaks + cache, opt-in slot, setting, default skin", () => {
+  const rs = readSrc("src-tauri/src/waveform.rs"), main_rs = readSrc("src-tauri/src/main.rs"), cargo = readSrc("src-tauri/Cargo.toml");
+  const ts = readSrc("src/waveform.ts"), main = readSrc("src/main.ts"), skin = readSrc("src/skin.ts"), st = readSrc("src/settings.ts"), css = readSrc("src/app.css");
+  assert.match(cargo, /^symphonia = \{ version = "0\.5"/m, "pure-Rust decoder dependency");
+  assert.match(main_rs, /^mod waveform;/m, "module declared");
+  assert.match(main_rs, /async fn get_waveform_peaks/, "command exists");
+  assert.match(main_rs, /spawn_blocking/, "decode runs off the async/UI threads");
+  assert.match(main_rs, /^\s+get_waveform_peaks,/m, "command registered");
+  assert.match(rs, /static DECODE_LOCK/, "decodes are serialised");
+  assert.match(rs, /\(size, mtime\) != stamp/, "cache is validated by size + mtime");
+  assert.match(rs, /const MAX_ENTRIES: usize = 4000;/, "cache is pruned");
+  assert.match(ts, /findHook<HTMLElement>\("skinWaveform", "waveform"\)/, "opt-in slot hook");
+  assert.match(ts, /get_waveform_peaks/, "frontend asks Rust for the peaks");
+  assert.match(ts, /dispatchEvent\(new Event\("input"/, "seeking reuses the seek input's input handler");
+  assert.match(ts, /dispatchEvent\(new Event\("change"/, "seeking reuses the seek input's change handler");
+  assert.match(ts, /setProperty\("--mw-p"/, "progress only moves a CSS variable");
+  assert.match(st, /name: "waveformSeek",[^\n]*def: false/, "setting defaults to off");
+  assert.match(main, /setupWaveformSeek\(\);/, "set up at boot");
+  assert.match(main, /id="swWaveformSeek" data-key="waveformSeek"/, "settings switch");
+  assert.match(main, /class="seek-wave" data-melo="waveform"/, "default skin has the slot");
+  assert.match(skin, /waveform: has\("skinWaveform", "waveform"\)/, "skin capability detection");
+  assert.match(css, /html\.melo-wave-on \.seek-wrap input\[type="range"\]\.seek \{ opacity: 0; pointer-events: none; \}/, "plain bar hidden only while the waveform is ready");
+});
+
+test("v1.2.0 waveform: RMS columns, v2 cache, progressive thin-line reveal", () => {
+  const rs = readSrc("src-tauri/src/waveform.rs"), main_rs = readSrc("src-tauri/src/main.rs"), ts = readSrc("src/waveform.ts");
+  assert.match(rs, /const MAGIC: &\[u8; 4\] = b"MWF3";/, "cache version bumped: old saturated entries are rebuilt");
+  assert.match(rs, /const FLOOR_PERCENTILE: f32 = 0\.10;/, "contrast floor for compressed masters");
+  assert.match(rs, /const NORM_PERCENTILE: f32 = 0\.97;/, "normalised to a percentile, not the maximum");
+  assert.match(rs, /fn col_rms/, "columns are RMS (energy), not peaks");
+  assert.ok(!/\.powf\(0\.7\)/.test(rs), "the saturating 0.7 curve is gone");
+  assert.match(rs, /static LATEST: AtomicU64/, "stale requests are superseded");
+  assert.match(rs, /on_progress: &mut dyn FnMut\(&\[u8\]\)/, "finished columns are reported while decoding");
+  assert.match(main_rs, /on_chunk: tauri::ipc::Channel<WaveformChunk>/, "chunks stream through a Tauri channel");
+  assert.ok(!/LOADING_DELAY_MS|loadingTimer/.test(ts), "the thin line shows at once (the 4px plain bar must not show first)");
+  assert.match(ts, /function showNow\(\) \{[^}]*setActive\(true\);\s*draw\(\);/s, "slot is revealed and painted in the same frame");
+  assert.match(ts, /new Channel<\{ peaks: number\[\] \}>\(\)/, "frontend receives the chunks");
+  assert.match(ts, /onChunk: chunks/, "channel passed to the command");
+  assert.match(ts, /ctx\.fillRect\(lineFrom, topOnly \? h - LINE_H : mid - LINE_H \/ 2, w - lineFrom, LINE_H\)/, "unanalysed part is a thin line");
+  assert.match(ts, /if \(!slot \|\| !active \|\| ev\.button !== 0\) return;/, "seeking works while the thin line is shown");
+});
+
+test("v1.2.0 Artists tab: album search results carry the TRACK artist and drill without switching tabs", () => {
+  const lib = readSrc("src/library.ts"), db = readSrc("src-tauri/src/library_db.rs");
+  assert.match(db, /"artist-albums" => \(\s*"album",\s*"artist \|\| char\(0\) \|\| album",\s*"artist",/, "backend: albums grouped by album + TRACK artist");
+  assert.match(db, /"artist-albums" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=\?1/, "cover lookup by track artist");
+  assert.match(lib, /libTab === "artists" \? "artist-albums" : "albums"/, "Artists tab asks for artist-albums (both the Album field and the All sections)");
+  assert.match(lib, /kind === "albums" \|\| kind === "artist-albums"/, "both kinds drill into artist + album");
+  assert.match(lib, /const albumKind: "albums" \| "artist-albums" = libTab === "artists"/, "All-field Albums section follows the tab");
+});
+
+test("v1.2.0 waveform: hover preview, appearance settings, sampled analysis, artist-panel repaint", () => {
+  const ts = readSrc("src/waveform.ts"), st = readSrc("src/settings.ts"), main = readSrc("src/main.ts");
+  const rs = readSrc("src-tauri/src/waveform.rs"), lib = readSrc("src/library.ts"), css = readSrc("src/app.css");
+  for (const k of ["waveformHover", "waveformBar", "waveformShape"]) assert.match(st, new RegExp(`name: "${k}"`), `${k} in registry`);
+  assert.match(st, /name: "waveformHover"[^}]*def: true/, "hover preview is on by default");
+  assert.match(ts, /pointermove", onHoverMove/, "hover listener");
+  assert.match(ts, /requestAnimationFrame\(\(\) => \{\s*hoverQueued = false/, "hover is rAF-throttled");
+  assert.match(ts, /p\?\.key === "waveformHover"/, "hover pref is live");
+  assert.match(ts, /topOnly/, "shape option");
+  assert.match(css, /\.mw-tip/, "tooltip css");
+  assert.match(main, /data-wf-pref="waveformBar"/, "bar select");
+  assert.match(main, /id="swWaveformHover"/, "hover switch");
+  assert.match(rs, /LONG_SECS/, "sampling threshold");
+  assert.match(rs, /fn sample_columns/, "sampled analysis");
+  const drill = lib.slice(lib.indexOf("function drillFromSearchGroup"));
+  assert.match(drill.slice(0, 4000), /paintArtistSidebar\(\);/, "artist panel repaints after the drill clears the search");
+});
+
+test("v1.2.0 waveform: tiny slot resizes (time label 9:59 -> 10:00) do not redraw; four more bundled skins", () => {
+  const ts = readSrc("src/waveform.ts"), css = readSrc("src/app.css");
+  assert.match(ts, /Math\.abs\(r\.width - rw\) <= 3/, "sub-4px width jitter is ignored");
+  assert.match(css, /\.seek-row \.time \{ min-width: 44px/, "time labels fit 10:00 without growing");
+  for (const f of ["Ember", "Mochi", "Pane", "Scrapbook"]) assert.match(readSrc(`skins/${f}.html`), /data-melo="seek"/, f);
+});
+
+test("v1.2.0 bundled Bean skin has a waveform slot and hides its own seek range while it shows", () => {
+  const h = readSrc("skins/bean.html");
+  assert.match(h, /class="nk-wave" data-melo="waveform"/, "slot");
+  assert.match(h, /html\.melo-wave-on \.nk-range\.is-seek \{ opacity: 0; pointer-events: none; \}/, "plain range hidden");
+  assert.match(h, /data-max-height="600"/, "updated window limits");
+});
+
+test("v1.2.0 waveform rebuilds its slot when the player card content is replaced (skin switch)", () => {
+  const ts = readSrc("src/waveform.ts"), h = readSrc("skins/bean.html");
+  assert.match(ts, /getElementById\("playerCard"\)/, "observes the player card");
+  assert.match(ts, /if \(el === slot && \(!slot \|\| slot\.isConnected\)\) return;/, "rebuild only when the slot changed");
+  assert.match(h, /html\.melo-wave-on \.nk-foot > \.nk-seek \{ overflow: visible; \}/, "Bean lets the hover time escape the seek cell");
+});
+
+test("v1.2.0 bundled skins carry a waveform slot (all but the vertical microline-v)", () => {
+  const withSlot = ["aria","bean","bean-compact","Ember","halcyon","haven","hira","koto","lumen","mica","microline","mist","Mochi","Pane","Prism","rail","silk-orbit","slate"];
+  for (const f of withSlot) {
+    const h = readSrc(`skins/${f}.html`);
+    assert.match(h, /<div (?:class="nk-wave" )?data-melo="waveform"><\/div>/, `${f}: slot`);
+    assert.match(h, /html\.melo-wave-on (?:#seekBar,\s*html\.melo-wave-on \[data-melo="seek"\]|\.nk-range\.is-seek)/, `${f}: hides its own range while the waveform shows`);
+  }
+  assert.doesNotMatch(readSrc("skins/microline-v.html"), /data-melo="waveform"/, "vertical skin: no horizontal waveform");
+});
+
+test("v1.2.0 brand menu survives a skin round-trip (delegated listeners, nodes looked up at event time)", () => {
+  const main = readSrc("src/main.ts");
+  const i = main.indexOf("const els = () => ({");
+  assert.ok(i > 0, "lookups at event time");
+  const blk = main.slice(i, i + 1800);
+  assert.match(blk, /document\.addEventListener\("click"/, "click delegated from document");
+  assert.doesNotMatch(blk, /btn\.addEventListener|menu\.addEventListener/, "no listeners bound to the original nodes");
+});
+
+test("round 110: group Play buttons, symmetric tiles geometry, inside-frame zoom, lighter waveform hover", () => {
+  const lib = readSrc("src/library.ts");
+  const css = readSrc("src/app.css");
+  assert.match(lib, /invoke<number>\("replace_queue_from_group"/, "queue replaced server-side");
+  assert.match(lib, /data-grp-play/, "card play button");
+  assert.match(lib, /data-las-play/, "left panel play button");
+  assert.match(lib, /event\.stopPropagation\(\); \/\/ never also drill into the group/, "no drill-in on play");
+  assert.match(lib, /const TILE_GAP = 16;/);
+  assert.match(lib, /\(100% - \$\{\(columns - 1\) \* gap\}px\) \/ \$\{columns\}/, "symmetric column formula");
+  assert.match(lib, /tilesResized/, "re-render when only the column width changes");
+  assert.match(css, /\.grp-avatar::before \{[^}]*background: inherit/, "zoom inside the frame");
+  assert.match(css, /\.grp-avatar:hover|\.lib-grp:hover \.grp-avatar::before \{ transform: scale\(1\.08\)/);
+  assert.match(css, /\.las-row:hover \.las-play/, "left panel: hover only");
+  assert.match(readSrc("src/waveform.ts"), /\$\{playedColor\} 32%, transparent/, "lighter hover layer");
+  assert.match(readSrc("skins/bean-compact.html"), /html\.melo-wave-on \.nk-foot > \.nk-seek \{ overflow: visible; \}/, "tooltip not clipped");
 });

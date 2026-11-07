@@ -1264,6 +1264,14 @@ fn query_groups(
             "album_artist",
             "album COLLATE NOCASE, album_artist COLLATE NOCASE",
         ),
+        // Search results on the ARTISTS tab: the same albums, but each row carries the
+        // TRACK artist (what that tab filters by), so opening one stays in Artists mode.
+        "artist-albums" => (
+            "album",
+            "artist || char(0) || album",
+            "artist",
+            "album COLLATE NOCASE, artist COLLATE NOCASE",
+        ),
         "album-artists" => (
             "album_artist",
             "album_artist",
@@ -1345,6 +1353,7 @@ fn query_groups(
     let cover_sql = match kind {
         "albums" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND album_artist=?1 COLLATE NOCASE AND album=?2 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
         "album-artists" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND album_artist=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
+        "artist-albums" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=?1 COLLATE NOCASE AND album=?2 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
         "genres" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND genre=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
         _ => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
     };
@@ -1352,7 +1361,7 @@ fn query_groups(
     let mut items = Vec::with_capacity(page_rows.len());
     for (key, name, subtitle, count) in page_rows {
         // Album rows carry the artist as their subtitle.
-        let looked_up: rusqlite::Result<(String, Option<String>)> = if kind == "albums" {
+        let looked_up: rusqlite::Result<(String, Option<String>)> = if kind == "albums" || kind == "artist-albums" {
             cover_stmt.query_row(params![subtitle, name], |r| Ok((r.get(0)?, r.get(1)?)))
         } else {
             cover_stmt.query_row(params![name], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -2521,6 +2530,31 @@ pub async fn replace_queue_from_library(search: Option<String>, artist: Option<S
     tx.execute(&sql, params_from_iter(refs)).map_err(|e| e.to_string())?;
     renumber_queue(&tx)?;
     tx.commit().map_err(|e| e.to_string())
+}
+
+/// Group Play button (artist / album artist / album / genre card): replaces
+/// the queue with EVERY library track of that group — the active search is
+/// deliberately not an input. Natural order: artist groups run album by
+/// album, everything else by title.
+#[tauri::command]
+pub async fn replace_queue_from_group(artist: Option<String>, album_artist: Option<String>, album: Option<String>, genre: Option<String>, state: State<'_, LibraryState>) -> Result<i64, String> {
+    let has_scope = [&artist, &album_artist, &album, &genre].iter().any(|v| v.as_deref().map_or(false, |x| !x.is_empty()));
+    if !has_scope {
+        return Err("no group given".into());
+    }
+    let mut conn = locked_db(&state)?;
+    let by_album = album.as_deref().map_or(true, str::is_empty) && (artist.is_some() || album_artist.is_some());
+    let (where_sql, values) = library_filter_field(None, None, artist, album_artist, album, genre);
+    let order = library_order(Some(if by_album { "album-asc" } else { "title-asc" }));
+    let sql = format!("INSERT INTO queue(position,track_id) SELECT ROW_NUMBER() OVER (ORDER BY {})-1,id FROM tracks{}", order, where_sql);
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM queue", []).map_err(|e| e.to_string())?;
+    let refs: Vec<&dyn ToSql> = values.iter().map(|v| v as &dyn ToSql).collect();
+    tx.execute(&sql, params_from_iter(refs)).map_err(|e| e.to_string())?;
+    renumber_queue(&tx)?;
+    let n: i64 = tx.query_row("SELECT COUNT(*) FROM queue", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(n)
 }
 
 /// Deterministic ORDER for the play queue: same visible columns as the

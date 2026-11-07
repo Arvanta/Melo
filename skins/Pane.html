@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Pane</title>
+<style>
+  /*
+   * Pane — compact Fluent mini-player (Windows 11)
+   *
+   * Layout: SPLIT. Left = full-height "stage" panel (cover slot), right = a
+   * single vertical column: header → title → lyric → seek → transport → footer.
+   * The stage mode dock (5 icon buttons) floats at the bottom of the stage.
+   *
+   *   Cover / Blend / Visualizer = radios + parent data-melo=toggle-embedded-viz
+   *   Queue / Lyrics            = Melo embed toggles (html.melo-show-*)
+   */
+  :root {
+    --pn-bg: #e9edf5;
+    --pn-card: #f4f6fb;
+    --pn-card-2: #eef1f8;
+    --pn-surface: #ffffff;
+    --pn-ink: #1b1e26;
+    --pn-soft: #5a6372;
+    --pn-mute: #8b94a4;
+    --pn-line: rgba(27, 30, 38, .08);
+    --pn-line-2: rgba(27, 30, 38, .14);
+    --pn-wash: rgba(27, 30, 38, .06);
+    --pn-radius: 14px;
+    --pn-stage-radius: 9px;
+    --pn-shadow:
+      0 18px 40px -18px rgba(32, 40, 64, .34),
+      0 2px 8px rgba(32, 40, 64, .07),
+      inset 0 1px 0 rgba(255, 255, 255, .75);
+    --card-border: rgba(27, 30, 38, .09);
+    --accent: #3d7bf0;
+    --accent-hover: color-mix(in srgb, var(--accent) 82%, #0a1030);
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 34%, transparent);
+    --visualizer: #5f93ff;
+    --track-bg: rgba(27, 30, 38, .11);
+    --pn-play-fg: #ffffff;
+  }
+  html[data-theme="dark"], [data-theme="dark"] {
+    --pn-bg: #0b0d12;
+    --pn-card: #14171f;
+    --pn-card-2: #181c26;
+    --pn-surface: #1d222d;
+    --pn-ink: #eceef4;
+    --pn-soft: #a4adbc;
+    --pn-mute: #7a8496;
+    --pn-line: rgba(236, 238, 244, .08);
+    --pn-line-2: rgba(236, 238, 244, .14);
+    --pn-wash: rgba(236, 238, 244, .07);
+    --pn-shadow:
+      0 20px 48px rgba(0, 0, 0, .55),
+      0 2px 8px rgba(0, 0, 0, .35),
+      inset 0 1px 0 rgba(255, 255, 255, .05);
+    --card-border: rgba(255, 255, 255, .08);
+    --accent: #7fb0ff;
+    --accent-hover: color-mix(in srgb, var(--accent) 86%, #fff);
+    --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 36%, transparent);
+    --visualizer: #7fb0ff;
+    --track-bg: rgba(236, 238, 244, .13);
+    --pn-play-fg: #0b1120;
+  }
+
+  * { box-sizing: border-box; }
+
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center; overflow: hidden;
+    background:
+      radial-gradient(60% 55% at 10% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 62%),
+      radial-gradient(50% 40% at 92% 100%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 55%),
+      var(--pn-bg);
+    color: var(--pn-ink);
+    font-family: Inter, "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(460px, 100%);
+    height: 250px;
+    min-width: 400px;
+    min-height: 195px;
+    margin: 0; padding: 6px;
+    position: relative; overflow: hidden;
+    container-type: size;
+    container-name: nook;
+    display: grid;
+    grid-template-columns: clamp(150px, 42%, 230px) minmax(0, 1fr);
+    gap: 0;
+    background:
+      radial-gradient(110% 90% at 100% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 55%),
+      linear-gradient(180deg, var(--pn-card) 0%, var(--pn-card-2) 100%);
+    color: var(--pn-ink);
+    border: 1px solid var(--card-border);
+    border-radius: var(--pn-radius);
+    box-shadow: var(--pn-shadow);
+    font-family: Inter, "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    border-radius: var(--pn-radius) !important; box-shadow: none !important;
+  }
+
+  /* keyboard focus: a clear ring on every control */
+  .pn-btn:focus-visible,
+  .pn-tools button:focus-visible,
+  .pn-win button:focus-visible,
+  .pn-brand:focus-visible,
+  .pn-vol-ico:focus-visible,
+  .pn-dock button:focus-visible,
+  .pn-dock label:focus-visible,
+  .pn-menu-item:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .pn-mode:focus-visible ~ .pn-stage .pn-dock label[for="nkModeCover"],
+  .pn-mode:focus-visible ~ .pn-stage .pn-dock label[for="nkModeBlend"],
+  .pn-mode:focus-visible ~ .pn-stage .pn-dock label[for="nkModeSound"] {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  #nkModeCover:focus-visible ~ .pn-stage label[for="nkModeCover"],
+  #nkModeBlend:focus-visible ~ .pn-stage label[for="nkModeBlend"],
+  #nkModeSound:focus-visible ~ .pn-stage label[for="nkModeSound"] {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+
+  /* hidden mode radios */
+  .pn-mode {
+    position: absolute; width: 1px; height: 1px;
+    opacity: 0; pointer-events: none; margin: 0;
+  }
+
+  /* ========== STAGE (left, full height = cover slot) ========== */
+  .pn-stage {
+    position: relative;
+    min-width: 0; min-height: 0;
+    border-radius: var(--pn-stage-radius);
+    overflow: hidden;
+    background: var(--pn-surface);
+    box-shadow: 0 0 0 1px var(--pn-line), 0 6px 18px -8px rgba(20, 28, 50, .35);
+  }
+  .pn-art { position: absolute; inset: 0; z-index: 0; }
+  .pn-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pn-fallback {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    background:
+      radial-gradient(80% 70% at 30% 20%, color-mix(in srgb, var(--accent) 32%, transparent), transparent 70%),
+      linear-gradient(150deg, #2b3347, #1a1f2c);
+    color: color-mix(in srgb, var(--accent) 70%, #fff);
+  }
+  .pn-fallback svg { width: 34px; height: 34px; opacity: .9; }
+
+  /* bottom shade so the dock reads over any cover */
+  .pn-scrim {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 46%;
+    z-index: 1; pointer-events: none;
+    background: linear-gradient(180deg, transparent, rgba(10, 12, 20, .5));
+  }
+
+  .pn-viz {
+    position: absolute; inset: 0; z-index: 2;
+    display: block; padding: 0; cursor: pointer;
+    min-width: 0; min-height: 0;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    -webkit-app-region: no-drag;
+  }
+  .pn-viz canvas {
+    width: 100% !important; height: 100% !important;
+    display: block; pointer-events: none;
+  }
+
+  .pn-embed {
+    position: absolute; inset: 0; z-index: 2;
+    display: none; overflow: auto;
+    padding: 8px 6px 44px;
+    -webkit-app-region: no-drag;
+    background: color-mix(in srgb, var(--pn-card) 96%, transparent);
+    color: var(--pn-ink);
+    font-size: 11px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 45%, transparent) transparent;
+  }
+  .pn-embed .embedded-playlist-row {
+    min-height: 24px; padding: 2px 6px; border-radius: 6px;
+    font-size: 10.5px; line-height: 1.25;
+  }
+  .pn-embed .embedded-playlist-row:hover { background: var(--pn-wash); }
+  .pn-embed .embedded-playlist-row.active { background: var(--accent-soft); color: var(--accent); }
+  .pn-embed .embedded-playlist-row.active .t-title { color: var(--accent); font-weight: 600; }
+  .pn-embed .embedded-playlist-row .t-title { font-size: 10.5px !important; font-weight: 600; }
+  .pn-embed .embedded-playlist-row .t-artist,
+  .pn-embed .embedded-playlist-row .t-album { font-size: 9.5px !important; opacity: .85; }
+  .pn-embed .embedded-playlist-mini .t-title { font-size: 10.5px !important; }
+  .pn-embed .track-cover-mini { border-radius: 4px; width: 18px; height: 18px; }
+  .pn-embed .embedded-lyrics-title { display: none; }
+  .pn-embed .lyric-line {
+    padding: 3px 6px; border-radius: 6px;
+    font-size: 11px; color: var(--pn-soft); text-align: center;
+  }
+  .pn-embed .lyric-line.active {
+    font-weight: 650; font-size: 11.5px; color: var(--accent); background: var(--accent-soft);
+  }
+  .pn-embed::-webkit-scrollbar { width: 3px; }
+  .pn-embed::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 99px;
+  }
+
+  /* ----- stage mode layers ----- */
+  /* Cover (default) */
+  :is(#melo-player, .player-card):has(#nkModeCover:checked) .pn-viz {
+    opacity: 0 !important; visibility: hidden !important; pointer-events: none !important;
+  }
+  /* Blend */
+  :is(#melo-player, .player-card):has(#nkModeBlend:checked) .pn-art img,
+  :is(#melo-player, .player-card):has(#nkModeBlend:checked) .pn-fallback {
+    filter: blur(3px) saturate(1.12) brightness(.78);
+    transform: scale(1.08);
+  }
+  :is(#melo-player, .player-card):has(#nkModeBlend:checked) .pn-viz {
+    display: block !important; opacity: 1 !important; visibility: visible !important;
+    pointer-events: auto !important;
+    background: linear-gradient(180deg, rgba(8, 10, 18, .16), rgba(8, 10, 18, .34));
+  }
+  /* Visualizer only */
+  :is(#melo-player, .player-card):has(#nkModeSound:checked) .pn-art,
+  :is(#melo-player, .player-card):has(#nkModeSound:checked) .pn-scrim {
+    display: none !important;
+  }
+  :is(#melo-player, .player-card):has(#nkModeSound:checked) .pn-viz {
+    display: block !important; opacity: 1 !important; visibility: visible !important;
+    pointer-events: auto !important;
+    background: var(--pn-card);
+  }
+  /* Queue / Lyrics */
+  html.melo-show-playlist .pn-art,
+  html.melo-show-lyrics .pn-art,
+  html.melo-show-playlist .pn-scrim,
+  html.melo-show-lyrics .pn-scrim,
+  html.melo-show-playlist .pn-viz,
+  html.melo-show-lyrics .pn-viz { display: none !important; }
+  html.melo-show-playlist [data-melo="embedded-playlist"] { display: block !important; }
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  html:not(.melo-show-playlist) [data-melo="embedded-playlist"],
+  html:not(.melo-show-lyrics) [data-melo="embedded-lyrics"] { display: none !important; }
+  html.melo-show-lyrics .pn-lyric { display: none !important; }
+
+  /* ----- stage dock (5 modes, icon-only) ----- */
+  .pn-dock {
+    position: absolute; z-index: 6;
+    left: 50%; bottom: 8px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--pn-surface) 82%, transparent);
+    border: 1px solid var(--pn-line-2);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .25);
+    backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-app-region: no-drag;
+  }
+  .pn-art-modes { display: flex; gap: 2px; cursor: pointer; }
+  .pn-sep { width: 1px; height: 14px; background: var(--pn-line-2); margin: 0 2px; flex-shrink: 0; }
+  .pn-dock label,
+  .pn-dock button {
+    width: 26px; height: 24px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 999px;
+    background: transparent; color: var(--pn-soft);
+    cursor: pointer; flex-shrink: 0;
+    transition: color .12s ease, background .12s ease;
+  }
+  .pn-dock svg { width: 13px; height: 13px; display: block; pointer-events: none; }
+  .pn-dock label:hover,
+  .pn-dock button:hover { color: var(--pn-ink); background: var(--pn-wash); }
+
+  html.melo-show-playlist .pn-dock [data-melo="toggle-embedded-playlist"],
+  html.melo-show-lyrics .pn-dock [data-melo="toggle-embedded-lyrics"],
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) :is(#melo-player, .player-card):has(#nkModeCover:checked) label[for="nkModeCover"],
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) :is(#melo-player, .player-card):has(#nkModeBlend:checked) label[for="nkModeBlend"],
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) :is(#melo-player, .player-card):has(#nkModeSound:checked) label[for="nkModeSound"] {
+    color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  /* ========== SIDE (right column) ========== */
+  .pn-side {
+    position: relative;
+    min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+    padding: 2px 4px 0 12px;
+    gap: 4px;
+  }
+  /* invisible move handle behind header + title */
+  .pn-drag {
+    position: absolute; z-index: 0;
+    top: 0; left: 0; right: 0; height: 74px;
+    background: transparent;
+    -webkit-app-region: drag; app-region: drag;
+  }
+  .pn-side > *:not(.pn-drag) { position: relative; z-index: 1; }
+
+  .pn-side > .pn-head { z-index: 20; }
+  .pn-head {
+    display: flex; align-items: center; gap: 6px;
+    height: 24px; flex-shrink: 0;
+    pointer-events: none;
+  }
+  .pn-head > * { pointer-events: auto; }
+
+  .pn-menu {
+    -webkit-app-region: no-drag; app-region: no-drag;
+    position: relative; flex-shrink: 0;
+  }
+  .pn-menu > input {
+    position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+  }
+  .pn-brand {
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    height: 24px; padding: 0 8px 0 6px;
+    border-radius: 6px;
+    font-size: 11.5px; font-weight: 650; letter-spacing: -.01em;
+    color: var(--pn-ink);
+    transition: background .12s ease;
+  }
+  .pn-brand:hover,
+  .pn-menu > input:checked ~ .pn-brand { background: var(--pn-wash); }
+  .pn-mark {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: radial-gradient(circle at 32% 28%,
+      color-mix(in srgb, #fff 62%, var(--accent)) 0%, var(--accent) 55%,
+      color-mix(in srgb, var(--accent) 65%, #000) 100%);
+    box-shadow:
+      0 0 0 1.5px color-mix(in srgb, var(--accent) 28%, transparent),
+      0 0 7px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .pn-menu-pop {
+    display: none; position: absolute; z-index: 50;
+    top: calc(100% + 4px); left: 0; min-width: 156px;
+    padding: 5px; flex-direction: column; gap: 1px;
+    background: var(--pn-surface);
+    color: var(--pn-ink);
+    border: 1px solid var(--pn-line-2);
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .3), 0 0 0 1px var(--pn-line);
+  }
+  .pn-menu > input:checked ~ .pn-menu-pop { display: flex; }
+  .pn-menu-item {
+    display: flex; align-items: center; gap: 8px;
+    height: 28px; padding: 0 8px; border-radius: 6px;
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    background: transparent; color: var(--pn-ink);
+  }
+  .pn-menu-item:hover { background: var(--pn-wash); }
+  .pn-menu-item svg { width: 13px; height: 13px; color: var(--pn-soft); flex-shrink: 0; }
+  .pn-dismiss { display: none; position: fixed; inset: 0; z-index: 40; cursor: default; }
+  .pn-menu > input:checked ~ .pn-dismiss { display: block; }
+
+  .pn-win {
+    -webkit-app-region: no-drag; app-region: no-drag;
+    margin-left: auto; display: flex; gap: 0;
+  }
+  .pn-win button {
+    width: 30px; height: 24px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 6px;
+    background: transparent; color: var(--pn-soft); cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+  }
+  .pn-win button:hover { background: var(--pn-wash); color: var(--pn-ink); }
+  .pn-win button.close:hover { background: #c42b1c; color: #fff; }
+  .pn-win button svg { width: 11px; height: 11px; }
+
+  /* title block */
+  .pn-meta {
+    flex-shrink: 0; min-width: 0;
+    display: flex; flex-direction: column; gap: 2px;
+    pointer-events: none;
+    margin-top: 2px;
+  }
+  .pn-title {
+    font-size: 16px; font-weight: 690; letter-spacing: -.017em; line-height: 1.22;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--pn-ink);
+  }
+  .pn-byline {
+    display: flex; align-items: center; gap: 5px; min-width: 0;
+    font-size: 11px; font-weight: 500; color: var(--pn-soft);
+  }
+  .pn-byline > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .pn-byline [data-melo="artist"] { font-weight: 600; color: var(--pn-ink); opacity: .88; flex: 0 1 auto; }
+  .pn-album { color: var(--pn-mute); flex: 0 1 auto; }
+  .pn-dot { flex: 0 0 auto; width: 2.5px; height: 2.5px; border-radius: 50%; background: var(--pn-mute); }
+  .pn-byline:has(.pn-album:empty) .pn-dot { display: none; }
+
+  .pn-meta-bits {
+    margin-top: 3px;
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+    font-size: 9px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--pn-mute);
+  }
+  .pn-meta-bits:not(:has(span:not(:empty))) { display: none; }
+  .pn-meta-bits > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pn-chip {
+    flex-shrink: 0; padding: 1px 6px; border-radius: 4px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+    font-weight: 700;
+  }
+  .pn-chip:empty { display: none; }
+
+  /* current lyric — fills the flexible middle */
+  .pn-lyric {
+    -webkit-app-region: no-drag;
+    padding: 0 0 0 9px;
+    border-left: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+    border-radius: 1px;
+    font-size: 11.5px; font-weight: 600; line-height: 1.35;
+    color: color-mix(in srgb, var(--accent) 88%, var(--pn-ink));
+    overflow: hidden; cursor: pointer;
+    display: -webkit-box;
+    -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+    flex: 0 0 auto; max-height: none;
+    margin: 0;
+    transition: color .3s ease, border-color .3s ease;
+  }
+  .pn-lyric.melo-lyric-tick { animation: pn-lyric-in .4s ease-out; }
+  @keyframes pn-lyric-in {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .pn-lyric:empty,
+  .pn-lyric.melo-lyric-empty { display: none; }
+  /* spacer so layout holds when lyric is hidden */
+  .pn-grow { flex: 1 1 0; min-height: 0; }
+
+  /* seek */
+  .pn-seekbox { flex-shrink: 0; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .pn-seekbox .pn-range.is-seek { flex: 1 1 auto; min-width: 0; }
+  .pn-time {
+    flex: 0 0 auto; min-width: 30px;
+    font-size: 9.5px; font-weight: 650; color: var(--pn-mute);
+    font-variant-numeric: tabular-nums;
+    font-family: "Cascadia Mono", "Segoe UI Variable Text", Consolas, monospace;
+  }
+  .pn-time-end { text-align: right; }
+
+  /* transport: play + prev/next/stop on the left, shuffle/repeat on the right */
+  .pn-transport {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 2px;
+  }
+  .pn-transport .pn-spacer { flex: 1 1 auto; }
+  .pn-btn {
+    width: 28px; height: 28px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 8px;
+    background: transparent; color: var(--pn-soft); cursor: pointer;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
+    flex-shrink: 0;
+  }
+  .pn-btn:hover { background: var(--pn-wash); color: var(--pn-ink); }
+  .pn-btn:active { transform: scale(.94); }
+  .pn-btn.active { color: var(--accent); background: var(--accent-soft); }
+  .pn-btn svg { width: 14px; height: 14px; display: block; }
+  .pn-btn.pn-play {
+    width: 38px; height: 38px; border-radius: 12px; margin-right: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, #fff 16%, var(--accent)), var(--accent));
+    color: var(--pn-play-fg);
+    box-shadow:
+      0 6px 16px var(--accent-glow),
+      0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, .3);
+  }
+  .pn-btn.pn-play:hover {
+    background: linear-gradient(180deg, color-mix(in srgb, #fff 20%, var(--accent-hover)), var(--accent-hover));
+    transform: translateY(-.5px);
+  }
+  .pn-btn.pn-play svg { width: 17px; height: 17px; }
+  .pn-btn.pn-sm { width: 26px; height: 26px; }
+  .pn-btn.pn-sm svg { width: 13px; height: 13px; }
+
+  /* footer: volume (left) + tools (right) */
+  .pn-foot {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 4px;
+    padding-top: 5px;
+    border-top: 1px solid var(--pn-line);
+    min-width: 0;
+  }
+  .pn-vol { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 70px; }
+  .pn-vol-ico {
+    width: 24px; height: 24px; border-radius: 6px;
+    display: grid; place-items: center;
+    color: var(--pn-soft); cursor: pointer; flex-shrink: 0;
+    transition: background .12s ease, color .12s ease;
+  }
+  .pn-vol-ico:hover { background: var(--pn-wash); color: var(--pn-ink); }
+  .pn-vol-ico.muted { color: var(--pn-mute); opacity: .7; }
+  .pn-vol-ico svg { width: 13px; height: 13px; display: block; }
+  .pn-tools { display: flex; gap: 0; flex-shrink: 0; }
+  .pn-tools button {
+    width: 23px; height: 24px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 6px;
+    background: transparent; color: var(--pn-mute); cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+  }
+  .pn-tools button:hover { background: var(--pn-wash); color: var(--pn-ink); }
+  .pn-tools button.active { color: var(--accent); background: var(--accent-soft); }
+  .pn-tools button svg { width: 13px; height: 13px; }
+
+  /* ranges */
+  .pn-range {
+    -webkit-appearance: none; appearance: none;
+    outline: none; cursor: pointer;
+    background: transparent; border: 0; padding: 0; margin: 0;
+    height: 16px; display: block;
+  }
+  .pn-range.is-seek { width: 100%; }
+  .pn-range.is-vol { flex: 1 1 56px; width: 100%; min-width: 40px; max-width: 96px; }
+  .pn-range.is-seek::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      color-mix(in srgb, var(--accent) 78%, #fff) 0%,
+      var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .pn-range.is-seek::-moz-range-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      color-mix(in srgb, var(--accent) 78%, #fff) 0%,
+      var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .pn-range.is-vol::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .pn-range.is-vol::-moz-range-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .pn-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 11px; height: 11px; border-radius: 50%;
+    margin-top: -3.5px;
+    background: #fff; border: 0;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--pn-ink) 12%, transparent), 0 1px 5px rgba(0, 0, 0, .2);
+    opacity: 0; transform: scale(.5);
+    transition: opacity .12s ease, transform .12s ease, box-shadow .12s ease;
+  }
+  .pn-range.is-vol::-webkit-slider-thumb { margin-top: -4px; }
+  .pn-range::-moz-range-thumb {
+    width: 11px; height: 11px; border-radius: 50%; border: 0; background: #fff;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--pn-ink) 12%, transparent), 0 1px 5px rgba(0, 0, 0, .2);
+    opacity: 0; transform: scale(.5);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .pn-range:hover::-webkit-slider-thumb,
+  .pn-range:active::-webkit-slider-thumb {
+    opacity: 1; transform: scale(1);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent),
+      0 1px 6px rgba(0, 0, 0, .22),
+      0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .pn-range:hover::-moz-range-thumb,
+  .pn-range:active::-moz-range-thumb {
+    opacity: 1; transform: scale(1);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent),
+      0 1px 6px rgba(0, 0, 0, .22),
+      0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+
+  /* inside a short window the skin fills the window: no page padding */
+  @media (max-height: 320px) {
+    body:not(.tauri-main):has(#melo-player) { padding: 0; }
+    #melo-player { height: 100vh; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+
+  /* ========== responsive ========== */
+  @container nook (max-width: 430px) {
+    .pn-range.is-vol { max-width: 64px; }
+    .pn-btn { width: 26px; }
+  }
+  @container nook (max-width: 530px) {
+    .pn-meta-bits [data-melo="specs"] { display: none; }
+  }
+  @container nook (max-height: 200px) {
+    .pn-lyric { display: none !important; }
+  }
+    @container nook (max-height: 180px) {
+    .pn-meta-bits { display: none; }
+  }
+  @container nook (max-height: 205px) {
+    .pn-side { gap: 4px; }
+    .pn-btn.pn-play { width: 34px; height: 34px; }
+    .pn-foot { padding-top: 3px; }
+  }
+  @container nook (min-height: 300px) {
+    .pn-side { gap: 8px; }
+  }
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--pn-ink) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
+</style>
+</head>
+<body
+  data-window-width="600"
+  data-window-height="240"
+  data-min-width="400"
+  data-min-height="195"
+  data-max-width="640"
+  data-max-height="380"
+  data-resizable="true">
+<div id="melo-player">
+
+  <!-- stage radios (Cover default) -->
+  <input class="pn-mode" id="nkModeCover" type="radio" name="nkMode" checked />
+  <input class="pn-mode" id="nkModeBlend" type="radio" name="nkMode" />
+  <input class="pn-mode" id="nkModeSound" type="radio" name="nkMode" />
+
+  <!-- ===== LEFT: stage (cover slot) ===== -->
+  <section class="pn-stage">
+    <div class="pn-art">
+      <img data-melo="cover" alt="" style="display:none" />
+      <div class="pn-fallback" data-melo="cover-fallback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      </div>
+    </div>
+    <div class="pn-scrim" aria-hidden="true"></div>
+
+    <div class="pn-viz" data-melo="visualizer" data-bars="28"></div>
+    <div class="pn-embed" data-melo="embedded-playlist"></div>
+    <div class="pn-embed" data-melo="embedded-lyrics"></div>
+
+    <!-- floating stage dock: 5 modes, icon-only -->
+    <div class="pn-dock" role="tablist" aria-label="Stage">
+      <div class="pn-art-modes" data-melo="toggle-embedded-viz">
+        <label for="nkModeCover" title="Cover">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="m20.5 15-4.5-4.5L7 19.5"/></svg>
+        </label>
+        <label for="nkModeBlend" title="Cover + visualizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>
+        </label>
+        <label for="nkModeSound" title="Visualizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 10v4M9 6v12M13 9v6M17 4v16M21 11v2"/></svg>
+        </label>
+      </div>
+      <span class="pn-sep" aria-hidden="true"></span>
+      <button type="button" data-melo="toggle-embedded-playlist" title="Queue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h7"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
+      </button>
+      <button type="button" data-melo="toggle-embedded-lyrics" title="Lyrics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h10M4 16h16M4 21h8"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ===== RIGHT: single column ===== -->
+  <section class="pn-side">
+    <div class="pn-drag" data-tauri-drag-region aria-hidden="true"></div>
+
+    <div class="pn-head">
+      <div class="pn-menu">
+        <input id="nkMenuToggle" type="checkbox" />
+        <label class="pn-brand" for="nkMenuToggle" title="Menu">
+          <span class="pn-mark" aria-hidden="true"></span>
+          Melo
+        </label>
+        <div class="pn-menu-pop">
+          <label class="pn-menu-item" for="nkMenuToggle" data-melo="add-files">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+            Add files
+          </label>
+          <label class="pn-menu-item" for="nkMenuToggle" data-melo="add-folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Add folder
+          </label>
+          <label class="pn-menu-item" for="nkMenuToggle" data-melo="theme-toggle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            Theme
+          </label>
+        </div>
+        <label class="pn-dismiss" for="nkMenuToggle" aria-label="Close menu"></label>
+      </div>
+
+      <div class="pn-win">
+        <button type="button" data-melo="minimize" title="Minimize" aria-label="minimize">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+        </button>
+        <button type="button" class="close" data-melo="close" title="Close" aria-label="close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="pn-meta">
+      <div class="pn-title" data-melo="title">Nothing playing</div>
+      <div class="pn-byline">
+        <span data-melo="artist">Add music to begin</span>
+        <span class="pn-dot" aria-hidden="true"></span>
+        <span class="pn-album" data-melo="album"></span>
+      </div>
+      <div class="pn-meta-bits">
+        <span class="pn-chip" data-melo="codec"></span>
+        <span data-melo="specs"></span>
+      </div>
+    </div>
+
+    <div class="pn-lyric" data-melo="current-lyric" aria-live="polite" title="Current lyric"></div>
+    <div class="pn-grow" aria-hidden="true"></div>
+
+    <div class="pn-seekbox">
+      <span class="pn-time" data-melo="current-time">0:00</span>
+      <div data-melo="waveform"></div>
+      <input class="pn-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
+      <span class="pn-time pn-time-end" data-melo="duration">0:00</span>
+    </div>
+
+    <div class="pn-transport">
+      <button class="pn-btn pn-play" type="button" data-melo="play" title="Play / Pause">
+        <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </button>
+      <button class="pn-btn" type="button" data-melo="prev" title="Previous">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
+      </button>
+      <button class="pn-btn" type="button" data-melo="next" title="Next">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
+      </button>
+      <button class="pn-btn" type="button" data-melo="stop" title="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+      <span class="pn-spacer"></span>
+      <button class="pn-btn" type="button" data-melo="shuffle" title="Shuffle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg>
+      </button>
+      <button class="pn-btn" type="button" data-melo="repeat" title="Repeat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </button>
+    </div>
+
+    <div class="pn-foot">
+      <div class="pn-vol">
+        <span class="pn-vol-ico" data-melo="volume-icon" title="Mute">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h4l5 4V6L7 10H3z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
+        </span>
+        <input class="pn-range is-vol" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" />
+      </div>
+      <div class="pn-tools">
+        <button type="button" id="btnToggleLibrary" data-melo="toggle-library" title="Library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
+        </button>
+        <button type="button" id="btnTogglePlaylist" data-melo="toggle-playlist" title="Queue window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>
+        </button>
+        <button type="button" id="btnToggleEq" data-melo="toggle-eq" title="Equalizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        </button>
+        <button type="button" id="btnToggleLyrics" data-melo="toggle-lyrics" title="Lyrics window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+        </button>
+        <button type="button" id="btnOpenSettings" data-melo="toggle-settings" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

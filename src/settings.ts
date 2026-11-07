@@ -37,12 +37,16 @@ export const SETTINGS: SettingDef[] = [
   { name: "lyricsOnline",   storage: "melo-pref-lyricsOnline",   type: "bool", def: false },
   { name: "lyricsSaveMode", storage: "melo-pref-lyricsSaveMode", type: "string", def: "cache" },
   { name: "lyricsSkinLine", storage: "melo-pref-lyricsSkinLine", type: "bool", def: false },
+  { name: "waveformSeek",  storage: "melo-pref-waveformSeek",  type: "bool", def: false },
+  { name: "waveformHover", storage: "melo-pref-waveformHover", type: "bool", def: true },
+  { name: "waveformBar",   storage: "melo-pref-waveformBar",   type: "string", def: "normal" },
+  { name: "waveformShape", storage: "melo-pref-waveformShape", type: "string", def: "symmetric" },
   { name: "language",       storage: "melo-pref-language",       type: "string", def: "en" },
   // --- Playback --------------------------------------------------------
   { name: "replayGainGlobal", storage: "melo-pref-replayGainGlobal", type: "bool", def: true },
   { name: "fadePause",        storage: "melo-pref-fadePause",        type: "bool", def: true },
   { name: "crossfade",        storage: "melo-pref-crossfade",        type: "bool", def: false },
-  { name: "crossfadeDuration", storage: "melo-pref-crossfadeDuration", type: "int", def: 4, min: 1, max: 12 },
+  { name: "crossfadeDuration", storage: "melo-pref-crossfadeDuration", type: "int", def: 4, min: 0, max: 12 },
   { name: "smartPrev",        storage: "melo-pref-smartPrev",        type: "bool", def: true },
   // --- Appearance --------------------------------------------------------
   { name: "dynamicTheme",             storage: "melo-dynamic-theme",                    type: "bool", def: true },

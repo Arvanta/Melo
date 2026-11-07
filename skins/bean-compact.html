@@ -559,6 +559,22 @@
       0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--nk-ink) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  /* The seek cell and the foot pill clip their content; while the waveform shows, let its
+     hover time tooltip (above the slot) escape both. */
+  html.melo-wave-on .nk-foot > .nk-seek { overflow: visible; }
+  html.melo-wave-on .nk-foot { overflow: visible; }
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
 <body
@@ -690,6 +706,7 @@
 
       <span class="nk-time is-elapsed" data-melo="current-time">0:00</span>
       <div class="nk-seek">
+        <div data-melo="waveform"></div>
         <input class="nk-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
       </div>
       <span class="nk-time is-duration" data-melo="duration">0:00</span>

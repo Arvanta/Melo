@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Ember</title>
+<style>
+  /*
+   * Ember — tall "poster" mini-player
+   *
+   * A portrait card (320×480), warm paper / warm graphite palette with an
+   * ember-orange accent. Completely different structure from Bean / Pane:
+   *
+   *   ┌──────────────┐
+   *   │  STAGE       │  full-bleed cover slot (all 5 modes paint here)
+   *   │  glass header│  brand pill + window buttons float on top
+   *   │  glass rail → │  vertical mode rail (Cover/Blend/Viz/Queue/Lyrics)
+   *   │  lyric pill  │  current lyric as a caption on the stage
+   *   ├──────────────┤
+   *   │  centered title / artist
+   *   │  0:00 ━━━━●── 3:45
+   *   │  ⇄  ⏮  (▶)  ⏭  ⟳
+   *   │  ■ 🔊━━   tools… │
+   *   └──────────────┘
+   */
+  :root {
+    --em-bg: #ece5da;
+    --em-card: #f8f4ec;
+    --em-card-2: #f1ebe0;
+    --em-surface: #ffffff;
+    --em-ink: #2b2118;
+    --em-soft: #6d6054;
+    --em-mute: #9a8d7f;
+    --em-line: rgba(43, 33, 24, .09);
+    --em-line-2: rgba(43, 33, 24, .16);
+    --em-wash: rgba(43, 33, 24, .07);
+    --em-radius: 20px;
+    --em-shadow:
+      0 22px 48px -20px rgba(70, 44, 20, .38),
+      0 2px 8px rgba(70, 44, 20, .08),
+      inset 0 1px 0 rgba(255, 255, 255, .8);
+    --card-border: rgba(43, 33, 24, .10);
+    --accent: #e2561b;
+    --accent-hover: color-mix(in srgb, var(--accent) 84%, #000);
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+    --accent-fg: #ffffff;
+    --visualizer: #e2561b;
+    --track-bg: rgba(43, 33, 24, .13);
+    --em-glass: rgba(20, 14, 9, .42);
+    --em-glass-line: rgba(255, 255, 255, .16);
+    --em-on-glass: #fff7ef;
+    --em-on-glass-soft: rgba(255, 247, 239, .7);
+  }
+  html[data-theme="dark"], [data-theme="dark"] {
+    --em-bg: #0d0b09;
+    --em-card: #191612;
+    --em-card-2: #14110e;
+    --em-surface: #231f19;
+    --em-ink: #f4ece2;
+    --em-soft: #b5a898;
+    --em-mute: #857a6c;
+    --em-line: rgba(244, 236, 226, .08);
+    --em-line-2: rgba(244, 236, 226, .15);
+    --em-wash: rgba(244, 236, 226, .07);
+    --em-shadow:
+      0 24px 56px rgba(0, 0, 0, .6),
+      0 2px 8px rgba(0, 0, 0, .4),
+      inset 0 1px 0 rgba(255, 255, 255, .05);
+    --card-border: rgba(255, 255, 255, .08);
+    --accent: #ff9d5c;
+    --accent-hover: color-mix(in srgb, var(--accent) 86%, #fff);
+    --accent-soft: color-mix(in srgb, var(--accent) 17%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 38%, transparent);
+    --accent-fg: #1d1007;
+    --visualizer: #ff9d5c;
+    --track-bg: rgba(244, 236, 226, .14);
+  }
+
+  * { box-sizing: border-box; }
+
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center; overflow: hidden;
+    background:
+      radial-gradient(60% 50% at 85% 0%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 62%),
+      radial-gradient(50% 45% at 5% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+      var(--em-bg);
+    color: var(--em-ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  }
+
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: min(320px, 100%);
+    height: 480px;
+    min-width: 280px;
+    min-height: 400px;
+    margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    container-type: size;
+    container-name: nook;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    background:
+      radial-gradient(90% 40% at 50% 100%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
+      linear-gradient(180deg, var(--em-card) 0%, var(--em-card-2) 100%);
+    color: var(--em-ink);
+    border: 1px solid var(--card-border);
+    border-radius: var(--em-radius);
+    box-shadow: var(--em-shadow);
+    font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    border-radius: var(--em-radius) !important; box-shadow: none !important;
+  }
+
+  /* hidden mode radios */
+  .em-mode {
+    position: absolute; width: 1px; height: 1px;
+    opacity: 0; pointer-events: none; margin: 0;
+  }
+
+  /* ========== STAGE (top, full-bleed = cover slot) ========== */
+  .em-stage {
+    position: relative;
+    min-height: 120px; min-width: 0;
+    overflow: hidden;
+    background: var(--em-card-2);
+  }
+  .em-art { position: absolute; inset: 0; z-index: 0; }
+  .em-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .em-fallback {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    background:
+      radial-gradient(70% 60% at 30% 20%, color-mix(in srgb, var(--accent) 45%, transparent), transparent 70%),
+      linear-gradient(160deg, #3a2a1e, #1c130d);
+    color: color-mix(in srgb, var(--accent) 75%, #fff);
+  }
+  .em-fallback svg { width: 56px; height: 56px; opacity: .85; }
+
+  /* top shade (header legibility) + bottom melt into the card */
+  .em-scrim {
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(14, 9, 5, .5) 0%, rgba(14, 9, 5, 0) 26%),
+      linear-gradient(180deg, transparent 62%, var(--em-card) 100%);
+  }
+
+  .em-viz {
+    position: absolute; inset: 0; z-index: 2;
+    display: block; padding: 0; cursor: pointer;
+    min-width: 0; min-height: 0;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    -webkit-app-region: no-drag;
+  }
+  .em-viz canvas {
+    width: 100% !important; height: 100% !important;
+    display: block; pointer-events: none;
+  }
+
+  .em-embed {
+    position: absolute; inset: 0; z-index: 2;
+    display: none; overflow: auto;
+    padding: 46px 46px 12px 10px;
+    -webkit-app-region: no-drag;
+    background: color-mix(in srgb, var(--em-card) 97%, transparent);
+    color: var(--em-ink);
+    font-size: 11.5px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 50%, transparent) transparent;
+  }
+  .em-embed .embedded-playlist-row {
+    min-height: 28px; padding: 3px 8px; border-radius: 9px;
+    font-size: 11px; line-height: 1.25;
+  }
+  .em-embed .embedded-playlist-row:hover { background: var(--em-wash); }
+  .em-embed .embedded-playlist-row.active { background: var(--accent-soft); color: var(--accent); }
+  .em-embed .embedded-playlist-row.active .t-title { color: var(--accent); font-weight: 700; }
+  .em-embed .embedded-playlist-row .t-title { font-size: 11.5px !important; font-weight: 600; }
+  .em-embed .embedded-playlist-row .t-artist,
+  .em-embed .embedded-playlist-row .t-album { font-size: 10px !important; opacity: .85; }
+  .em-embed .embedded-playlist-mini .t-title { font-size: 11.5px !important; }
+  .em-embed .track-cover-mini { border-radius: 6px; width: 22px; height: 22px; }
+  .em-embed .embedded-lyrics-title { display: none; }
+  .em-embed .lyric-line {
+    padding: 4px 8px; border-radius: 9px;
+    font-size: 12px; color: var(--em-soft);
+  }
+  .em-embed .lyric-line.active {
+    font-weight: 700; font-size: 13px; color: var(--accent); background: var(--accent-soft);
+  }
+  .em-embed::-webkit-scrollbar { width: 3px; }
+  .em-embed::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--accent) 50%, transparent); border-radius: 99px;
+  }
+
+  /* ----- stage mode layers ----- */
+  :is(#melo-player, .player-card):has(#nkModeCover:checked) .em-viz {
+    opacity: 0 !important; visibility: hidden !important; pointer-events: none !important;
+  }
+  :is(#melo-player, .player-card):has(#nkModeBlend:checked) .em-art img,
+  :is(#melo-player, .player-card):has(#nkModeBlend:checked) .em-fallback {
+    filter: blur(4px) saturate(1.15) brightness(.7);
+    transform: scale(1.08);
+  }
+  :is(#melo-player, .player-card):has(#nkModeBlend:checked) .em-viz {
+    display: block !important; opacity: 1 !important; visibility: visible !important;
+    pointer-events: auto !important;
+    background: linear-gradient(180deg, rgba(14, 9, 5, .12), rgba(14, 9, 5, .3));
+  }
+  :is(#melo-player, .player-card):has(#nkModeSound:checked) .em-art {
+    display: none !important;
+  }
+  :is(#melo-player, .player-card):has(#nkModeSound:checked) .em-scrim {
+    background: linear-gradient(180deg, transparent 80%, var(--em-card) 100%);
+  }
+  :is(#melo-player, .player-card):has(#nkModeSound:checked) .em-viz {
+    display: block !important; opacity: 1 !important; visibility: visible !important;
+    pointer-events: auto !important;
+    background: var(--em-card-2);
+  }
+  /* Queue / Lyrics */
+  html.melo-show-playlist .em-art,
+  html.melo-show-lyrics .em-art,
+  html.melo-show-playlist .em-scrim,
+  html.melo-show-lyrics .em-scrim,
+  html.melo-show-playlist .em-viz,
+  html.melo-show-lyrics .em-viz { display: none !important; }
+  html.melo-show-playlist [data-melo="embedded-playlist"] { display: block !important; }
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  html:not(.melo-show-playlist) [data-melo="embedded-playlist"],
+  html:not(.melo-show-lyrics) [data-melo="embedded-lyrics"] { display: none !important; }
+  html.melo-show-lyrics .em-lyric { display: none !important; }
+
+  /* ----- invisible drag handle across the stage top ----- */
+  .em-drag {
+    position: absolute; z-index: 3;
+    top: 0; left: 0; right: 0; height: 44px;
+    background: transparent;
+    -webkit-app-region: drag; app-region: drag;
+  }
+
+  /* ----- floating glass header ----- */
+  .em-head {
+    position: absolute; z-index: 20;
+    top: 0; left: 0; right: 0;
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 10px 0 10px;
+    pointer-events: none;
+  }
+  .em-head > * { pointer-events: auto; }
+  .em-menu {
+    -webkit-app-region: no-drag; app-region: no-drag;
+    position: relative; flex-shrink: 0;
+  }
+  .em-menu > input {
+    position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+  }
+  .em-brand {
+    cursor: pointer;
+    display: flex; align-items: center; gap: 7px;
+    height: 26px; padding: 0 11px 0 8px;
+    border-radius: 999px;
+    font-size: 11.5px; font-weight: 700; letter-spacing: .01em;
+    color: var(--em-on-glass);
+    background: var(--em-glass);
+    border: 1px solid var(--em-glass-line);
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    transition: background .14s ease;
+  }
+  .em-brand:hover,
+  .em-menu > input:checked ~ .em-brand { background: rgba(20, 14, 9, .62); }
+  .em-mark {
+    width: 9px; height: 9px; border-radius: 3px; transform: rotate(45deg); flex-shrink: 0;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+  .em-menu-pop {
+    display: none; position: absolute; z-index: 60;
+    top: calc(100% + 6px); left: 0; min-width: 168px;
+    padding: 5px; flex-direction: column; gap: 1px;
+    background: var(--em-surface);
+    color: var(--em-ink);
+    border: 1px solid var(--em-line-2);
+    border-radius: 14px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, .35), 0 0 0 1px var(--em-line);
+  }
+  .em-menu > input:checked ~ .em-menu-pop { display: flex; }
+  .em-menu-item {
+    display: flex; align-items: center; gap: 9px;
+    height: 30px; padding: 0 10px; border-radius: 9px;
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    background: transparent; color: var(--em-ink);
+  }
+  .em-menu-item:hover { background: var(--em-wash); }
+  .em-menu-item svg { width: 14px; height: 14px; color: var(--accent); flex-shrink: 0; }
+  .em-dismiss { display: none; position: fixed; inset: 0; z-index: 40; cursor: default; }
+  .em-menu > input:checked ~ .em-dismiss { display: block; }
+
+  .em-win {
+    -webkit-app-region: no-drag; app-region: no-drag;
+    margin-left: auto; display: flex; gap: 5px;
+  }
+  .em-win button {
+    width: 26px; height: 26px; padding: 0;
+    display: grid; place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--em-glass-line);
+    background: var(--em-glass);
+    color: var(--em-on-glass); cursor: pointer;
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    transition: background .12s ease;
+  }
+  .em-win button:hover { background: rgba(20, 14, 9, .62); }
+  .em-win button.close:hover { background: #c42b1c; border-color: #c42b1c; }
+  .em-win button svg { width: 11px; height: 11px; }
+
+  /* ----- vertical mode rail ----- */
+  .em-rail {
+    position: absolute; z-index: 6;
+    right: 9px; top: 46px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 4px;
+    border-radius: 16px;
+    background: var(--em-glass);
+    border: 1px solid var(--em-glass-line);
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-app-region: no-drag;
+  }
+  .em-art-modes { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+  .em-sep { width: 14px; height: 1px; background: var(--em-glass-line); margin: 1px 0; flex-shrink: 0; }
+  .em-rail label,
+  .em-rail button {
+    width: 28px; height: 28px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 11px;
+    background: transparent; color: var(--em-on-glass-soft);
+    cursor: pointer; flex-shrink: 0;
+    transition: color .12s ease, background .12s ease;
+  }
+  .em-rail svg { width: 14px; height: 14px; display: block; pointer-events: none; }
+  .em-rail label:hover,
+  .em-rail button:hover { color: #fff; background: rgba(255, 255, 255, .14); }
+
+  html.melo-show-playlist .em-rail [data-melo="toggle-embedded-playlist"],
+  html.melo-show-lyrics .em-rail [data-melo="toggle-embedded-lyrics"],
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) :is(#melo-player, .player-card):has(#nkModeCover:checked) label[for="nkModeCover"],
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) :is(#melo-player, .player-card):has(#nkModeBlend:checked) label[for="nkModeBlend"],
+  html:not(.melo-show-playlist):not(.melo-show-lyrics) :is(#melo-player, .player-card):has(#nkModeSound:checked) label[for="nkModeSound"] {
+    color: var(--accent-fg);
+    background: var(--accent);
+    box-shadow: 0 3px 10px var(--accent-glow);
+  }
+
+  /* ----- current lyric caption on the stage ----- */
+  .em-lyric {
+    -webkit-app-region: no-drag;
+    position: absolute; z-index: 4;
+    left: 12px; right: 12px; bottom: 10px;
+    height: 26px; padding: 0 14px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 999px;
+    background: var(--em-glass);
+    border: 1px solid var(--em-glass-line);
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    color: var(--em-on-glass);
+    font-size: 11.5px; font-weight: 600; letter-spacing: .01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-align: center; cursor: pointer;
+  }
+  .em-lyric:empty,
+  .em-lyric.melo-lyric-empty { display: none; }
+
+  /* ========== BODY (bottom) ========== */
+  .em-body {
+    min-width: 0; min-height: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 4px 16px 14px;
+  }
+
+  .em-meta {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    min-width: 0; text-align: center;
+  }
+  .em-title {
+    max-width: 100%;
+    font-size: 19px; font-weight: 740; letter-spacing: -.022em; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--em-ink);
+  }
+  .em-byline {
+    max-width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0;
+    font-size: 12px; font-weight: 500; color: var(--em-soft);
+  }
+  .em-byline > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .em-byline [data-melo="artist"] { font-weight: 650; color: var(--accent); flex: 0 1 auto; }
+  .em-album { color: var(--em-mute); flex: 0 1 auto; }
+  .em-dot { flex: 0 0 auto; width: 3px; height: 3px; border-radius: 50%; background: var(--em-mute); }
+  .em-byline:has(.em-album:empty) .em-dot { display: none; }
+
+  .em-bits {
+    display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0;
+    font-size: 9px; font-weight: 650; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--em-mute);
+  }
+  .em-bits:not(:has(span:not(:empty))) { display: none; }
+  .em-bits > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .em-chip {
+    flex-shrink: 0; padding: 1px 7px; border-radius: 999px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+    font-weight: 750;
+  }
+  .em-chip:empty { display: none; }
+
+  /* seek row: elapsed — bar — duration */
+  .em-seekrow {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center; column-gap: 9px;
+  }
+  .em-time {
+    font-size: 10px; font-weight: 650; color: var(--em-mute);
+    font-variant-numeric: tabular-nums;
+    font-family: "Cascadia Mono", "Segoe UI Variable Text", Consolas, monospace;
+    min-width: 3em; white-space: nowrap;
+  }
+  .em-time.is-duration { text-align: right; }
+
+  /* transport: centered */
+  .em-transport {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .em-btn {
+    width: 34px; height: 34px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 50%;
+    background: transparent; color: var(--em-soft); cursor: pointer;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
+    flex-shrink: 0;
+  }
+  .em-btn:hover { background: var(--em-wash); color: var(--em-ink); }
+  .em-btn:active { transform: scale(.93); }
+  .em-btn.active { color: var(--accent); background: var(--accent-soft); }
+  .em-btn svg { width: 16px; height: 16px; display: block; }
+  .em-btn.em-sm { width: 30px; height: 30px; }
+  .em-btn.em-sm svg { width: 14px; height: 14px; }
+  .em-btn.em-play {
+    width: 56px; height: 56px; margin: 0 4px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    box-shadow: 0 10px 24px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, .28);
+  }
+  .em-btn.em-play:hover { background: var(--accent-hover); transform: scale(1.05); }
+  .em-btn.em-play svg { width: 24px; height: 24px; }
+
+  /* footer: stop + volume (left), tools (right) */
+  .em-foot {
+    display: flex; align-items: center; gap: 4px;
+    height: 36px; padding: 0 6px;
+    border-radius: 14px;
+    background: var(--em-wash);
+    border: 1px solid var(--em-line);
+    min-width: 0;
+  }
+  .em-vol { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 64px; }
+  .em-vol-ico {
+    width: 24px; height: 24px; border-radius: 8px;
+    display: grid; place-items: center;
+    color: var(--em-soft); cursor: pointer; flex-shrink: 0;
+    transition: background .12s ease, color .12s ease;
+  }
+  .em-vol-ico:hover { background: var(--em-wash); color: var(--em-ink); }
+  .em-vol-ico.muted { color: #e81123; }
+  .em-vol-ico svg { width: 14px; height: 14px; display: block; }
+  .em-foot > .em-stop {
+    width: 24px; height: 24px; padding: 0; flex-shrink: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 8px;
+    background: transparent; color: var(--em-soft); cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+  }
+  .em-foot > .em-stop:hover { background: var(--em-wash); color: var(--em-ink); }
+  .em-foot > .em-stop svg { width: 12px; height: 12px; }
+  .em-tools { display: flex; gap: 0; flex-shrink: 0; }
+  .em-tools button {
+    width: 24px; height: 24px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: 8px;
+    background: transparent; color: var(--em-mute); cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+  }
+  .em-tools button:hover { background: var(--em-wash); color: var(--em-ink); }
+  .em-tools button.active { color: var(--accent); background: var(--accent-soft); }
+  .em-tools button svg { width: 13px; height: 13px; }
+
+  /* ranges */
+  .em-range {
+    -webkit-appearance: none; appearance: none;
+    outline: none; cursor: pointer;
+    background: transparent; border: 0; padding: 0; margin: 0;
+    height: 18px; display: block;
+  }
+  .em-range.is-seek { width: 100%; }
+  .em-range.is-vol { flex: 1 1 48px; width: 100%; min-width: 36px; max-width: 110px; }
+  .em-range.is-seek::-webkit-slider-runnable-track {
+    height: 6px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .em-range.is-seek::-moz-range-track {
+    height: 6px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--accent) 0%, var(--accent) var(--progress, 0%),
+      var(--track-bg) var(--progress, 0%), var(--track-bg) 100%);
+  }
+  .em-range.is-vol::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--em-soft) 0%, var(--em-soft) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .em-range.is-vol::-moz-range-track {
+    height: 4px; border-radius: 999px;
+    background: linear-gradient(to right,
+      var(--em-soft) 0%, var(--em-soft) var(--vol, 60%),
+      var(--track-bg) var(--vol, 60%), var(--track-bg) 100%);
+  }
+  .em-range.is-seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px; margin-top: -4px; border-radius: 50%;
+    background: var(--em-surface); border: 3px solid var(--accent);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, .25);
+    transition: transform .12s ease;
+  }
+  .em-range.is-seek::-moz-range-thumb {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--em-surface); border: 3px solid var(--accent);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, .25);
+  }
+  .em-range.is-seek:hover::-webkit-slider-thumb,
+  .em-range.is-seek:active::-webkit-slider-thumb { transform: scale(1.18); }
+  .em-range.is-vol::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px; height: 10px; margin-top: -3px; border-radius: 50%;
+    background: var(--em-ink); border: 0;
+    opacity: 0; transition: opacity .12s ease;
+  }
+  .em-range.is-vol::-moz-range-thumb {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--em-ink); border: 0;
+    opacity: 0; transition: opacity .12s ease;
+  }
+  .em-range.is-vol:hover::-webkit-slider-thumb,
+  .em-range.is-vol:active::-webkit-slider-thumb { opacity: 1; }
+  .em-range.is-vol:hover::-moz-range-thumb,
+  .em-range.is-vol:active::-moz-range-thumb { opacity: 1; }
+
+  /* ========== responsive ========== */
+  @container nook (max-width: 300px) {
+    .em-body { padding-left: 12px; padding-right: 12px; }
+    .em-tools button { width: 22px; }
+    .em-transport { gap: 4px; }
+  }
+  @container nook (max-height: 450px) {
+    .em-lyric { display: none !important; }
+    .em-bits { display: none; }
+    .em-body { gap: 8px; padding-bottom: 12px; }
+    .em-btn.em-play { width: 50px; height: 50px; }
+  }
+  @container nook (min-height: 560px) {
+    .em-body { gap: 13px; padding-bottom: 18px; }
+  }
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--em-ink) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
+</style>
+</head>
+<body
+  data-window-width="320"
+  data-window-height="480"
+  data-min-width="280"
+  data-min-height="400"
+  data-max-width="420"
+  data-max-height="700"
+  data-resizable="true">
+<div id="melo-player">
+
+  <!-- stage radios (Cover default) -->
+  <input class="em-mode" id="nkModeCover" type="radio" name="nkMode" checked />
+  <input class="em-mode" id="nkModeBlend" type="radio" name="nkMode" />
+  <input class="em-mode" id="nkModeSound" type="radio" name="nkMode" />
+
+  <!-- ===== TOP: full-bleed stage (cover slot) ===== -->
+  <section class="em-stage">
+    <div class="em-art">
+      <img data-melo="cover" alt="" style="display:none" />
+      <div class="em-fallback" data-melo="cover-fallback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      </div>
+    </div>
+    <div class="em-scrim" aria-hidden="true"></div>
+
+    <div class="em-viz" data-melo="visualizer" data-bars="32"></div>
+    <div class="em-embed" data-melo="embedded-playlist"></div>
+    <div class="em-embed" data-melo="embedded-lyrics"></div>
+
+    <div class="em-drag" data-tauri-drag-region aria-hidden="true"></div>
+
+    <!-- floating glass header -->
+    <div class="em-head">
+      <div class="em-menu">
+        <input id="nkMenuToggle" type="checkbox" />
+        <label class="em-brand" for="nkMenuToggle" title="Menu">
+          <span class="em-mark" aria-hidden="true"></span>
+          Melo
+        </label>
+        <div class="em-menu-pop">
+          <label class="em-menu-item" for="nkMenuToggle" data-melo="add-files">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+            Add files
+          </label>
+          <label class="em-menu-item" for="nkMenuToggle" data-melo="add-folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Add folder
+          </label>
+          <label class="em-menu-item" for="nkMenuToggle" data-melo="theme-toggle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            Theme
+          </label>
+        </div>
+        <label class="em-dismiss" for="nkMenuToggle" aria-label="Close menu"></label>
+      </div>
+
+      <div class="em-win">
+        <button type="button" data-melo="minimize" title="Minimize" aria-label="minimize">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+        </button>
+        <button type="button" class="close" data-melo="close" title="Close" aria-label="close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- vertical mode rail -->
+    <div class="em-rail" role="tablist" aria-label="Stage">
+      <div class="em-art-modes" data-melo="toggle-embedded-viz">
+        <label for="nkModeCover" title="Cover">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="9" cy="9.5" r="1.6"/><path d="m20.5 15-4.5-4.5L7 19.5"/></svg>
+        </label>
+        <label for="nkModeBlend" title="Cover + visualizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>
+        </label>
+        <label for="nkModeSound" title="Visualizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 10v4M9 6v12M13 9v6M17 4v16M21 11v2"/></svg>
+        </label>
+      </div>
+      <span class="em-sep" aria-hidden="true"></span>
+      <button type="button" data-melo="toggle-embedded-playlist" title="Queue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h7"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>
+      </button>
+      <button type="button" data-melo="toggle-embedded-lyrics" title="Lyrics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h10M4 16h16M4 21h8"/></svg>
+      </button>
+    </div>
+
+    <!-- current lyric caption -->
+    <div class="em-lyric" data-melo="current-lyric" aria-live="polite" title="Current lyric"></div>
+  </section>
+
+  <!-- ===== BOTTOM: centered info + controls ===== -->
+  <div class="em-body">
+    <div class="em-meta">
+      <div class="em-title" data-melo="title">Nothing playing</div>
+      <div class="em-byline">
+        <span data-melo="artist">Add music to begin</span>
+        <span class="em-dot" aria-hidden="true"></span>
+        <span class="em-album" data-melo="album"></span>
+      </div>
+      <div class="em-bits">
+        <span class="em-chip" data-melo="codec"></span>
+        <span data-melo="specs"></span>
+      </div>
+    </div>
+
+    <div class="em-seekrow">
+      <span class="em-time is-elapsed" data-melo="current-time">0:00</span>
+      <div data-melo="waveform"></div>
+      <input class="em-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
+      <span class="em-time is-duration" data-melo="duration">0:00</span>
+    </div>
+
+    <div class="em-transport">
+      <button class="em-btn em-sm" type="button" data-melo="shuffle" title="Shuffle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg>
+      </button>
+      <button class="em-btn" type="button" data-melo="prev" title="Previous">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
+      </button>
+      <button class="em-btn em-play" type="button" data-melo="play" title="Play / Pause">
+        <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </button>
+      <button class="em-btn" type="button" data-melo="next" title="Next">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
+      </button>
+      <button class="em-btn em-sm" type="button" data-melo="repeat" title="Repeat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </button>
+    </div>
+
+    <div class="em-foot">
+      <button class="em-stop" type="button" data-melo="stop" title="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
+      </button>
+      <div class="em-vol">
+        <span class="em-vol-ico" data-melo="volume-icon" title="Mute">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h4l5 4V6L7 10H3z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>
+        </span>
+        <input class="em-range is-vol" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" />
+      </div>
+      <div class="em-tools">
+        <button type="button" id="btnToggleLibrary" data-melo="toggle-library" title="Library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
+        </button>
+        <button type="button" id="btnTogglePlaylist" data-melo="toggle-playlist" title="Queue window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>
+        </button>
+        <button type="button" id="btnToggleEq" data-melo="toggle-eq" title="Equalizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        </button>
+        <button type="button" id="btnToggleLyrics" data-melo="toggle-lyrics" title="Lyrics window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+        </button>
+        <button type="button" id="btnOpenSettings" data-melo="toggle-settings" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

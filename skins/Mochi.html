@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Mochi</title>
+<style>
+  /* ------------------------------------------------------------------
+     MOCHI — a small, squishy, sticker-style player.
+     A square card with thick cocoa outlines and candy buttons that
+     Synced lyrics appear as a speech bubble that fills as the line goes.
+     HTML/CSS only (skins run without scripts).
+     ------------------------------------------------------------------ */
+  :root,
+  :root[data-theme="light"],
+  [data-theme="light"] {
+    --cm-bg: #ffd9c9;
+    --cm-card: #fff3e7;
+    --cm-card2: #ffffff;
+    --cm-ink: #5b3c43;
+    --cm-soft: #8b6a70;
+    --cm-mute: #b39196;
+    --cm-outline: #5b3c43;
+    --cm-wash: rgba(91, 60, 67, .08);
+    --cm-ear: #ffc7b0;
+    --cm-ear-in: #ff9fbd;
+    --cm-butter: #ffd873;
+    --cm-mint: #9be6cc;
+    --cm-lav: #cdbcff;
+    --cm-blush: #ff8fb1;
+    --accent: #ff6f9c;
+    --accent-hover: #ff5a8c;
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+    --visualizer: #ff7fa6;
+    --track-bg: #ffe3d3;
+    --cm-pop: 0 18px 40px -14px rgba(120, 60, 60, .35);
+  }
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    --cm-bg: #1c1424;
+    --cm-card: #35283f;
+    --cm-card2: #46365a;
+    --cm-ink: #fdeef5;
+    --cm-soft: #d3bccd;
+    --cm-mute: #9d8499;
+    --cm-outline: #130b1a;
+    --cm-wash: rgba(253, 238, 245, .09);
+    --cm-ear: #7a5b95;
+    --cm-ear-in: #ff8db5;
+    --cm-butter: #f4c95b;
+    --cm-mint: #7fd8b8;
+    --cm-lav: #a894ee;
+    --cm-blush: #ff7ea6;
+    --accent: #ff8db5;
+    --accent-hover: #ffa3c3;
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+    --visualizer: #ff9ec0;
+    --track-bg: #2a1f34;
+    --cm-pop: 0 18px 40px -14px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+
+  /* preview backdrop (only when the file is opened outside the app) */
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 28px;
+    display: grid; place-items: center; overflow: hidden;
+    background: var(--cm-bg); color: var(--cm-ink);
+    font-family: Inter, "Segoe UI Variable Display", "Segoe UI", "Trebuchet MS", Tahoma, system-ui, sans-serif;
+  }
+
+  /* ---------------- card ---------------- */
+  #melo-player,
+  body.tauri-main .player-card,
+  body.custom-skin-active .player-card {
+    width: 380px;
+    height: 380px;
+    min-width: 380px; min-height: 380px;
+    margin: 0; padding: 12px 14px 12px;
+    position: relative; overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 26px minmax(0, 1fr) 22px 60px 30px;
+    row-gap: 5px;
+    background:
+      radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--cm-outline) 9%, transparent) 1.2px, transparent 1.6px) 0 0 / 14px 14px,
+      var(--cm-card);
+    color: var(--cm-ink);
+    border: 3px solid var(--cm-outline);
+    border-radius: 34px;
+    box-shadow: var(--cm-pop);
+    font-family: Inter, "Segoe UI Variable Display", "Segoe UI", "Trebuchet MS", Tahoma, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-height: 0 !important; max-height: 100vh !important;
+    border-radius: 34px !important; box-shadow: none !important;
+  }
+
+  /* the whole card drags the window; every control opts out */
+  /* only the top strip drags the window. A full-card drag region swallows wheel events,
+     so the volume wheel and other empty-area interactions would never reach the page. */
+  .cm-drag { position: absolute; top: 0; left: 0; right: 0; height: 30px; z-index: 0; -webkit-app-region: drag; }
+  .cm-bar button, .cm-bar .cm-menu, .cm-stage .cm-viz, .cm-stage .cm-lyric, .cm-panel,
+  .cm-seek input, .cm-ctl button, .cm-foot button, .cm-foot input, .cm-vol-ico { -webkit-app-region: no-drag; }
+
+  button:focus-visible, [data-melo]:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  /* state helper: the app flips the pause-icon to display:block while playing */
+  .cm-card-state { display: none; }
+
+  /* ---------------- top bar ---------------- */
+  .cm-bar { position: relative; z-index: 6; display: flex; align-items: center; gap: 2px; min-width: 0; height: 26px; }
+  .cm-menu { position: relative; display: flex; align-items: center; height: 100%; margin-right: auto; }
+  .cm-brand {
+    display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 7px; border-radius: 999px;
+    font-size: 13px; font-weight: 800; letter-spacing: .02em; color: var(--cm-ink); cursor: default;
+    background: var(--cm-butter); border: 2px solid var(--cm-outline); box-shadow: 0 2px 0 var(--cm-outline);
+  }
+  .cm-brand svg { width: 14px; height: 14px; color: var(--cm-outline); }
+  .cm-pop {
+    position: absolute; top: 100%; left: 0; z-index: 30; display: none; flex-direction: column; gap: 2px;
+    min-width: 160px; padding: 6px; margin-top: 0;
+    background: var(--cm-card2); border: 2.5px solid var(--cm-outline); border-radius: 18px;
+    box-shadow: 0 4px 0 var(--cm-outline), var(--cm-pop);
+  }
+  .cm-menu:hover .cm-pop, .cm-menu:has(:focus-visible) .cm-pop { display: flex; animation: cm-pop-in .16s ease-out; }
+  .cm-pop button {
+    display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border: 0; border-radius: 12px;
+    background: transparent; color: var(--cm-ink); cursor: pointer; text-align: left;
+    font: 700 11.5px/1 "Segoe UI Variable Display", "Segoe UI", Tahoma, system-ui, sans-serif;
+  }
+  .cm-pop button:hover { background: var(--cm-wash); }
+  .cm-pop svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--cm-soft); }
+  /* the top-bar button rules (24x24 icon buttons) also match the dropdown items: reset them here */
+  .cm-bar .cm-pop button {
+    width: auto; height: 30px; padding: 0 10px; border: 0; border-radius: 12px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 9px; justify-content: flex-start;
+    color: var(--cm-ink); background: transparent; transition: background .15s ease;
+    font: 700 11.5px/1 "Segoe UI Variable Display", "Segoe UI", Tahoma, system-ui, sans-serif;
+  }
+  .cm-bar .cm-pop button:hover { color: var(--cm-ink); background: var(--cm-wash); }
+  .cm-bar .cm-pop button:active { transform: none; }
+  .cm-bar .cm-pop svg { width: 14px; height: 14px; }
+
+  .cm-bar button {
+    width: 24px; height: 24px; padding: 0; border: 0; border-radius: 9px; flex-shrink: 0;
+    display: grid; place-items: center; cursor: pointer;
+    color: var(--cm-soft); background: transparent;
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  .cm-bar button:hover { color: var(--cm-ink); background: var(--cm-wash); }
+  .cm-bar button:active { transform: scale(.9); }
+  .cm-bar svg { width: 14px; height: 14px; }
+  .cm-bar .cm-sep { width: 2px; height: 12px; margin: 0 4px; border-radius: 2px; background: var(--cm-wash); flex-shrink: 0; }
+  .cm-bar button.close:hover { color: #fff; background: var(--accent); }
+
+  /* ---------------- stage: head + text + visualizer ---------------- */
+  .cm-stage { position: relative; z-index: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+  .cm-hero { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 134px minmax(0, 1fr); column-gap: 18px; align-items: stretch; padding-top: 14px; }
+
+  /* the cat head */
+  .cm-head { position: relative; width: 134px; height: 134px; align-self: end; margin-bottom: 8px; transform-origin: 50% 90%; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-head,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-head { animation: cm-sway 9s ease-in-out infinite; }
+  .cm-pic {
+    position: absolute; inset: 0; z-index: 2; overflow: hidden;
+    border-radius: 38px; border: 3px solid var(--cm-outline);
+    background: var(--cm-card2);
+    box-shadow: 0 5px 0 var(--cm-outline);
+  }
+  .cm-pic img { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cm-face::before, .cm-face::after {
+    content: ""; position: absolute; bottom: 12px; z-index: 3; width: 26px; height: 14px; border-radius: 50%;
+    background: var(--cm-blush); opacity: .6; filter: blur(.4px); pointer-events: none;
+  }
+  .cm-face::before { left: 8px; }
+  .cm-face::after { right: 8px; }
+  .cm-face {
+    position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; display: grid !important; place-items: center;
+    background:
+      radial-gradient(70% 70% at 30% 18%, color-mix(in srgb, var(--cm-butter) 30%, transparent), transparent 70%),
+      var(--cm-card2);
+  }
+  .cm-face svg { width: 74%; height: auto; margin-top: -12%; }
+  .cm-face .eyes-awake, .cm-face .eyes-asleep { display: none; }
+  .cm-face .eyes-asleep { display: block; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-face .eyes-awake,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-face .eyes-awake { display: block; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-face .eyes-asleep,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-face .eyes-asleep { display: none; }
+
+  .cm-face .m-smile { display: none; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-face .m-smile,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-face .m-smile { display: block; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-face .m-shut,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-face .m-shut { display: none; }
+  .cm-face g { transform-box: fill-box; transform-origin: center; }
+  /* floating hearts (playing) and z z (paused) */
+  .cm-fx { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+  .cm-fx i {
+    position: absolute; font-style: normal; font-weight: 800; opacity: 0; line-height: 1;
+    color: var(--accent); text-shadow: 0 2px 0 var(--cm-outline);
+  }
+  .cm-fx .h1 { right: -2px; top: 6px; font-size: 18px; }
+  .cm-fx .h2 { left: -6px; top: 22px; font-size: 13px; }
+  .cm-fx .z1, .cm-fx .z2 { color: var(--cm-lav); right: 8px; top: 2px; }
+  .cm-fx .z1 { font-size: 15px; }
+  .cm-fx .z2 { font-size: 11px; right: 24px; top: -6px; }
+  #melo-player:not(:has([data-melo="pause-icon"][style*="block"])) .cm-fx .z1,
+  .player-card:not(:has([data-melo="pause-icon"][style*="block"])) .cm-fx .z1 { animation: cm-z 3.2s ease-in-out infinite; }
+  #melo-player:not(:has([data-melo="pause-icon"][style*="block"])) .cm-fx .z2,
+  .player-card:not(:has([data-melo="pause-icon"][style*="block"])) .cm-fx .z2 { animation: cm-z 3.2s ease-in-out infinite 1.1s; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-fx .h1,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-fx .h1 { animation: cm-heart 2.6s ease-out infinite; }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-fx .h2,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-fx .h2 { animation: cm-heart 2.6s ease-out infinite 1.3s; }
+
+  /* text */
+  .cm-text { min-width: 0; min-height: 0; align-self: center; display: flex; flex-direction: column; gap: 3px; padding-top: 4px; }
+  .cm-title, .cm-artist, .cm-album { unicode-bidi: plaintext; text-align: left; }
+  .cm-title {
+    font-size: 18px; font-weight: 800; letter-spacing: -.01em; line-height: 1.3;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .cm-artist { font-size: 13px; font-weight: 700; color: var(--cm-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cm-album { font-size: 11px; font-weight: 600; color: var(--cm-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cm-album:empty { display: none; }
+  .cm-tags { display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--cm-mute); }
+  .cm-tags > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cm-chip {
+    flex-shrink: 0; padding: 2px 8px; border-radius: 999px;
+    color: var(--cm-outline); background: var(--cm-mint); border: 2px solid var(--cm-outline);
+  }
+  .cm-chip:empty { display: none; }
+
+  /* visualizer strip (+ speech-bubble lyric laid over it) */
+  .cm-vizrow { position: relative; flex: 0 0 26px; height: 26px; min-width: 0; }
+  .cm-viz { position: absolute; inset: 0; padding: 0 2px; cursor: pointer; border-radius: 15px; overflow: hidden; }
+  .cm-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+  .cm-lyric {
+    display: none; position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; min-height: 26px;
+    padding: 4px 12px 4px 14px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; text-align: left;
+    font-size: 12px; font-weight: 800; line-height: 16px; color: var(--cm-ink);
+    background: linear-gradient(to right, color-mix(in srgb, var(--accent) 38%, var(--cm-card2)) calc(var(--melo-lyric-progress, 0) * 100%), var(--cm-card2) calc(var(--melo-lyric-progress, 0) * 100%));
+    border: 2.5px solid var(--cm-outline); border-radius: 14px; box-shadow: 0 3px 0 var(--cm-outline);
+  }
+  html.melo-lyric-skin-on.melo-has-synced-lyrics .cm-lyric { display: block; }
+  .cm-lyric.melo-lyric-empty, .cm-lyric:empty { display: none !important; }
+  .cm-lyric.melo-lyric-tick { animation: cm-bubble .35s cubic-bezier(.3, 1.6, .5, 1) both; }
+  html.melo-show-playlist .cm-lyric, html.melo-show-lyrics .cm-lyric { display: none !important; }
+  html.melo-show-playlist .cm-viz, html.melo-show-lyrics .cm-viz { visibility: hidden; }
+
+  /* queue / lyrics: a sticker card over the whole stage */
+  .cm-panel {
+    display: none; position: absolute; inset: 6px 0 0 0; z-index: 8;
+    background: var(--cm-card2); border: 3px solid var(--cm-outline); border-radius: 22px;
+    box-shadow: 0 4px 0 var(--cm-outline); overflow: hidden;
+  }
+  html.melo-show-playlist .cm-panel, html.melo-show-lyrics .cm-panel { display: block; animation: cm-pop-in .18s ease-out; }
+  .cm-embed { position: absolute; inset: 0; overflow: auto; padding: 6px 7px; display: none !important; font-size: 12px; }
+  html.melo-show-playlist [data-melo="embedded-playlist"],
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  html.melo-show-lyrics [data-melo="embedded-playlist"] { display: none !important; }
+  .cm-embed .embedded-playlist, .cm-embed .embedded-lyrics { height: 100% !important; min-height: 100%; }
+  .cm-embed .embedded-playlist-row { border-radius: 12px; padding: 3px 9px; gap: 8px; color: var(--cm-ink); font-weight: 600; }
+  .cm-embed .embedded-playlist-row:hover { background: var(--cm-wash); }
+  .cm-embed .embedded-playlist-row.active { background: var(--cm-butter); color: var(--cm-outline); }
+  .cm-embed .embedded-playlist-row.active .t-title { color: var(--cm-outline); font-weight: 800; }
+  .cm-embed .embedded-playlist-mini .t-title { color: var(--cm-ink); }
+  .cm-embed .track-cover-mini { border-radius: 8px; }
+  .cm-embed .embedded-playlist-empty { color: var(--cm-mute); padding: 20px 8px; text-align: center; }
+  .cm-embed .embedded-lyrics-title { display: none; }
+  .cm-embed .lyric-line {
+    font-size: 12.5px; font-weight: 700; line-height: 1.5; padding: 3px 10px; border-radius: 12px;
+    color: var(--cm-mute); transform: none !important; text-shadow: none; unicode-bidi: plaintext; text-align: start;
+  }
+  .cm-embed .lyric-line:hover { color: var(--cm-soft); background: var(--cm-wash); }
+  .cm-embed .lyric-line.passed { color: var(--cm-soft); opacity: .6; }
+  .cm-embed .lyric-line.active { font-size: 13.5px; font-weight: 800; color: var(--cm-outline); background: var(--cm-butter); }
+  .cm-embed .embedded-lyrics:empty::after { content: "No synced lyrics for this track"; display: block; padding: 20px 8px; text-align: center; font-size: 11.5px; font-weight: 700; color: var(--cm-mute); }
+  .cm-embed, .cm-embed .embedded-playlist, .cm-embed .embedded-lyrics { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+  .cm-embed::-webkit-scrollbar, .cm-embed .embedded-playlist::-webkit-scrollbar, .cm-embed .embedded-lyrics::-webkit-scrollbar { width: 6px; }
+  .cm-embed::-webkit-scrollbar-track, .cm-embed .embedded-playlist::-webkit-scrollbar-track, .cm-embed .embedded-lyrics::-webkit-scrollbar-track { background: transparent; margin: 8px 0; }
+  .cm-embed::-webkit-scrollbar-thumb, .cm-embed .embedded-playlist::-webkit-scrollbar-thumb, .cm-embed .embedded-lyrics::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 999px; min-height: 24px; }
+
+  /* ---------------- seek ---------------- */
+  .cm-seek { position: relative; z-index: 1; display: grid; grid-template-columns: 30px minmax(0, 1fr) 30px; gap: 8px; align-items: center; }
+  .cm-time { font-size: 10.5px; font-weight: 800; color: var(--cm-soft); font-variant-numeric: tabular-nums; }
+  .cm-time.end { text-align: right; }
+  .cm-range { -webkit-appearance: none; appearance: none; outline: none; cursor: pointer; width: 100%; min-width: 0; margin: 0; background: transparent; }
+  .cm-range.is-seek { height: 20px; }
+  .cm-range.is-vol { height: 18px; }
+  /* candy-striped fill: stripes underneath, a track-coloured mask over the unplayed part */
+  .cm-range.is-seek::-webkit-slider-runnable-track {
+    height: 14px; border-radius: 999px; border: 2.5px solid var(--cm-outline);
+    background:
+      linear-gradient(to right, transparent var(--progress, 0%), var(--track-bg) var(--progress, 0%)),
+      repeating-linear-gradient(135deg, var(--accent) 0 7px, color-mix(in srgb, var(--accent) 72%, #fff) 7px 14px);
+  }
+  .cm-range.is-seek::-moz-range-track {
+    height: 9px; border-radius: 999px; border: 2.5px solid var(--cm-outline);
+    background:
+      linear-gradient(to right, transparent var(--progress, 0%), var(--track-bg) var(--progress, 0%)),
+      repeating-linear-gradient(135deg, var(--accent) 0 7px, color-mix(in srgb, var(--accent) 72%, #fff) 7px 14px);
+  }
+  .cm-range.is-vol::-webkit-slider-runnable-track {
+    height: 10px; border-radius: 999px; border: 2px solid var(--cm-outline);
+    background: linear-gradient(to right, var(--cm-mint) var(--vol, 60%), var(--track-bg) var(--vol, 60%));
+  }
+  .cm-range.is-vol::-moz-range-track {
+    height: 6px; border-radius: 999px; border: 2px solid var(--cm-outline);
+    background: linear-gradient(to right, var(--cm-mint) var(--vol, 60%), var(--track-bg) var(--vol, 60%));
+  }
+  .cm-range::-webkit-slider-thumb {
+    -webkit-appearance: none; box-sizing: border-box; width: 20px; height: 20px; margin-top: -5px; border-radius: 50%;
+    background: #fff; border: 2.5px solid var(--cm-outline); box-shadow: 0 2px 0 var(--cm-outline);
+    transition: transform .14s cubic-bezier(.3, 1.6, .5, 1);
+  }
+  .cm-range.is-vol::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -4px; }
+  .cm-range::-moz-range-thumb {
+    box-sizing: border-box; width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; border: 2.5px solid var(--cm-outline); box-shadow: 0 2px 0 var(--cm-outline);
+    transition: transform .14s cubic-bezier(.3, 1.6, .5, 1);
+  }
+.cm-range.is-vol::-webkit-slider-thumb {box-shadow: none;}
+  .cm-range.is-vol::-moz-range-thumb { width: 16px; height: 16px; }
+  .cm-range:hover::-webkit-slider-thumb, .cm-range:active::-webkit-slider-thumb { transform: scale(1.18); }
+  .cm-range:hover::-moz-range-thumb, .cm-range:active::-moz-range-thumb { transform: scale(1.18); }
+
+  /* ---------------- candy transport ---------------- */
+  .cm-ctl { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .cm-btn {
+    position: relative; width: 38px; height: 38px; padding: 0; margin-bottom: 4px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    color: var(--cm-outline); background: var(--cm-card2);
+    border: 2.5px solid var(--cm-outline); border-radius: 50%;
+    box-shadow: 0 4px 0 var(--cm-outline);
+    transition: transform .09s ease, box-shadow .09s ease, background .15s ease;
+  }
+  .cm-btn:hover { background: color-mix(in srgb, var(--cm-card2) 80%, var(--cm-butter)); }
+  .cm-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--cm-outline); }
+  .cm-btn svg { width: 16px; height: 16px; }
+  .cm-btn.small { width: 32px; height: 32px; margin-bottom: 4px; }
+  .cm-btn.small svg { width: 14px; height: 14px; }
+  .cm-btn.butter { background: var(--cm-butter); }
+  .cm-btn.butter:hover { background: color-mix(in srgb, var(--cm-butter) 82%, #fff); }
+  .cm-btn.stop { background: var(--cm-lav); }
+  .cm-btn.stop:hover { background: color-mix(in srgb, var(--cm-lav) 82%, #fff); }
+  .cm-btn.active { background: var(--cm-mint); }
+  .cm-play {
+    width: 58px; height: 58px; margin-bottom: 4px; background: var(--accent); box-shadow: 0 5px 0 var(--cm-outline);
+    border-radius: 24px;
+  }
+  .cm-play:hover { background: var(--accent-hover); }
+  .cm-play:active { transform: translateY(5px); box-shadow: 0 0 0 var(--cm-outline); }
+  .cm-play svg { width: 24px; height: 24px; color: var(--cm-outline); }
+  #melo-player:has([data-melo="pause-icon"][style*="block"]) .cm-play,
+  .player-card:has([data-melo="pause-icon"][style*="block"]) .cm-play { border-radius: 50%; }
+
+  /* ---------------- footer ---------------- */
+  .cm-foot { position: relative; z-index: 1; display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .cm-vol-ico {
+    width: 26px; height: 26px; border-radius: 10px; cursor: pointer; flex-shrink: 0;
+    display: grid; place-items: center; color: var(--cm-soft);
+    transition: background .15s ease, color .15s ease, opacity .15s ease;
+  }
+  .cm-vol-ico:hover { color: var(--cm-ink); background: var(--cm-wash); }
+  .cm-vol-ico.muted { opacity: .45; }
+  .cm-vol-ico svg { width: 15px; height: 15px; }
+  .cm-foot .cm-range.is-vol { flex: 1 1 auto; width: auto; }
+  .cm-pct { flex: 0 0 30px; text-align: right; font-size: 10.5px; font-weight: 800; color: var(--cm-soft); font-variant-numeric: tabular-nums; }
+  .cm-tab {
+    flex-shrink: 0; height: 24px; padding: 0 11px; border-radius: 999px; cursor: pointer;
+    color: var(--cm-ink); background: var(--cm-card2);
+    border: 2.5px solid var(--cm-outline); box-shadow: 0 2px 0 var(--cm-outline);
+    font: 800 10px/1 "Segoe UI Variable Display", "Segoe UI", Tahoma, system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase;
+    transition: transform .09s ease, box-shadow .09s ease, background .15s ease;
+  }
+  .cm-tab:active { transform: translateY(2px); box-shadow: 0 0 0 var(--cm-outline); }
+  html.melo-show-playlist [data-melo="toggle-embedded-playlist"] { background: var(--cm-lav); }
+  html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] { background: var(--cm-lav); }
+
+  @keyframes cm-sway { 0%, 100% { transform: rotate(-2.2deg) translateY(0); } 50% { transform: rotate(2.2deg) translateY(-2px); } }
+  @keyframes cm-heart {
+    0%   { opacity: 0; transform: translate(0, 8px) scale(.5); }
+    18%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(6px, -26px) scale(1.15) rotate(10deg); }
+  }
+  @keyframes cm-z {
+    0%   { opacity: 0; transform: translate(0, 6px) scale(.7); }
+    30%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(8px, -14px) scale(1.1); }
+  }
+  @keyframes cm-bubble { from { opacity: 0; transform: scale(.9) translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes cm-pop-in { from { opacity: 0; transform: translateY(-4px) scale(.97); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .cm-head, .cm-fx i, .cm-lyric, .cm-panel, .cm-pop { animation: none !important; }
+  }
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--cm-ink) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
+</style>
+</head>
+<body data-window-width="380" data-window-height="380" data-min-width="380" data-min-height="380" data-max-width="380" data-max-height="380" data-resizable="false">
+<div id="melo-player">
+
+  <div class="cm-drag" data-tauri-drag-region aria-hidden="true"></div>
+
+  <header class="cm-bar" data-tauri-drag-region>
+    <div class="cm-menu">
+      <div class="cm-brand" title="Melo">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3 5 6.2 5c2 0 3.4 1.1 5.8 3.5C14.4 6.1 15.8 5 17.8 5 21 5 23.100 8.200 21.600 11.700 19.500 16.400 12 21 12 21z"/></svg>
+        <span>Mochi</span>
+      </div>
+      <div class="cm-pop">
+        <button type="button" data-melo="add-files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+          Add files
+        </button>
+        <button type="button" data-melo="add-folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Add folder
+        </button>
+        <button type="button" data-melo="theme-toggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          Light / dark
+        </button>
+      </div>
+    </div>
+
+    <button id="btnToggleLibrary" type="button" data-melo="toggle-library" title="Library">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
+    </button>
+    <button id="btnTogglePlaylist" type="button" data-melo="toggle-playlist" title="Queue window">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg>
+    </button>
+    <button id="btnToggleEq" type="button" data-melo="toggle-eq" title="Equalizer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/></svg>
+    </button>
+    <button id="btnToggleLyrics" type="button" data-melo="toggle-lyrics" title="Lyrics window">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg>
+    </button>
+    <button id="btnOpenSettings" type="button" data-melo="toggle-settings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+    </button>
+    <span class="cm-sep" aria-hidden="true"></span>
+    <button type="button" data-melo="minimize" title="Minimize" aria-label="minimize">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
+    </button>
+    <button type="button" class="close" data-melo="close" title="Close" aria-label="close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+
+  <section class="cm-stage">
+    <div class="cm-hero">
+      <div class="cm-head">
+        <div class="cm-pic">
+          <img data-melo="cover" alt="" style="display:none" />
+          <div class="cm-face" data-melo="cover-fallback">
+            <svg viewBox="0 0 100 70" fill="none" stroke="#5b3c43" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+              <g class="eyes-awake"><path d="M20 34q10-18 20 0M60 34q10-18 20 0"/></g>
+              <g class="eyes-asleep"><path d="M20 26q10 12 20 0M60 26q10 12 20 0"/></g>
+              <path class="m-shut" d="M42 57h16"/>
+              <path class="m-smile" d="M36 52q14 14 28 0"/>
+            </svg>
+          </div>
+        </div>
+        <span class="cm-fx" aria-hidden="true"><i class="h1">&#9829;</i><i class="h2">&#9829;</i><i class="z1">z</i><i class="z2">z</i></span>
+      </div>
+
+      <div class="cm-text">
+        <div class="cm-title" data-melo="title">Nothing playing</div>
+        <div class="cm-artist" data-melo="artist">Add some music</div>
+        <div class="cm-album" data-melo="album"></div>
+        <div class="cm-tags">
+          <span class="cm-chip" data-melo="codec"></span>
+          <span data-melo="specs"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="cm-vizrow">
+      <div class="cm-viz" data-melo="visualizer" data-bars="22"></div>
+      <div class="cm-lyric" data-melo="current-lyric" aria-live="polite"></div>
+    </div>
+
+    <div class="cm-panel">
+      <div class="cm-embed" data-melo="embedded-playlist"></div>
+      <div class="cm-embed" data-melo="embedded-lyrics"></div>
+    </div>
+  </section>
+
+  <div class="cm-seek">
+    <span class="cm-time" data-melo="current-time">0:00</span>
+    <div data-melo="waveform"></div>
+    <input class="cm-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
+    <span class="cm-time end" data-melo="duration">0:00</span>
+  </div>
+
+  <div class="cm-ctl">
+    <button class="cm-btn small" type="button" data-melo="shuffle" title="Shuffle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg>
+    </button>
+    <button class="cm-btn butter" type="button" data-melo="prev" title="Previous">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2.4v12H6zm4 6 8.500 6V6z"/></svg>
+    </button>
+    <button class="cm-btn cm-play" type="button" data-melo="play" title="Play / Pause">
+      <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+    </button>
+    <button class="cm-btn stop" type="button" data-melo="stop" title="Stop">
+      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="3"/></svg>
+    </button>
+    <button class="cm-btn butter" type="button" data-melo="next" title="Next">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.500-6L6 6v12zM15.600 6v12H18V6h-2.400z"/></svg>
+    </button>
+    <button class="cm-btn small" type="button" data-melo="repeat" title="Repeat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+    </button>
+  </div>
+
+  <footer class="cm-foot">
+    <span class="cm-vol-ico" data-melo="volume-icon" title="Mute">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.540 8.460a5 5 0 0 1 0 7.080"/></svg>
+    </span>
+    <input class="cm-range is-vol" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" />
+    <span class="cm-pct" data-melo="volume-pct">60%</span>
+    <button class="cm-tab" type="button" data-melo="toggle-embedded-playlist" title="Queue">Queue</button>
+    <button class="cm-tab" type="button" data-melo="toggle-embedded-lyrics" title="Lyrics">Lyrics</button>
+  </footer>
+
+</div>
+</body>
+</html>

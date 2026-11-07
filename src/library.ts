@@ -15,6 +15,26 @@ const esc = (value: unknown) => String(value ?? "")
   .replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
 
+// Shared 12px glyphs: the Library stats strip, group rows and the artist sidebar.
+const svgIcon = (inner: string, size = 12, extra = "") =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${inner}</svg>`;
+const ICON_NOTE_PATH = '<path d="M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/>';
+const ICON_DISC_PATH = '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>';
+const ICON_USER_PATH = '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>';
+const ICON_PLAY_PATH = '<polygon points="7 4 20 12 7 20 7 4" fill="currentColor"/>';
+const iconPlay = (size = 12) => svgIcon(ICON_PLAY_PATH, size);
+const iconNote = (size = 12) => svgIcon(ICON_NOTE_PATH, size);
+const iconDisc = (size = 12) => svgIcon(ICON_DISC_PATH, size);
+const iconUser = (size = 12) => svgIcon(ICON_USER_PATH, size);
+const fmtCount = (n: number) => Number(n || 0).toLocaleString("en-US");
+const plural = (n: number, word: string) => `${fmtCount(n)} ${word}${n === 1 ? "" : "s"}`;
+// Artist / Album-Artist group subtitles read "N albums · M tracks" (see
+// library_groups) — split them so each number can carry its own icon.
+function parseGroupCounts(group: { subtitle?: string; count: number }): { albums: number | null; tracks: number } {
+  const m = /^(\d+)\s+albums?\s+·\s+(\d+)\s+tracks?$/.exec(group.subtitle || "");
+  return m ? { albums: Number(m[1]), tracks: Number(m[2]) } : { albums: null, tracks: group.count };
+}
+
 function fmtDur(seconds: number) {
   const s = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -88,7 +108,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const LIBRARY_ARTIST_MODE_KEY = "melo-library-artist-mode";
   let savedArtistMode: "artists" | "album-artists" = localStorage.getItem(LIBRARY_ARTIST_MODE_KEY) === "artists" ? "artists" : "album-artists";
   type LibraryNavigation = {
-    tab: "artists" | "album-artists" | "albums" | "genres" | "playlists";
+    tab: "artists" | "album-artists" | "albums" | "artist-albums" | "genres" | "playlists";
     artist: string | null;
     album: string | null;
     genre: string | null;
@@ -112,7 +132,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
   const initialLibraryNavigation = readLibraryNavigation();
-  let libTab: "artists" | "album-artists" | "albums" | "genres" | "playlists" = initialLibraryNavigation?.tab || savedArtistMode;
+  let libTab: "artists" | "album-artists" | "albums" | "artist-albums" | "genres" | "playlists" = initialLibraryNavigation?.tab || savedArtistMode;
   let selectedArtist: string | null = initialLibraryNavigation?.artist || null;
   let selectedAlbum: string | null = initialLibraryNavigation?.album || null;
   let selectedGenre: string | null = initialLibraryNavigation?.genre || null;
@@ -132,8 +152,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Character triggers a full LIKE scan for little value — the view stays
   // Unfiltered until the second character is typed.
   const MIN_SEARCH_LEN = 2;
-  type LibView = "default" | "details" | "compact" | "tiles";
-  const LIB_VIEWS: LibView[] = ["default", "details", "compact", "tiles"];
+  type LibView = "default" | "details" | "tiles";
+  const LIB_VIEWS: LibView[] = ["default", "details", "tiles"];
   // Round 75: the old "details" view was RENAMED to "default" and the label
   // was reused for a brand-new columned view. A one-time migration maps the
   // saved value so existing users keep the look they had; after the marker is
@@ -142,6 +162,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const migrated = localStorage.getItem("melo-lib-view-v2") === "1";
     let saved = localStorage.getItem("melo-lib-view") || "default";
     if (saved === "mosaic") saved = "tiles";
+    // v1.2.0: the Compact density was removed — anyone who had it saved lands on Default.
+    if (saved === "compact") {
+      saved = "default";
+      try { localStorage.setItem("melo-lib-view", "default"); } catch {}
+    }
     if (saved === "details" && !migrated) {
       // Rewrite the STORED value too — otherwise the next boot would read the
       // old "details" again and (marker now present) open the NEW column view.
@@ -248,22 +273,46 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return libraryMode() === "tracks" || !!librarySearch || ((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
   }
   function sheetModeActive(): boolean {
-    // The columned Details view and Compact are list displays: album sheets
-    // need the wide two-line rows, so the "Album Sheets" layout is disabled
-    // in both.
-    return libLayout === "albums" && libView !== "compact" && libView !== "details" && isLibraryTrackDisplay();
+    // The columned Details view is a list display: album sheets need the wide
+    // two-line rows, so the "Album Sheets" layout is disabled there.
+    return libLayout === "albums" && libView !== "details" && isLibraryTrackDisplay();
   }
   // Tiles paints its 190px CARDS only on the group roots. Every other branch
   // of the same view paints ordinary TRACK rows — an active query replaces the
   // groups with a flat track list, and a drill-in goes to the discography or
   // the album sheets — so those rows must keep the normal height. Reusing the
   // card height gave every searched track a 190px-tall box (round 83).
-  function tilesCardsActive(): boolean {
-    if (libView !== "tiles" || libraryMode() !== "groups" || librarySearch) return false;
+  function groupRootActive(): boolean {
+    if (libraryMode() !== "groups" || librarySearch) return false;
     return !((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
   }
+  function tilesCardsActive(): boolean {
+    return libView === "tiles" && groupRootActive();
+  }
+  // v1.2.0: Default at the group roots paints the same rounded cards as Tiles,
+  // one per row (two columns when wide) — avatar · name · icon pills · chevron.
+  function defaultGroupCardsActive(): boolean {
+    return libView === "default" && groupRootActive();
+  }
+  // Tiles geometry (round 110): every card is the same width, the cover is a
+  // full-width square (equal inset on all four sides) and cards sit 16px
+  // apart in both directions, like the reference mock. The cover therefore
+  // follows the column width, so the row height is derived from it:
+  //   card = 2*(1px border + 10px padding) + cover + title block + play line
+  //   slot = card + TILE_GAP
+  const TILE_GAP = 16;
+  const TILE_MIN_COL = 168;
+  const TILE_CHROME = 22;       // border + padding, top + bottom (and left + right)
+  const TILE_BODY = 81;         // image→title gap + name + meta + gap + play line
+  function tilesColumnWidth(columns: number): number {
+    const inner = Math.max(0, (trackList?.clientWidth || 0) - 24);
+    return (inner - (columns - 1) * TILE_GAP) / columns;
+  }
+  function tilesRowHeight(): number {
+    const cover = Math.max(96, tilesColumnWidth(libraryColumns()) - TILE_CHROME);
+    return Math.ceil(cover + TILE_CHROME + TILE_BODY + TILE_GAP);
+  }
   function libraryRowHeight(): number {
-    if (libView === "compact") return 36;
     // Details (columns, round 75): one tight line per track — taller than
     // compact for the 12px cells, far shorter than the two-line default.
     if (libView === "details") return 40; // round 77: group roots too
@@ -272,7 +321,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // 132px tall — the CSS caps width at the same 132 and centres it, so
     // height always equals width (before, wide columns clipped the height with
     // `max-height: calc(100% - 34px)` and the art squashed into a wide band).
-    if (tilesCardsActive()) return 190;
+    if (tilesCardsActive()) return tilesRowHeight();
+    if (defaultGroupCardsActive()) return 74;
     return 54;
   }
   let libraryRequest = 0;
@@ -304,6 +354,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Last rendered column count, so the ResizeObserver re-renders only when
   // The count actually changes (not per pixel of a resize drag).
   let lastLibraryColumns = 1;
+  let lastLibraryRowH = 0;
   let playlistRequest = 0;
   // Each interaction (search debounce, scroll render, resize reflow) owns
   // Its own timer id — a shared one let them cancel each other's pending
@@ -1216,7 +1267,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!invoke || !libraryStats) return;
     try {
       const stats = await invoke<Stats>("library_stats");
-      libraryStats.textContent = `${stats.tracks} tracks • ${stats.artists} artists • ${stats.albums} albums`;
+      // Each total leads with its own glyph (note / person / disc).
+      const stat = (icon: string, n: number, label: string) => `<span class="lib-stat">${icon}${esc(n)} ${label}</span>`;
+      libraryStats.innerHTML = `${stat(iconNote(12), stats.tracks, "tracks")}<span class="lib-stat-sep">•</span>${stat(iconUser(12), stats.artists, "artists")}<span class="lib-stat-sep">•</span>${stat(iconDisc(12), stats.albums, "albums")}`;
     } catch {}
   }
 
@@ -1249,7 +1302,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return selectedGenre ? "tracks" : "groups";
   }
 
-  function libraryGroupKind(): "artists" | "album-artists" | "albums" | "genres" {
+  function libraryGroupKind(): "artists" | "album-artists" | "albums" | "artist-albums" | "genres" {
     return libTab === "playlists" ? "artists" : libTab;
   }
 
@@ -1340,7 +1393,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function libraryColumns(): number {
     if (!trackList) return 1;
     const width = trackList.clientWidth || 0;
-    if (libView === "compact" || libView === "details") return 1;
+    if (libView === "details") return 1;
     // Album sheets lay their own two-column track grid out with CSS.
     if (sheetModeActive()) return 1;
     const trackLike = libraryMode() === "tracks" || !!librarySearch || ((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
@@ -1354,7 +1407,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // its 132px cap → a 156px divisor, and no upper cap on the column count
     // (the old ÷118 with a 6-column cap made covers shrink at narrow widths and
     // left wide empty gaps once the cap was reached).
-    if (libView === "tiles") return Math.max(2, Math.floor((width + GRID_GAP) / 156));
+    // The card list is inset 12px per side (see #trackList[data-grp]).
+    if (libView === "tiles") return Math.max(2, Math.floor((width - 24 + TILE_GAP) / (TILE_MIN_COL + TILE_GAP)));
     // Group rows in Details view use the same 600 px threshold (they used a
     // Near-identical but different computed value before).
     return width >= TWO_COLUMN_THRESHOLD ? 2 : 1;
@@ -1365,8 +1419,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function libraryRowPosStyle(rowIdx: number, col: number, columns: number, rowH: number, headerHeight: number): string {
     const top = headerHeight + rowIdx * rowH;
     if (columns > 1) {
-      const colWidthPct = 100 / columns;
-      return `position:absolute;top:${top}px;height:${rowH}px;left:calc(${col * colWidthPct}% + ${col === 0 ? 0 : GRID_GAP / 2}px);width:calc(${colWidthPct}% - ${GRID_GAP / 2}px)`;
+      // Symmetric: every column is (100% − gaps) / n wide and starts one
+      // column + one gap after the previous one — identical gaps everywhere.
+      const gap = tilesCardsActive() ? TILE_GAP : GRID_GAP;
+      const colW = `((100% - ${(columns - 1) * gap}px) / ${columns})`;
+      return `position:absolute;top:${top}px;height:${rowH}px;left:calc(${col} * (${colW} + ${gap}px));width:calc${colW}`;
     }
     return `position:absolute;left:0;right:0;top:${top}px;height:${rowH}px`;
   }
@@ -1418,19 +1475,34 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (html) space.insertAdjacentHTML("beforeend", html);
   }
 
+  // "11 albums · 162 tracks" as two icon pills (albums → disc, tracks → note).
+  // Albums show their artist (person icon) + track count; genres just tracks.
+  function groupMetaHtml(group: GroupRow, kind: string): string {
+    const pill = (icon: string, text: string, cls = "") => `<span class="grp-pill${cls}">${icon}<span>${text}</span></span>`;
+    const dot = `<span class="grp-dot"></span>`;
+    const c = parseGroupCounts(group);
+    if (c.albums !== null) return pill(iconDisc(12), esc(plural(c.albums, "album"))) + dot + pill(iconNote(12), esc(plural(c.tracks, "track")));
+    if (kind === "albums" && group.subtitle) return pill(iconUser(12), esc(group.subtitle), " grp-pill-name") + dot + pill(iconNote(12), esc(plural(group.count, "track")));
+    return pill(iconNote(12), esc(plural(c.tracks, "track")));
+  }
+
   function syncLibViewButtons() {
     document.querySelectorAll<HTMLElement>("[data-libview]").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.libview === libView);
     });
     trackList?.setAttribute("data-lib-view", libView);
     // The Columns button only exists for the columned Details view.
-    const colsBtn = document.getElementById("btn-lib-columns");
-    if (colsBtn) colsBtn.hidden = libView !== "details";
+    const colsBtn = document.getElementById("btn-lib-columns") as HTMLButtonElement | null;
+    if (colsBtn) {
+      // v1.2.0: Columns… is always shown but only ENABLED in Details.
+      colsBtn.hidden = false;
+      colsBtn.disabled = libView !== "details";
+    }
     if (libView !== "details") hideColumnsMenu();
     syncLibLayoutButtons();
   }
   function syncLibLayoutButtons() {
-    const unavailable = libView === "compact" || libView === "details";
+    const unavailable = libView === "details";
     document.querySelectorAll<HTMLButtonElement>("[data-liblayout]").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.liblayout === libLayout);
       btn.disabled = unavailable;
@@ -1469,6 +1541,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   async function renderLibraryPlaylists(reset = false) {
     if (!trackList || !invoke) return;
+    trackList.removeAttribute("data-grp");
     try {
       await refreshPlaylists();
       if (!playlists.length) {
@@ -1550,6 +1623,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   async function renderLibraryVirtualInner(reset = false, restoreScroll?: number) {
+    // The group-card inset/backdrop (data-grp) belongs to the group-root render
+    // only; every other branch (discography, sheets, entity search…) starts clean.
+    trackList?.removeAttribute("data-grp");
     if (!trackList || !invoke) return;
     // "All"-field searches get their Artists/Albums sections above EVERY
     // track-display branch (flat list, album sheets); fire-and-forget, a
@@ -1591,6 +1667,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const rowH = libraryRowHeight();
     const columns = libraryColumns();
     lastLibraryColumns = columns;
+    lastLibraryRowH = rowH;
     syncLibViewButtons();
     // Shared grid geometry for the Details column view (header + rows read
     // the same custom property; harmless in other views).
@@ -1614,6 +1691,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       // Same predicate the row height uses: a card grid and 190px rows always
       // go together, plain track rows never do.
       const card = tilesCardsActive();
+      const cardDefault = defaultGroupCardsActive();
+      // Insets the virtual list 12px per side while rows are group cards.
+      trackList.setAttribute("data-grp", card ? "tiles" : cardDefault ? "default" : "");
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
         const rowIdx = Math.floor(absoluteIndex / columns);
@@ -1626,7 +1706,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (libraryMode() === "groups" && !librarySearch) {
           const group = item as GroupRow;
           const cover = resolvedCover(group.artworkTrackId, artworkUrl(group.cover));
-          const avatarClass = `lib-avatar ${libraryGroupKind() === "albums" ? "lib-avatar-album" : ""}`;
+          const avatarClass = `lib-avatar ${libraryGroupKind() === "albums" ? "lib-avatar-album" : ""}${card || cardDefault ? " grp-avatar" : ""}`;
           const fallback = libraryGroupKind() === "albums" ? "💿" : esc(((group.name || "")[0] || "?").toUpperCase());
           const avatar = cover
             ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(group.artworkTrackId || "")}"></div>`
@@ -1635,11 +1715,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           if (groupColsOn) {
             return `<div class="lib-item lib-cols virtual-row" data-group-index="${index}" style="${posStyle}${LIB_GROUP_COLS_GRID}">${avatar}<span class="lc t-title">${esc(group.name)}</span><span class="lc t-artist lib-count">${sub}</span><span class="lc g-count">${group.count}</span></div>`;
           }
-          if (card) {
-            return `<div class="lib-item lib-card virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title">${esc(group.name)}</div><div class="t-artist">${sub}</div></div>`;
-          }
-          if (libView === "compact") {
-            return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div class="t-title" style="flex:1;min-width:0">${esc(group.name)}</div><div class="t-artist lib-count" style="flex-shrink:0">${sub}</div><span class="chev-r">›</span></div>`;
+          if (card || cardDefault) {
+            // Slot = rowH; the card itself is 8px shorter so neighbours get a 8px gutter.
+            const slotGap = card ? TILE_GAP : 8;
+            const cardStyle = `${posStyle};height:${rowH - slotGap}px;margin:${slotGap / 2}px 0`;
+            const meta = groupMetaHtml(group, libraryGroupKind());
+            const text = `<div class="grp-txt"><div class="grp-name" title="${esc(group.name)}">${esc(group.name)}</div><div class="grp-meta">${meta}</div></div>`;
+            const playLabel = `Play ${group.name}`;
+            return card
+              ? `<div class="lib-item lib-card lib-grp lib-grp-tile virtual-row" data-group-index="${index}" style="${cardStyle}">${avatar}${text}<div class="grp-foot"><button type="button" class="grp-play grp-play-tile" data-grp-play title="${esc(playLabel)}" aria-label="${esc(playLabel)}">${iconPlay(11)}<span>Play</span></button></div></div>`
+              : `<div class="lib-item lib-grp virtual-row" data-group-index="${index}" style="${cardStyle}">${avatar}${text}<button type="button" class="grp-play grp-play-round" data-grp-play title="${esc(playLabel)}" aria-label="${esc(playLabel)}">${iconPlay(13)}</button>${svgIcon('<path d="M9 6l6 6-6 6"/>', 16, ' class="grp-chev"')}</div>`;
           }
           return `<div class="lib-item virtual-row" data-group-index="${index}" style="${posStyle}">${avatar}<div style="flex:1;min-width:0"><div class="t-title">${esc(group.name)}</div><div class="t-artist lib-count">${sub}</div></div><span class="chev-r">›</span></div>`;
         }
@@ -1711,8 +1796,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function isEntityFilterSearch(): boolean {
     return libTab !== "playlists" && !!librarySearch && (librarySearchField === "artist" || librarySearchField === "album");
   }
-  function entitySearchKind(): "artists" | "album-artists" | "albums" {
-    return librarySearchField === "album" ? "albums" : libTab === "album-artists" ? "album-artists" : "artists";
+  function entitySearchKind(): "artists" | "album-artists" | "albums" | "artist-albums" {
+    // The Artists tab's albums carry the TRACK artist ("artist-albums"); every other tab
+    // keeps album-artist albums.
+    return librarySearchField === "album" ? (libTab === "artists" ? "artist-albums" : "albums") : libTab === "album-artists" ? "album-artists" : "artists";
   }
   // Compact name+subtitle row used by the entity list and the "All" search
   // sections (no full-width group layout — these are lookup affordances).
@@ -1732,12 +1819,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   // Clicking an entity in search results navigates to it and clears the
   // query — the search box was the path in, the entity is the destination.
-  function drillFromSearchGroup(kind: "artists" | "album-artists" | "albums", group: GroupRow) {
+  function drillFromSearchGroup(kind: "artists" | "album-artists" | "albums" | "artist-albums", group: GroupRow) {
     librarySearch = "";
     if (searchInput) searchInput.value = "";
     updateSearchClear();
     hideLibSearchSections();
-    if (kind === "albums") {
+    if (kind === "albums" || kind === "artist-albums") {
+      // "albums" keys carry the ALBUM ARTIST, "artist-albums" keys (Artists tab) the
+      // TRACK artist; each matches what its tab filters by, so no tab switch is needed.
       const parts = String(group.key || "").split("\0");
       selectedArtist = parts[0] || null;
       selectedAlbum = parts[1] || group.name;
@@ -1755,11 +1844,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     savedGroupsScrollTop = 0;
     clearLibrarySelection();
     persistLibraryNavigation();
+    // The artist panel filters by the main search: it was narrowed to the query we
+    // just cleared (this path sets librarySearch = "" without an input event), so it
+    // must repaint with the full list and the new selection highlighted.
+    paintArtistSidebar();
     renderLibraryVirtual(true);
   }
 
   let libSearchSectionsReq = 0;
-  let libSearchSectionsData: { kind: "artists" | "album-artists" | "albums"; groups: GroupRow[] }[] = [];
+  let libSearchSectionsData: { kind: "artists" | "album-artists" | "albums" | "artist-albums"; groups: GroupRow[] }[] = [];
   // "All" field + active query: artists first, then albums, then the flat
   // track list below (rendered as usual). Each section caps at
   // LIB_SEARCH_SECTION_LIMIT rows — it is a jump-off point, not a browser.
@@ -1770,27 +1863,28 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!librarySearch || libTab === "playlists" || librarySearchField !== "all") { hideLibSearchSections(); return; }
     const q = librarySearch;
     const artistKind: "artists" | "album-artists" = libTab === "album-artists" ? "album-artists" : "artists";
+    const albumKind: "albums" | "artist-albums" = libTab === "artists" ? "artist-albums" : "albums";
     let artists: GroupRow[] = [], albums: GroupRow[] = [];
     let artistTotal = 0, albumTotal = 0;
     try {
       const [pa, pb] = await Promise.all([
         invoke<Page<GroupRow>>("library_groups", { kind: artistKind, search: q, artist: null, limit: LIB_SEARCH_SECTION_LIMIT, offset: 0, includeTotal: true }),
-        invoke<Page<GroupRow>>("library_groups", { kind: "albums", search: q, artist: null, limit: LIB_SEARCH_SECTION_LIMIT, offset: 0, includeTotal: true }),
+        invoke<Page<GroupRow>>("library_groups", { kind: albumKind, search: q, artist: null, limit: LIB_SEARCH_SECTION_LIMIT, offset: 0, includeTotal: true }),
       ]);
       artists = pa.items || []; albums = pb.items || [];
       artistTotal = pa.total ?? artists.length; albumTotal = pb.total ?? albums.length;
     } catch { if (gen === libSearchSectionsReq) hideLibSearchSections(); return; }
     if (gen !== libSearchSectionsReq || librarySearch !== q) return; // superseded
     if (!artists.length && !albums.length) { hideLibSearchSections(); return; }
-    const section = (title: string, kind: "artists" | "album-artists" | "albums", list: GroupRow[], total: number) => list.length
+    const section = (title: string, kind: "artists" | "album-artists" | "albums" | "artist-albums", list: GroupRow[], total: number) => list.length
       ? `<section class="lse-sec"><h4>${title}${total > list.length ? ` · ${total}` : ""}</h4>${list.map((g, i) => `<button type="button" class="lse-row" data-lse-kind="${kind}" data-lse-index="${i}">${groupCellHtml(g)}</button>`).join("")}</section>`
       : "";
-    libSearchSectionsData = [{ kind: artistKind, groups: artists }, { kind: "albums", groups: albums }];
-    box.innerHTML = `<div class="lse-grid">${section(artistKind === "album-artists" ? "Album Artists" : "Artists", artistKind, artists, artistTotal)}${section("Albums", "albums", albums, albumTotal)}</div>`;
+    libSearchSectionsData = [{ kind: artistKind, groups: artists }, { kind: albumKind, groups: albums }];
+    box.innerHTML = `<div class="lse-grid">${section(artistKind === "album-artists" ? "Album Artists" : "Artists", artistKind, artists, artistTotal)}${section("Albums", albumKind, albums, albumTotal)}</div>`;
     box.hidden = false;
     box.querySelectorAll<HTMLElement>("[data-lse-index]").forEach(row => {
       row.onclick = () => {
-        const set = libSearchSectionsData.find(s => s.kind === (row.dataset.lseKind as "artists" | "album-artists" | "albums"));
+        const set = libSearchSectionsData.find(s => s.kind === (row.dataset.lseKind as "artists" | "album-artists" | "albums" | "artist-albums"));
         const g = set?.groups[Number(row.dataset.lseIndex || 0)];
         if (g && set) drillFromSearchGroup(set.kind, g);
       };
@@ -1804,7 +1898,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!trackList || !invoke) return;
     hideLibSearchSections();
     const kind = entitySearchKind();
-    const label = kind === "albums" ? "Albums" : "Artists";
+    const label = kind === "albums" || kind === "artist-albums" ? "Albums" : "Artists";
     trackList.style.display = "block";
     trackList.style.position = "relative";
     trackList.style.overflowY = "auto";
@@ -1977,6 +2071,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   });
   document.getElementById("btn-lib-columns")?.addEventListener("click", event => {
     event.stopPropagation();
+    if (libView !== "details") { hideColumnsMenu(); return; }
     if (libColumnsMenuOpen) hideColumnsMenu(); else showColumnsMenu();
   });
   document.addEventListener("click", event => {
@@ -1985,21 +2080,48 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (menu && !menu.contains(event.target as Node)) hideColumnsMenu();
   });
 
-  // ── Artist sidebar (Artists / Album Artist tabs): compact name list that
-  // stays available while an artist's tracks are open. Names ONLY.
+  // ── Artist sidebar (Artists / Album Artist tabs): the "Show artist list" panel.
+  // v1.2.0 redesign: quick find, sticky A–Z group labels, avatar + name + icon
+  // stats per row, and an A–Z jump rail. (No All/Favorites chips and no footer
+  // yet — the favourites system does not exist.) Stays available while an
+  // artist's tracks are open.
   let artistSidebarOpen = localStorage.getItem("melo-lib-artistbar") === "1";
   let artistSidebarCache: { kind: string; rows: GroupRow[] } | null = null;
+  let sideQuickFind = "";
   function artistSidebarActive(): boolean { return libTab === "artists" || libTab === "album-artists"; }
+  const sideLetterOf = (name: string) => {
+    const ch = (name || "").trim().charAt(0).toUpperCase();
+    return /[A-Z]/.test(ch) ? ch : "#";
+  };
+  const sideInitials = (name: string) => {
+    const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return ((parts[0].charAt(0) + (parts.length > 1 ? parts[parts.length - 1].charAt(0) : "")) || "?").toUpperCase();
+  };
+  const sideHue = (name: string) => {
+    let h = 0;
+    for (let i = 0; i < (name || "").length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return h;
+  };
   function syncArtistSidebarControls() {
     const btn = document.getElementById("btn-lib-artistbar") as HTMLButtonElement | null;
     const side = document.getElementById("libArtistSidebar");
-    const open = artistSidebarActive() && artistSidebarOpen;
+    const available = artistSidebarActive();
+    const open = available && artistSidebarOpen;
+    const label = open ? "Hide artist list" : "Show artist list";
     if (btn) {
-      btn.disabled = !artistSidebarActive();
+      btn.disabled = !available;
       btn.classList.toggle("active", open);
-      btn.setAttribute("title", artistSidebarActive() ? "Show/hide artist list" : "Artist list is available on the Artists tab");
+      btn.setAttribute("aria-expanded", String(open));
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", available ? label : "Artist list is available on the Artists tab");
+      const text = document.getElementById("libSideToggleLabel");
+      if (text) text.textContent = label;
     }
-    if (side) side.hidden = !open;
+    if (side) {
+      side.classList.toggle("open", open);
+      side.setAttribute("aria-hidden", String(!open));
+    }
   }
   let sideSyncedArtist: string | null = null;
   function syncArtistSidebarActive() {
@@ -2013,12 +2135,30 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const list = document.getElementById("libArtistSidebarList");
     if (!list) return;
     const side = document.getElementById("libArtistSidebar");
-    if (side?.hidden) return;
+    if (!side?.classList.contains("open")) return;
     list.querySelectorAll<HTMLElement>("[data-side-artist]").forEach(b => {
       const on = (b.dataset.sideArtist || "") === (selectedArtist || "");
       b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", String(on));
       if (on) b.scrollIntoView({ block: "nearest" });
     });
+  }
+  // Highlights the rail letter whose group label is currently at the top.
+  let sideSpyTick = false;
+  function sideSpy() {
+    const list = document.getElementById("libArtistSidebarList");
+    const rail = document.getElementById("libSideRail");
+    if (!list || !rail) return;
+    const labels = Array.from(list.querySelectorAll<HTMLElement>(".las-sec"));
+    if (!labels.length) return;
+    let current = labels[0].dataset.letter || "";
+    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 2) {
+      current = labels[labels.length - 1].dataset.letter || current;
+    } else {
+      const top = list.getBoundingClientRect().top + 4;
+      for (const l of labels) { if (l.getBoundingClientRect().top <= top + 2) current = l.dataset.letter || current; else break; }
+    }
+    rail.querySelectorAll<HTMLElement>("button").forEach(b => b.classList.toggle("current", b.dataset.letter === current));
   }
   function paintArtistSidebar() {
     const list = document.getElementById("libArtistSidebarList") as HTMLElement | null;
@@ -2026,23 +2166,93 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!artistSidebarActive() || !artistSidebarOpen) return;
     if (!artistSidebarCache || artistSidebarCache.kind !== libraryGroupKind()) { void renderArtistSidebarData(); return; }
     const q = (librarySearch || "").trim().toLowerCase();
-    const rows = artistSidebarCache.rows.filter(g => !q || String(g.name || "").toLowerCase().includes(q));
-    list.innerHTML = rows.length
-      ? rows.map((g, i) => `<button type="button" class="lib-side-artist${g.name === selectedArtist ? " active" : ""}" data-side-artist="${esc(g.name)}" title="${esc(g.name)}">${esc(g.name)}</button>`).join("")
-      : `<div class="lib-side-empty">${librarySearch ? "No artist matches." : "No artists yet."}</div>`;
-    list.querySelectorAll<HTMLElement>("[data-side-artist]").forEach(b => {
-      b.onclick = () => {
-        const name = b.dataset.sideArtist || "";
-        selectedArtist = name;
-        selectedAlbum = null;
-        selectedGenre = null;
-        savedGroupsScrollTop = 0;
-        clearLibrarySelection();
-        persistLibraryNavigation();
-        syncArtistSidebarActive();
-        renderLibraryVirtual(true);
-      };
+    const qf = sideQuickFind.trim().toLowerCase();
+    const rows = artistSidebarCache.rows.filter(g => {
+      const name = String(g.name || "").toLowerCase();
+      return (!q || name.includes(q)) && (!qf || name.includes(qf));
     });
+    const empty = document.getElementById("libSideEmpty");
+    const rail = document.getElementById("libSideRail") as HTMLElement | null;
+    const clear = document.getElementById("libSideSearchClear");
+    if (clear) clear.classList.toggle("visible", qf.length > 0);
+    if (empty) {
+      empty.classList.toggle("visible", rows.length === 0);
+      const title = empty.querySelector(".las-empty-title");
+      const desc = empty.querySelector(".las-empty-desc");
+      const clr = empty.querySelector<HTMLElement>(".las-empty-clear");
+      if (artistSidebarCache.rows.length === 0) {
+        if (title) title.textContent = "No artists yet";
+        if (desc) desc.textContent = "Add a music folder to fill your Library.";
+        if (clr) clr.hidden = true;
+      } else {
+        if (title) title.textContent = "No artists found";
+        if (desc) desc.textContent = "Nothing matches your search.";
+        if (clr) clr.hidden = !qf;
+      }
+    }
+    let lastLetter = "";
+    const letters = new Set<string>();
+    // One <section> per letter run: a flat list of position:sticky labels all
+    // pin to the top at once (each stays "stuck" for the whole list), so their
+    // rects collapse onto the viewport top and the rail could only jump DOWN.
+    // Inside its own section a label unsticks when its group scrolls away, and
+    // the section's rect is a real position for every letter.
+    let html = "";
+    rows.forEach((g, i) => {
+      const name = String(g.name || "");
+      const letter = sideLetterOf(name);
+      if (letter !== lastLetter) {
+        if (lastLetter) html += `</section>`;
+        lastLetter = letter;
+        letters.add(letter);
+        html += `<section class="las-sec" data-letter="${letter}"><div class="las-group">${letter}</div>`;
+      }
+      const cover = resolvedCover(g.artworkTrackId, artworkUrl(g.cover));
+      const c = parseGroupCounts(g);
+      const stat = (icon: string, n: number, word: string) => `<span class="las-stat" title="${esc(plural(n, word))}">${icon}${esc(fmtCount(n))}</span>`;
+      const meta = (c.albums !== null ? stat(iconDisc(10), c.albums, "album") : "") + stat(iconNote(10), c.tracks, "track");
+      const on = name === selectedArtist;
+      const avatar = cover
+        ? `<div class="las-avatar" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(g.artworkTrackId || "")}"></div>`
+        : `<div class="las-avatar" style="--h:${sideHue(name)}" data-artwork-id="${esc(g.artworkTrackId || "")}">${esc(sideInitials(name))}</div>`;
+      html += `<div class="las-row${i < 24 ? " las-anim" : ""}${on ? " active" : ""}" role="option" aria-selected="${on}" tabindex="0" data-side-artist="${esc(name)}" title="${esc(name)}" style="--i:${Math.min(i, 16)}">${avatar}<div class="las-info"><div class="las-name">${esc(name)}</div><div class="las-meta">${meta}</div></div><button type="button" class="las-play" data-las-play title="${esc("Play " + name)}" aria-label="${esc("Play " + name)}">${iconPlay(11)}</button></div>`;
+    });
+    if (lastLetter) html += `</section>`;
+    list.innerHTML = html;
+    if (rail) {
+      rail.style.visibility = rows.length ? "" : "hidden";
+      rail.querySelectorAll<HTMLElement>("button").forEach(b => b.classList.toggle("has", letters.has(b.dataset.letter || "")));
+    }
+    list.classList.remove("entering");
+    void list.offsetWidth; // restart the (first-rows-only) entrance animation
+    list.classList.add("entering");
+    window.setTimeout(() => list.classList.remove("entering"), 700);
+    const select = (row: HTMLElement) => {
+      const name = row.dataset.sideArtist || "";
+      selectedArtist = name;
+      selectedAlbum = null;
+      selectedGenre = null;
+      savedGroupsScrollTop = 0;
+      clearLibrarySelection();
+      persistLibraryNavigation();
+      syncArtistSidebarActive();
+      renderLibraryVirtual(true);
+    };
+    list.querySelectorAll<HTMLElement>("[data-side-artist]").forEach(b => {
+      b.onclick = () => select(b);
+      b.onkeydown = e => {
+        if (e.target !== b) return; // Enter/Space on the inner Play button is its own click
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(b); }
+      };
+      b.querySelector<HTMLElement>("[data-las-play]")?.addEventListener("click", e => {
+        e.preventDefault();
+        e.stopPropagation(); // play, don't open the artist
+        const name = b.dataset.sideArtist || "";
+        void playGroupScope(libTab === "album-artists" ? { albumArtist: name } : { artist: name });
+      });
+    });
+    bindLazyArtwork(list);
+    sideSpy();
   }
   async function renderArtistSidebarData() {
     const list = document.getElementById("libArtistSidebarList") as HTMLElement | null;
@@ -2052,8 +2262,20 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     list.dataset.busy = "1";
     const kind = libraryGroupKind();
     try {
-      const page = await invoke<Page<GroupRow>>("library_groups", { kind, search: null, artist: null, limit: 5000, offset: 0, includeTotal: false });
-      artistSidebarCache = { kind, rows: page.items || [] };
+      // v1.2.0: paged — the backend clamps every request to 5000 rows, so one shot
+      // silently dropped artist #5001+ in big libraries. Pull 2000 at a time until
+      // the reported total (or a short page) says we have them all.
+      const PAGE = 2000;
+      const rows: GroupRow[] = [];
+      let total = Infinity;
+      for (let offset = 0; offset < total && offset < 500000; offset += PAGE) {
+        const page = await invoke<Page<GroupRow>>("library_groups", { kind, search: null, artist: null, limit: PAGE, offset, includeTotal: offset === 0 });
+        const items = page.items || [];
+        if (offset === 0) total = Number.isFinite(page.total) && page.total > 0 ? page.total : items.length;
+        rows.push(...items);
+        if (items.length < PAGE) break;
+      }
+      artistSidebarCache = { kind, rows };
     } catch {
       artistSidebarCache = { kind, rows: [] };
     } finally {
@@ -2061,6 +2283,40 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
     paintArtistSidebar();
   }
+  // A–Z jump rail (built once) + quick-find wiring.
+  (() => {
+    const rail = document.getElementById("libSideRail");
+    const list = document.getElementById("libArtistSidebarList");
+    if (rail && !rail.childElementCount) {
+      rail.innerHTML = [..."#ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map(l => `<button type="button" tabindex="-1" data-letter="${l}" aria-label="Jump to artists starting with ${l}">${l}</button>`).join("");
+      rail.addEventListener("click", event => {
+        const b = (event.target as HTMLElement).closest<HTMLElement>("button[data-letter]");
+        if (!b || !list) return;
+        const label = list.querySelector<HTMLElement>(`.las-sec[data-letter="${b.dataset.letter}"]`);
+        if (!label) return;
+        const top = label.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+        list.scrollTo({ top: Math.max(0, top - 2), behavior: "smooth" });
+      });
+    }
+    list?.addEventListener("scroll", () => {
+      if (sideSpyTick) return;
+      sideSpyTick = true;
+      requestAnimationFrame(() => { sideSpyTick = false; sideSpy(); });
+    });
+    const input = document.getElementById("libSideSearch") as HTMLInputElement | null;
+    const setQuickFind = (value: string) => {
+      sideQuickFind = value;
+      if (input && input.value !== value) input.value = value;
+      paintArtistSidebar();
+    };
+    input?.addEventListener("input", () => setQuickFind(input.value));
+    input?.addEventListener("keydown", e => {
+      if (e.key === "Escape") { e.stopPropagation(); if (input.value) setQuickFind(""); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); list?.querySelector<HTMLElement>(".las-row")?.focus(); }
+    });
+    document.getElementById("libSideSearchClear")?.addEventListener("click", () => { setQuickFind(""); input?.focus(); });
+    document.getElementById("libSideEmptyClear")?.addEventListener("click", () => { setQuickFind(""); input?.focus(); });
+  })();
   document.getElementById("btn-lib-artistbar")?.addEventListener("click", () => {
     if (!artistSidebarActive()) return;
     artistSidebarOpen = !artistSidebarOpen;
@@ -2093,6 +2349,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         persistLibraryNavigation();
         renderLibraryVirtual(true);
       };
+      row.querySelector<HTMLElement>("[data-grp-play]")?.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation(); // never also drill into the group
+        const group = items[Number(row.dataset.groupIndex || 0)] as GroupRow;
+        if (group) void playGroupScope(groupPlayScope(group));
+      });
       row.oncontextmenu = event => {
         event.preventDefault();
         event.stopPropagation();
@@ -2259,7 +2521,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <button class="btn small ghost" data-add-track="${esc(track.id)}" title="Add to current playlist">+</button>
         </div>`;
         }).join("");
-        const twoCol = columns > 1 && libView !== "compact" && !detailsOn; // the column grid is the layout now
+        const twoCol = columns > 1 && !detailsOn; // the column grid is the layout now
         const rowCount = twoCol ? Math.max(1, Math.ceil(album.tracks.length / 2)) : album.tracks.length;
         const gridClass = twoCol ? "lib-album-tracks two-col" : "lib-album-tracks";
         const gridStyle = twoCol ? `grid-template-rows:repeat(${rowCount},auto)` : "";
@@ -2522,16 +2784,20 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Library window reflows the track list into a grid once there's room.
   function maybeReflowLibrary() {
     const cols = libraryColumns();
-    if (cols === lastLibraryColumns || !trackList) return;
+    // Tiles: the cover (and so the row height) follows the column width, so a
+    // width change that keeps the column count still needs a re-render.
+    const tilesResized = tilesCardsActive() && lastLibraryRowH > 0 && libraryRowHeight() !== lastLibraryRowH;
+    if ((cols === lastLibraryColumns && !tilesResized) || !trackList) return;
     // Preserve the LIST POSITION, not the pixel offset: after a 1↔2 column
     // Reflow the same offset points at a track ~2× further down. Convert
     // ScrollTop → first visible index (old columns) → offset (new columns)
     // And restore through renderLibraryVirtual's restore path.
+    const oldRowH = lastLibraryRowH > 0 ? lastLibraryRowH : libraryRowHeight();
     const rowH = libraryRowHeight();
     const headerHeight = libraryCrumb() ? 38 : 0;
     const bodyScroll = Math.max(0, trackList.scrollTop - headerHeight);
-    const firstRow = Math.max(0, Math.floor(bodyScroll / rowH));
-    const rowOffset = bodyScroll - firstRow * rowH;
+    const firstRow = Math.max(0, Math.floor(bodyScroll / oldRowH));
+    const rowOffset = bodyScroll - firstRow * oldRowH;
     const firstItem = firstRow * lastLibraryColumns;
     const newRow = Math.floor(firstItem / cols);
     const restore = headerHeight + newRow * rowH + rowOffset;
@@ -2788,6 +3054,37 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // track id before use) makes the index exact.
     busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true, queueHint: Number.isInteger(queueHint) ? queueHint : undefined });
     if (announce) busEmit("melo:queue-changed", {});
+  }
+
+  // Group Play (round 110): replaces the queue with EVERY track of the group
+  // (the active search is ignored on purpose) and starts its first track.
+  type GroupPlayScope = { artist?: string; albumArtist?: string; album?: string; genre?: string };
+  function groupPlayScope(group: GroupRow): GroupPlayScope {
+    const parts = String(group.key || group.name || "").split("\0");
+    if (libTab === "genres") return { genre: group.name };
+    if (libTab === "albums") return { albumArtist: parts[0] || undefined, album: parts[1] || group.name };
+    if (libTab === "album-artists") return { albumArtist: group.name };
+    if (selectedArtist) return { artist: selectedArtist, album: parts[1] || group.name };
+    return { artist: group.name };
+  }
+  let groupPlayBusy = false;
+  async function playGroupScope(scope: GroupPlayScope) {
+    if (!invoke || groupPlayBusy) return;
+    groupPlayBusy = true;
+    try {
+      const args = { artist: scope.artist || null, albumArtist: scope.albumArtist || null, album: scope.album || null, genre: scope.genre || null };
+      const count = await invoke<number>("replace_queue_from_group", args);
+      if (!count) return;
+      // Same order the queue was just built in (artist groups: album by album).
+      const byAlbum = !scope.album && !!(scope.artist || scope.albumArtist);
+      const page = await invoke<Page<Track>>("library_tracks", { search: null, field: null, ...args, sort: byAlbum ? "album-asc" : "title-asc", limit: 1, offset: 0 });
+      const first = page.items[0];
+      if (first) await playFromDbQueue(normalizeTrack(first), true, 0);
+    } catch (e) {
+      toast("Couldn't play this group: " + String(e));
+    } finally {
+      groupPlayBusy = false;
+    }
   }
 
   // The effective playlist search query — null below the minimum length,
@@ -3367,7 +3664,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // or Playlists, clicking it returns to the currently selected grouping.
   artistModeButton?.addEventListener("click", event => {
     event.stopPropagation();
-    if (libTab === savedArtistMode) return;
+    if (libTab === savedArtistMode) {
+      // v1.2.0: already on the grouping but drilled into an artist → back to its root.
+      if (selectedArtist || selectedAlbum || selectedGenre) {
+        resetLibrarySelection();
+        persistLibraryNavigation();
+        renderLibraryVirtual(true);
+      }
+      return;
+    }
     libTab = savedArtistMode;
     resetLibrarySelection();
     persistLibraryNavigation();
@@ -3968,7 +4273,140 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       try { await invoke("shuffle_queue_rows", { order }); busEmit("melo:queue-changed", {}); } catch {}
     })();
   });
-  busOn("melo:playback-state", (s: any) => setActiveTrack(s?.track?.id || null));
+  busOn("melo:playback-state", (s: any) => { setActiveTrack(s?.track?.id || null); miniOnState(s); });
+
+  // ── Mini player (v1.2.0) ───────────────────────────────────────────────
+  // A docked bar at the bottom of the Library. It owns NO audio: it mirrors the
+  // player window through the bus (playback-state / playback-position /
+  // volume-state) and sends commands back (tray-action, seek-playback,
+  // set-volume). Cost control: position events are ignored while the bar is off,
+  // the time label is only rewritten when the visible second changes, and the
+  // bars move with transform/left on three tiny nodes — nothing re-renders the list.
+  const miniEl = document.getElementById("libMini") as HTMLElement | null;
+  const miniToggle = document.getElementById("libMiniToggle") as HTMLInputElement | null;
+  let miniOn = (() => { try { return localStorage.getItem("melo-lib-mini") !== "0"; } catch { return true; } })();
+  let miniDur = 0, miniPos = 0, miniVol = 100, miniMuted = false, miniPaused = true, miniScrub: number | null = null;
+  let miniShownSec = -1, miniTrackId = "";
+  const mq = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
+  const miniCur = mq("libMiniCur"), miniDurEl = mq("libMiniDur"), miniFill = mq("libMiniFill"), miniThumb = mq("libMiniThumb");
+  const miniBar = mq("libMiniBar"), miniVolBar = mq("libMiniVol"), miniVolFill = mq("libMiniVolFill"), miniVolThumb = mq("libMiniVolThumb");
+  function miniPaintBar(fill: HTMLElement | null, thumb: HTMLElement | null, bar: HTMLElement | null, frac: number) {
+    const f = Math.max(0, Math.min(1, frac || 0));
+    if (fill) fill.style.transform = `scaleX(${f})`;
+    if (thumb) thumb.style.left = `${f * 100}%`;
+    if (bar) bar.setAttribute("aria-valuenow", String(Math.round(f * 100)));
+  }
+  function miniPaintTime(force = false) {
+    const shown = miniScrub !== null ? miniScrub * miniDur : miniPos;
+    const sec = Math.floor(shown);
+    if (force || sec !== miniShownSec) {
+      miniShownSec = sec;
+      if (miniCur) miniCur.textContent = fmtDur(shown);
+    }
+    miniPaintBar(miniFill, miniThumb, miniBar, miniDur > 0 ? shown / miniDur : 0);
+  }
+  function miniPaintVolume() {
+    miniPaintBar(miniVolFill, miniVolThumb, miniVolBar, miniMuted ? 0 : miniVol / 100);
+    miniEl?.classList.toggle("is-muted", miniMuted || miniVol === 0);
+    const m = mq("libMiniMute");
+    if (m) { const t = miniMuted ? "Unmute" : "Mute"; m.title = t; m.setAttribute("aria-label", t); }
+  }
+  function miniOnState(s: any) {
+    if (!miniEl) return;
+    const t = s?.track as Track | null | undefined;
+    miniPaused = !!s?.paused;
+    miniEl.classList.toggle("is-playing", !miniPaused);
+    if (Number.isFinite(s?.currentTime)) miniPos = s.currentTime;
+    const id = t?.id ? String(t.id) : "";
+    if (id !== miniTrackId) {
+      // Track changed: text + cover only — the list is never touched.
+      miniTrackId = id;
+      miniEl.classList.toggle("is-empty", !id);
+      const title = mq("libMiniTitle"), artist = mq("libMiniArtist"), cover = mq("libMiniCover");
+      if (title) title.textContent = t?.title || "Nothing playing";
+      if (artist) artist.textContent = t ? (t.artist || "") : "";
+      miniDur = Number(t?.duration) > 0 ? Number(t!.duration) : 0;
+      if (miniDurEl) miniDurEl.textContent = fmtDur(miniDur);
+      if (cover) {
+        cover.style.backgroundImage = "";
+        cover.dataset.artworkId = id;
+        const url = id ? resolvedCover(id, artworkUrl(t?.cover)) : "";
+        if (url) paintArtwork(cover, url);
+        else if (id) enqueueArtwork(id, cover);
+      }
+      miniShownSec = -1;
+    }
+    miniPaintTime(true);
+  }
+  function applyMiniVisibility() {
+    if (miniEl) miniEl.hidden = !miniOn;
+    if (miniToggle) miniToggle.checked = miniOn;
+    if (miniOn) busEmit("melo:request-playback-state");
+  }
+  busOn("melo:playback-position", (sec: any) => {
+    if (!miniOn || miniScrub !== null) return;
+    const v = Number(sec);
+    if (!Number.isFinite(v)) return;
+    miniPos = v;
+    miniPaintTime();
+  });
+  busOn("melo:volume-state", (v: any) => {
+    if (Number.isFinite(Number(v?.volume))) miniVol = Math.max(0, Math.min(100, Number(v.volume)));
+    miniMuted = !!v?.muted;
+    miniPaintVolume();
+  });
+  // Pointer-driven sliders (seek / volume). While dragging only the visuals move;
+  // seek is sent once on release, volume is sent at most once per frame.
+  function miniSlider(bar: HTMLElement | null, onMove: (f: number) => void, onCommit: (f: number) => void, onKey: (dir: number) => void) {
+    if (!bar) return;
+    const frac = (e: PointerEvent) => { const r = bar.getBoundingClientRect(); return r.width > 0 ? Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) : 0; };
+    let dragging = false;
+    bar.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return;
+      dragging = true;
+      bar.setPointerCapture(e.pointerId);
+      onMove(frac(e));
+    });
+    bar.addEventListener("pointermove", e => { if (dragging) onMove(frac(e)); });
+    const end = (e: PointerEvent) => { if (!dragging) return; dragging = false; onCommit(frac(e)); };
+    bar.addEventListener("pointerup", end);
+    bar.addEventListener("pointercancel", end);
+    bar.addEventListener("keydown", e => {
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") { e.preventDefault(); onKey(1); }
+      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") { e.preventDefault(); onKey(-1); }
+    });
+  }
+  miniSlider(miniBar,
+    f => { if (miniDur <= 0) return; miniScrub = f; miniPaintTime(true); },
+    f => { if (miniDur > 0) { miniPos = f * miniDur; busEmit("melo:seek-playback", miniPos); } miniScrub = null; miniPaintTime(true); },
+    dir => { if (miniDur <= 0) return; miniPos = Math.max(0, Math.min(miniDur, miniPos + dir * 5)); busEmit("melo:seek-playback", miniPos); miniPaintTime(true); });
+  let miniVolRaf = 0, miniVolNext = -1;
+  const miniSendVolume = (pct: number) => {
+    miniVol = pct; miniVolNext = pct; miniPaintVolume();
+    if (miniVolRaf) return;
+    miniVolRaf = requestAnimationFrame(() => { miniVolRaf = 0; busEmit("melo:set-volume", miniVolNext); });
+  };
+  miniSlider(miniVolBar,
+    f => { if (miniMuted) { miniMuted = false; busEmit("melo:tray-action", "mute"); } miniSendVolume(Math.round(f * 100)); },
+    f => { miniSendVolume(Math.round(f * 100)); },
+    dir => miniSendVolume(Math.max(0, Math.min(100, miniVol + dir * 5))));
+  // Wheel over the volume group changes volume (same 5-step feel as the player).
+  mq("libMini")?.querySelector(".lm-vol")?.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    miniSendVolume(Math.max(0, Math.min(100, miniVol + ((ev as WheelEvent).deltaY < 0 ? 5 : -5))));
+  }, { passive: false });
+  mq("libMiniPrev")?.addEventListener("click", () => busEmit("melo:tray-action", "prev"));
+  mq("libMiniNext")?.addEventListener("click", () => busEmit("melo:tray-action", "next"));
+  mq("libMiniPlay")?.addEventListener("click", () => busEmit("melo:tray-action", "play_pause"));
+  mq("libMiniMute")?.addEventListener("click", () => busEmit("melo:tray-action", "mute"));
+  miniToggle?.addEventListener("change", () => {
+    miniOn = !!miniToggle.checked;
+    try { localStorage.setItem("melo-lib-mini", miniOn ? "1" : "0"); } catch {}
+    applyMiniVisibility();
+  });
+  miniEl?.classList.add("is-empty");
+  miniPaintVolume();
+  applyMiniVisibility();
 
   // When this window (re)opens, restore the active-track highlight from the
   // Player's current state instead of waiting for the next track change.

@@ -67,13 +67,12 @@ const SOURCES = [
   },
   {
     file: "README.md",
-    label: "README.md release runbook",
-    patterns: [
-      new RegExp(String.raw`Version: \*\*${NUM}\*\*`, "g"),
-      new RegExp(String.raw`Melo_${NUM}_x64-setup\.exe`, "g"),
-      new RegExp(String.raw`release \`v${NUM}\``, "g"),
-      new RegExp(String.raw`commit -m "Melo ${NUM}"`, "g"),
-    ],
+    label: "README.md version badge",
+    // The redesigned README (round 90) has no runbook text any more — the only
+    // version it declares is the shields.io badge: .../badge/version-1.2.0-5b8cff
+    // (plain x.y.z capture: the trailing -5b8cff is the badge colour, not a
+    // pre-release tag).
+    patterns: [new RegExp(String.raw`badge/version-(\d+\.\d+\.\d+)-`, "g")],
     limit: Infinity,
   },
 ];

@@ -5,9 +5,10 @@ import { setupEqualizer } from "./equalizer";
 import { setupVisualizer, VIZ_MODES } from "./visualizer";
 import { setupLyrics } from "./lyrics";
 import { setupSkinLyricLine } from "./lyric-line";
+import { setupWaveformSeek } from "./waveform";
 import { setupSkinEngine, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry, getSkinCapabilities, clearSkinCapabilityCache, type SkinCapabilities } from "./skin";
 import { withCover } from "./cover";
-import { busEmit, busOn, isTauri } from "./bus";
+import { busEmit, busOn, isTauri, setPositionConsumer } from "./bus";
 import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
 import { getAppVersion } from "./version";
 import { runSettingsMigrations, resetAllSettings, readSetting, writeSetting } from "./settings";
@@ -116,6 +117,11 @@ app.innerHTML = `
             <input id="searchInput" class="search-input" placeholder="Search artist, album, track…" />
             <button class="search-clear" id="searchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
           </div>
+          <label class="lib-mini-switch" id="libMiniSwitch" title="Show or hide the mini player at the bottom of the Library">
+            <input type="checkbox" id="libMiniToggle" role="switch" aria-label="Mini player" checked />
+            <span class="lms-track" aria-hidden="true"><span class="lms-knob"></span></span>
+            <span class="lms-label">Mini player</span>
+          </label>
           <button class="btn small library-action manage-action" id="btn-manage-library" title="Manage music folders, scan, or clear the Library">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="20" cy="14" r="2"/></svg>
             <span class="manage-label">Manage</span>
@@ -138,8 +144,9 @@ app.innerHTML = `
           <button class="tab" data-libtab="genres">Genres</button>
           <button class="tab" data-libtab="playlists">Playlists</button>
           <div class="lib-switches">
-          <button type="button" class="lib-view-btn lib-alone-btn" id="btn-lib-artistbar" title="Artist list sidebar" aria-label="Toggle artist list sidebar">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="16" rx="1"/><path d="M13 8h8M13 12h8M13 16h5"/></svg>
+          <button type="button" class="lib-side-toggle" id="btn-lib-artistbar" aria-expanded="false" aria-controls="libArtistSidebar" aria-label="Show artist list" title="Show artist list">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/><path d="M5.5 9h1.5M5.5 12h1.5M5.5 15h1.5"/></svg>
+            <span class="lib-side-toggle-label" id="libSideToggleLabel">Show artist list</span>
           </button>
           <div class="lib-layout-switch" id="libLayoutSwitch" title="Track display">
             <button type="button" class="lib-view-btn" data-liblayout="list" title="Track List" aria-label="Track List">
@@ -153,32 +160,75 @@ app.innerHTML = `
             <button type="button" class="lib-view-btn active" data-libview="default" title="Default">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
             </button>
-            <button type="button" class="lib-view-btn" data-libview="compact" title="Compact">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-            </button>
             <button type="button" class="lib-view-btn" data-libview="tiles" title="Tiles">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
             </button>
             <button type="button" class="lib-view-btn" data-libview="details" title="Details">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16M15 4v16"/></svg>
             </button>
-            <button type="button" class="lib-view-btn" id="btn-lib-columns" title="Columns…" aria-label="Configure columns" hidden>
+            <button type="button" class="lib-view-btn" id="btn-lib-columns" title="Columns… (Details view only)" aria-label="Configure columns" disabled>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
             </button>
           </div>
           </div>
         </div>
         <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
-          <span id="libraryStats">0 tracks • 0 artists • 0 albums</span>
+          <span id="libraryStats" class="lib-stats-line">0 tracks • 0 artists • 0 albums</span>
         </div>
         <div class="lib-body-split">
-          <aside id="libArtistSidebar" class="lib-artist-sidebar" hidden aria-label="Artist list">
-            <div class="lib-artist-sidebar-head">Artists</div>
-            <div id="libArtistSidebarList" class="lib-artist-sidebar-list"></div>
+          <aside id="libArtistSidebar" class="lib-artist-sidebar" aria-label="Artist list" aria-hidden="true">
+            <div class="las-toolbar">
+              <div class="las-search">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+                <input type="text" id="libSideSearch" placeholder="Quick find artist…" autocomplete="off" aria-label="Quick find artist" />
+                <button type="button" class="las-search-clear" id="libSideSearchClear" aria-label="Clear quick find">✕</button>
+              </div>
+            </div>
+            <div class="las-body">
+              <div id="libArtistSidebarList" class="las-list" role="listbox" aria-label="Artist list"></div>
+              <div id="libSideRail" class="las-rail" aria-label="Alphabetical index"></div>
+              <div id="libSideEmpty" class="las-empty">
+                <div class="las-empty-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/><path d="M8 11h6"/></svg></div>
+                <div class="las-empty-title">No artists found</div>
+                <div class="las-empty-desc">Nothing matches your quick find.</div>
+                <button type="button" class="las-empty-clear" id="libSideEmptyClear">Clear filter</button>
+              </div>
+            </div>
           </aside>
           <div class="lib-main-col">
             <div id="libSearchSections" class="lib-search-sections" hidden></div>
             <div id="trackList" style="display:flex; flex-direction:column; flex:1; overflow:auto;"></div>
+          </div>
+        </div>
+        <div class="lib-mini" id="libMini" role="group" aria-label="Mini player">
+          <div class="lm-grid">
+            <div class="lm-track">
+              <div class="lm-cover" id="libMiniCover" aria-hidden="true"></div>
+              <div class="lm-text">
+                <div class="lm-title" id="libMiniTitle">Nothing playing</div>
+                <div class="lm-artist" id="libMiniArtist"></div>
+              </div>
+            </div>
+            <div class="lm-controls">
+              <button type="button" class="lm-btn" id="libMiniPrev" title="Previous" aria-label="Previous track"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><rect x="5" y="4" width="2" height="16"/></svg></button>
+              <button type="button" class="lm-btn lm-play" id="libMiniPlay" title="Play / Pause" aria-label="Play / Pause">
+                <svg class="lm-i-play" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5.5 2.5 13 8 5.5 13.5z"/></svg>
+                <svg class="lm-i-pause" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="3" width="3" height="10" rx=".8"/><rect x="9" y="3" width="3" height="10" rx=".8"/></svg>
+              </button>
+              <button type="button" class="lm-btn" id="libMiniNext" title="Next" aria-label="Next track"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><rect x="17" y="4" width="2" height="16"/></svg></button>
+            </div>
+            <div class="lm-scrub">
+              <span class="lm-time" id="libMiniCur">0:00</span>
+              <div class="lm-bar" id="libMiniBar" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="lm-fill" id="libMiniFill"></div><div class="lm-thumb" id="libMiniThumb"></div></div>
+              <span class="lm-time" id="libMiniDur">0:00</span>
+            </div>
+            <div class="lm-vol">
+              <button type="button" class="lm-btn" id="libMiniMute" title="Mute" aria-label="Mute">
+                <svg class="lm-i-vol" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>
+                <svg class="lm-i-muted" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>
+              </button>
+              <div class="lm-bar lm-volbar" id="libMiniVol" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div class="lm-fill" id="libMiniVolFill"></div><div class="lm-thumb" id="libMiniVolThumb"></div></div>
+            </div>
           </div>
         </div>
         <div id="libColumnsMenu" class="lib-cols-menu" hidden role="menu" aria-label="Columns"></div>
@@ -431,7 +481,7 @@ app.innerHTML = `
             <div><div class="label">${t("settings.playback.crossfadeDuration.label")}</div><div class="desc">${t("settings.playback.crossfadeDuration.desc")}</div></div>
             <div class="stepper-control">
               <button type="button" class="btn small stepper-btn" id="btnCrossfadeDown" aria-label="Decrease crossfade duration">−</button>
-              <input type="range" class="crossfade-range" id="crossfadeDurationRange" min="1" max="12" step="1" value="4" />
+              <input type="range" class="crossfade-range" id="crossfadeDurationRange" min="0" max="12" step="1" value="4" />
               <span class="stepper-value" id="crossfadeDurationValue">4s</span>
               <button type="button" class="btn small stepper-btn" id="btnCrossfadeUp" aria-label="Increase crossfade duration">+</button>
             </div>
@@ -465,6 +515,30 @@ app.innerHTML = `
 
           <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:6px; padding-top:0;">
             <div id="skinFeatures" class="skin-features" aria-label="Features of the selected skin"></div>
+          </div>
+
+          <div class="settings-row" id="waveformSeekRow">
+            <div><div class="label">${t("settings.appearance.waveformSeek.label")}</div><div class="desc">${t("settings.appearance.waveformSeek.desc")}</div><div id="waveformSeekNote" class="skin-feature-note"></div></div>
+            <div class="switch" id="swWaveformSeek" data-key="waveformSeek"></div>
+          </div>
+          <div class="settings-row" id="waveformOptsRow">
+            <div><div class="label">${t("settings.appearance.waveformHover.label")}</div><div class="desc">${t("settings.appearance.waveformHover.desc")}</div></div>
+            <div class="switch on" id="swWaveformHover" data-key="waveformHover"></div>
+          </div>
+          <div class="settings-row" id="waveformBarRow">
+            <div><div class="label">${t("settings.appearance.waveformBar.label")}</div></div>
+            <select class="settings-select" id="setWaveformBar" data-wf-pref="waveformBar">
+              <option value="thin">${t("settings.appearance.waveformBar.thin")}</option>
+              <option value="normal">${t("settings.appearance.waveformBar.normal")}</option>
+              <option value="thick">${t("settings.appearance.waveformBar.thick")}</option>
+            </select>
+          </div>
+          <div class="settings-row" id="waveformShapeRow">
+            <div><div class="label">${t("settings.appearance.waveformShape.label")}</div></div>
+            <select class="settings-select" id="setWaveformShape" data-wf-pref="waveformShape">
+              <option value="symmetric">${t("settings.appearance.waveformShape.symmetric")}</option>
+              <option value="top">${t("settings.appearance.waveformShape.top")}</option>
+            </select>
           </div>
 
           <div class="settings-row">
@@ -591,21 +665,26 @@ app.innerHTML = `
   <!-- PLAYER BAR -->
   <div class="player-card" id="playerCard">
     <div class="player-titlebar" data-tauri-drag-region>
-      <span class="app-name-static">
-        <svg class="app-brand-mark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
-        Melo
-      </span>
-      <div class="titlebar-actions">
-        <button class="win-btn" id="btnAddFiles" title="Add files (Ctrl+O)">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg>
+      <div class="brand-menu-wrap" id="brandMenuWrap">
+        <button type="button" class="app-name-static brand-menu-btn" id="brandMenuBtn" aria-haspopup="menu" aria-expanded="false" title="Menu">
+          <svg class="app-brand-mark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M2 12h2l1-7 2 14 3-10 2 6h2l2-9 2 14 2-7h2"/></svg>
+          Melo
+          <svg class="brand-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </button>
-        <button class="win-btn" id="btnOpenFolder" title="Open a folder and play its audio files">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
-        </button>
-        <button class="win-btn" id="btnThemeToggle" title="Toggle light / dark theme">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
-        </button>
+        <div class="brand-menu" id="brandMenu" role="menu" hidden>
+          <button type="button" class="brand-menu-item" id="btnAddFiles" role="menuitem" title="Add files (Ctrl+O)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="M9 15h6"/></svg><span>Open Files</span><kbd>Ctrl+O</kbd>
+          </button>
+          <button type="button" class="brand-menu-item" id="btnOpenFolder" role="menuitem" title="Open a folder and play its audio files">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg><span>Open Folder</span>
+          </button>
+          <div class="brand-menu-sep" role="separator"></div>
+          <button type="button" class="brand-menu-item" id="btnThemeToggle" role="menuitem" title="Toggle light / dark theme">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg><span>Toggle theme</span>
+          </button>
+        </div>
       </div>
+      <div class="titlebar-spacer" data-tauri-drag-region></div>
       <div class="win-controls">
         <button class="win-btn" data-melo="window-control-minimize" aria-label="minimize">—</button>
         <button class="win-btn close" data-melo="window-control-close" aria-label="close">×</button>
@@ -663,6 +742,7 @@ app.innerHTML = `
         <div class="seek-row">
           <span class="time" id="curTime">0:00</span>
           <div class="seek-wrap">
+            <div class="seek-wave" data-melo="waveform"></div>
             <input type="range" class="seek" id="seekBar" min="0" max="276" value="0" />
           </div>
           <span class="time" id="durTime">0:00</span>
@@ -1178,10 +1258,22 @@ if (isTauri && !urlPanel) {
   // Buffer drain against the event.
   const pendingOpenPaths: string[] = [];
   let pendingOpenTimer = 0;
-  const OPEN_BURST_MS = 5000;
-  let lastOpenImportAt = 0;
+  // An open from Explorer ALWAYS replaces the queue; there is no "append" path.
+  // Explorer starts one process per selected file, so arrivals are coalesced with a
+  // sliding trailing timer (every arrival restarts it) and the whole selection is
+  // imported once. Running app: a selection reaches us within ~a second (1s).
+  // Cold start (the app was LAUNCHED by Explorer with files): each process must wait
+  // for WebView2 to boot, so arrivals are spread over seconds (2.5s) - but only
+  // during the boot phase.
+  const OPEN_COALESCE_RUNNING_MS = 1000;
+  const OPEN_COALESCE_COLD_MS = 2500;
+  const COLD_START_PHASE_MS = 12000;
+  let launchedWithFiles = false;
   const queueOpenPaths = (paths: string[], src: "event" | "poll" = "poll") => {
     const now = Date.now();
+    // Only the boot-time drain polls (0/700/2000ms) use src "poll": files found there
+    // mean this process was started by opening files (cold start).
+    if (src === "poll" && paths.length) launchedWithFiles = true;
     for (const [p, r] of recentOpenPaths) {
       if (now - r.t > 60000) recentOpenPaths.delete(p);
     }
@@ -1199,19 +1291,9 @@ if (isTauri && !urlPanel) {
       const batch = pendingOpenPaths.splice(0, pendingOpenPaths.length);
       if (!batch.length) return;
       const lib = window.LumiLibrary;
-      // The first batch of a burst replaces the queue and starts playing.
-      // Companion launches that trickle in later (cold start: each Explorer
-      // process needs time to reach the primary) belong to the SAME
-      // selection, so they are appended instead of replacing the queue.
-      const inBurst = lastOpenImportAt > 0 && Date.now() - lastOpenImportAt < OPEN_BURST_MS;
-      lastOpenImportAt = Date.now();
-      if (inBurst) {
-        await lib?.importPaths?.(batch, "append");
-        return;
-      }
       const imported = await lib?.importPaths?.(batch, "replace") || [];
       if (imported.length) busEmit("melo:play-tracks", { tracks: imported, index: 0 });
-    }, 450);
+    }, (launchedWithFiles && performance.now() < COLD_START_PHASE_MS) ? OPEN_COALESCE_COLD_MS : OPEN_COALESCE_RUNNING_MS);
   };
 
   // Drains the Rust CLI buffer (own argv + companion forwards). Polled a few
@@ -1468,11 +1550,96 @@ function setPanelVisible(panel: PanelId, visible: boolean) {
   else if (!visible && had) visiblePanels.delete(panel);
   if (had !== visible) {
     busEmit("melo:panel-state-changed", { panel, visible });
+    // Lyrics / library read melo:playback-position; the bus only sends it over
+    // IPC while one of them is open. Ask for a fresh state so a just-opened
+    // panel never waits for the next tick.
+    setPositionConsumer(panel, visible);
+    if (visible) busEmit("melo:request-playback-state");
   }
   // Persist the OPEN-panel set after every change so a close-to-tray /
   // Relaunch cycle restores panels at their saved geometry. The tray
   // Snapshot key doubles as this set.
   try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(Array.from(visiblePanels))); } catch {}
+}
+
+// v1.2.0 — taskbar click brings the open panels back with the player.
+// Panels are skipTaskbar windows, so when another app covers Melo the taskbar
+// icon only raises the player and every open panel stays buried. Each window
+// reports its native focus; when ALL Melo windows were inactive and the player
+// becomes active again, every panel that is open, visible and NOT minimized is
+// raised too (always-on-top toggle: raises without stealing focus), then the
+// player is re-raised so it stays the front window.
+if (isTauri) {
+  (async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const me = getCurrentWindow();
+      const id = urlPanel ? "panel-" + urlPanel : "main";
+      await me.onFocusChanged(({ payload }) => { busEmit("melo:win-active", { id, active: !!payload }); });
+    } catch {}
+  })();
+  if (!urlPanel) {
+    // Whether the WHOLE app is in the background is decided by asking the windows
+    // (isFocused), never by a remembered set of "active" ids: a panel that is closed
+    // while focused never reports its blur, so a stale id used to keep the app
+    // "active" forever and the taskbar raise silently stopped working after any
+    // panel was closed (until that panel was reopened).
+    let appInBackground = false;
+    let bgTimer = 0;
+    const raise = async (w: any) => { await w.setAlwaysOnTop(true); await w.setAlwaysOnTop(false); };
+    const liveWindows = async () => {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const out: Array<{ label: string; w: any }> = [];
+      const main = await WebviewWindow.getByLabel("main");
+      if (main) out.push({ label: "main", w: main });
+      for (const p of Array.from(visiblePanels)) {
+        try {
+          const w = await WebviewWindow.getByLabel("panel-" + p);
+          if (w) out.push({ label: "panel-" + p, w });
+        } catch {}
+      }
+      return out;
+    };
+    const raiseOpenPanels = async () => {
+      try {
+        const wins = await liveWindows();
+        for (const { label, w } of wins) {
+          if (label === "main") continue;
+          try {
+            if (!(await w.isVisible()) || (await w.isMinimized())) continue;
+            await raise(w);
+          } catch {} // a window closed mid-loop is simply skipped
+        }
+        const main = wins.find(x => x.label === "main");
+        if (main) await raise(main.w);
+      } catch {}
+    };
+    const anyFocused = async () => {
+      try {
+        for (const { w } of await liveWindows()) { try { if (await w.isFocused()) return true; } catch {} }
+      } catch {}
+      return false;
+    };
+    busOn("melo:win-active", (payload: any) => {
+      const wid = String(payload?.id || "");
+      if (!wid) return;
+      window.clearTimeout(bgTimer);
+      if (payload.active) {
+        if (wid === "main" && appInBackground) { appInBackground = false; void raiseOpenPanels(); }
+        else appInBackground = false;
+      } else {
+        // Focus hops between Melo's own windows pass through "nothing focused" for a
+        // moment; only a gap that outlasts the hop (and is confirmed by the windows
+        // themselves) counts as leaving the app.
+        bgTimer = window.setTimeout(async () => { if (!(await anyFocused())) appInBackground = true; }, 250);
+      }
+    });
+    // A panel closing is not a focus event: re-evaluate when one goes away.
+    busOn("melo:panel-closed", () => {
+      window.clearTimeout(bgTimer);
+      bgTimer = window.setTimeout(async () => { if (!(await anyFocused())) appInBackground = true; }, 350);
+    });
+  }
 }
 
 // Trailing-edge debounce: collapse move/resize bursts into one write
@@ -1984,6 +2151,44 @@ document.addEventListener("click", (e) => {
   else if (role === "btnThemeToggle" || role === "theme-toggle") applyTheme(theme === "light" ? "dark" : "light");
 });
 
+// v1.2.0: the logo + "Melo" opens a drop-down holding Open Files / Open Folder / theme.
+// It closes on ANY click outside it (no need to click the menu again), on Escape,
+// after choosing an item, and when the window loses focus.
+// Everything is delegated from `document` and the nodes are looked up when the event
+// fires: switching to another skin and back re-injects the default markup (new nodes),
+// so listeners bound to the original button/menu elements were lost and the menu
+// stopped opening.
+(() => {
+  const els = () => ({
+    wrap: document.getElementById("brandMenuWrap"),
+    btn: document.getElementById("brandMenuBtn"),
+    menu: document.getElementById("brandMenu"),
+  });
+  const setOpen = (open: boolean) => {
+    const { wrap, btn, menu } = els();
+    if (!wrap || !btn || !menu) return;
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+    wrap.classList.toggle("open", open);
+  };
+  document.addEventListener("click", e => {
+    const t = e.target as HTMLElement | null;
+    const { menu } = els();
+    if (!menu) return;
+    if (t?.closest("#brandMenuBtn")) { e.stopPropagation(); setOpen(menu.hidden); }
+    else if (t?.closest("#brandMenu")) setOpen(false);
+  });
+  document.addEventListener("pointerdown", e => {
+    const { menu } = els();
+    if (menu && !menu.hidden && !(e.target as HTMLElement | null)?.closest("#brandMenuWrap")) setOpen(false);
+  }, true);
+  window.addEventListener("blur", () => setOpen(false));
+  document.addEventListener("keydown", e => {
+    const { menu, btn } = els();
+    if (e.key === "Escape" && menu && !menu.hidden) { setOpen(false); btn?.focus(); }
+  });
+})();
+
 window.addEventListener("keydown", (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
     if (e.shiftKey) { e.preventDefault(); addFolderViaDialog(); }
@@ -2116,8 +2321,8 @@ function setupSettings(toast: ToastFn) {
 
   function updateCrossfadeRangeBackground() {
     if (!crossfadeRange) return;
-    const v = parseInt(crossfadeRange.value, 10) || 1;
-    const pct = ((v - 1) / (12 - 1)) * 100;
+    const v = parseInt(crossfadeRange.value, 10) || 0;
+    const pct = (v / 12) * 100;
     crossfadeRange.style.setProperty("--progress", pct + "%");
   }
   function setCrossfadeDuration(seconds: number) {
@@ -2126,9 +2331,9 @@ function setupSettings(toast: ToastFn) {
     const clamped = writeSetting("crossfadeDuration", seconds) as number;
     if (crossfadeRange) {
       crossfadeRange.value = String(clamped);
-      crossfadeRange.setAttribute("aria-valuetext", `${clamped} seconds`);
+      crossfadeRange.setAttribute("aria-valuetext", clamped === 0 ? "Gapless" : `${clamped} seconds`);
     }
-    if (crossfadeValue) crossfadeValue.textContent = clamped + "s";
+    if (crossfadeValue) crossfadeValue.textContent = clamped === 0 ? "Gapless" : clamped + "s";
     updateCrossfadeRangeBackground();
   }
   crossfadeRange?.setAttribute("aria-label", "Crossfade duration");
@@ -2136,9 +2341,9 @@ function setupSettings(toast: ToastFn) {
     const clamped = readSetting("crossfadeDuration") as number;
     if (crossfadeRange) {
       crossfadeRange.value = String(clamped);
-      crossfadeRange.setAttribute("aria-valuetext", `${clamped} seconds`);
+      crossfadeRange.setAttribute("aria-valuetext", clamped === 0 ? "Gapless" : `${clamped} seconds`);
     }
-    if (crossfadeValue) crossfadeValue.textContent = clamped + "s";
+    if (crossfadeValue) crossfadeValue.textContent = clamped === 0 ? "Gapless" : clamped + "s";
     updateCrossfadeRangeBackground();
   }
   if (crossfadeRange) crossfadeRange.oninput = () => setCrossfadeDuration(parseInt(crossfadeRange.value, 10));
@@ -2318,6 +2523,13 @@ function setupSettings(toast: ToastFn) {
     });
   });
 
+  // Waveform appearance selects (bar thickness / shape): persisted + broadcast by the registry.
+  document.querySelectorAll<HTMLSelectElement>("select[data-wf-pref]").forEach(sel => {
+    const name = sel.dataset.wfPref!;
+    sel.value = String(readSetting(name));
+    sel.onchange = () => { writeSetting(name, sel.value); };
+  });
+
   const langSelect = document.getElementById("setLanguage") as HTMLSelectElement | null;
   if (langSelect) {
     langSelect.value = getLocaleCode();
@@ -2399,6 +2611,7 @@ function setupSettings(toast: ToastFn) {
     ["currentLyric", t("settings.skinFeatures.currentLyric")],
     ["embeddedLyrics", t("settings.skinFeatures.embeddedLyrics")],
     ["embeddedPlaylist", t("settings.skinFeatures.embeddedPlaylist")],
+    ["waveform", t("settings.skinFeatures.waveform")],
   ];
   const SKIN_FEATURE_CHECK = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 5 8.5 9.5 3.5"/></svg>`;
   const SKIN_FEATURE_CROSS = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5"/></svg>`;
@@ -2416,6 +2629,11 @@ function setupSettings(toast: ToastFn) {
     document.getElementById("lyricsSkinLineRow")?.classList.toggle("skin-feature-unavailable", !ok);
     const note = document.getElementById("lyricsSkinLineNote");
     if (note) note.textContent = ok ? "" : t("settings.general.lyricsSkinLine.unsupported");
+    // Waveform switch: same treatment.
+    document.getElementById("waveformSeekRow")?.classList.toggle("skin-feature-unavailable", !caps.waveform);
+    for (const id of ["waveformOptsRow", "waveformBarRow", "waveformShapeRow"]) document.getElementById(id)?.classList.toggle("skin-feature-unavailable", !caps.waveform);
+    const wnote = document.getElementById("waveformSeekNote");
+    if (wnote) wnote.textContent = caps.waveform ? "" : t("settings.appearance.waveformSeek.unsupported");
   }
 
   async function refreshSkinFeatures() {
@@ -2684,6 +2902,9 @@ if (urlPanel) {
   // General → "Show current lyric line in skins"). No-op for skins that
   // Don't declare a current-lyric / next-lyric slot; see src/lyric-line.ts.
   setupSkinLyricLine(audio, showToast);
+  // Optional waveform seek bar (Settings → Appearance & Skin). No-op for skins
+  // without a data-melo="waveform" slot; see src/waveform.ts.
+  setupWaveformSeek();
 
   // Resume playback on reopen: restore the last track paused at its saved
   // Position, once shortly after boot (localStorage must load first).

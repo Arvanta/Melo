@@ -295,6 +295,28 @@ whole regions in CSS:
 html:not(.melo-lyric-skin-on) .lyric-stack { display: none; }
 ```
 
+### 5.7b Optional: waveform seek bar
+
+Add one empty container and Melo can show the track's waveform there instead of the plain progress bar (Settings → Appearance & Skin → *Waveform seek bar*, off by default):
+
+```html
+<div data-melo="waveform" style="height:28px; position:relative"></div>   <!-- or id="skinWaveform" -->
+```
+
+* Keep your normal `data-melo="seek"` range input: it stays the keyboard/accessibility control, and dragging on the waveform drives it (same `input`/`change` events), so nothing else in your skin changes.
+* Melo fills the container with two canvases and a playhead and only does so when the setting is on **and** the peaks are ready. Until then (or for formats that cannot be decoded, e.g. Opus) your plain bar stays. While the waveform is shown, `<html>` has the class `melo-wave-on`, so you can hide your own bar: `html.melo-wave-on .my-bar { visibility:hidden }`.
+* Size/position the container yourself. Colours come from two CSS variables set on it (defaults shown): `--melo-wave-played: var(--accent)` and `--melo-wave-rest: color-mix(in srgb, var(--text) 24%, transparent)`.
+* Easiest recipe for a `time — range — time` row (grid or flex): put the empty container right before the range and let it take the range's place while the waveform shows:
+
+  ```css
+  [data-melo="waveform"] { display:none; position:relative; flex:1 1 0; min-width:0; width:100%; height:22px; align-self:center; cursor:pointer; touch-action:none; -webkit-app-region:no-drag; }
+  html.melo-wave-on [data-melo="waveform"] { display:block; }
+  html.melo-wave-on #seekBar, html.melo-wave-on [data-melo="seek"] { position:absolute !important; width:1px !important; height:1px !important; opacity:0 !important; pointer-events:none !important; }
+  ```
+
+  The hover time tooltip appears above the slot, so keep the parents' `overflow` visible there (or hide it with `[data-melo="waveform"] .mw-tip { display:none }` in very thin skins).
+* Skins without the container are not affected and nothing is decoded for them.
+
 ### 5.8 App actions & windows
 
 | Role | What it does |

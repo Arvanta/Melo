@@ -157,6 +157,19 @@
   @media (max-width: 1080px) {
     .ml-row { grid-template-columns: 104px 40px minmax(105px,.8fr) auto minmax(135px,1fr) minmax(82px,.6fr) minmax(62px,.5fr) auto 64px; gap: 3px; }
   }
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--ml-text) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  [data-melo="waveform"] .mw-tip { display: none; } /* the bar is only 50px tall: the time tooltip would be clipped */
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
 <body data-window-width="1200" data-window-height="50" data-min-width="1000" data-min-height="50" data-max-width="1600" data-max-height="50" data-resizable="true">
@@ -200,6 +213,7 @@
 
     <div class="ml-seek seek-row">
       <span class="ml-time" id="curTime">0:00</span>
+      <div data-melo="waveform"></div>
       <input class="seek" id="seekBar" type="range" min="0" max="100" value="0" />
       <span class="ml-time" id="durTime">0:00</span>
     </div>

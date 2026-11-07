@@ -2,6 +2,7 @@
 
 mod instance_guard;
 mod library_db;
+mod waveform;
 
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::tag::{Accessor, TagExt};
@@ -73,6 +74,11 @@ const DEFAULT_SKIN_BEAN_COMPACT: &str = include_str!("../../skins/bean-compact.h
 const DEFAULT_SKIN_FOLD: &str = include_str!("../../skins/Fold.html");
 const DEFAULT_SKIN_LILT: &str = include_str!("../../skins/lilt.html");
 const DEFAULT_SKIN_PRISM: &str = include_str!("../../skins/Prism.html");
+// Round 105: four more bundled skins.
+const DEFAULT_SKIN_EMBER: &str = include_str!("../../skins/Ember.html");
+const DEFAULT_SKIN_MOCHI: &str = include_str!("../../skins/Mochi.html");
+const DEFAULT_SKIN_PANE: &str = include_str!("../../skins/Pane.html");
+const DEFAULT_SKIN_SCRAPBOOK: &str = include_str!("../../skins/Scrapbook.html");
 
 /// Every skin shipped in `skins/` (the guide is handled separately). They are
 /// written into the user's skins folder when missing — see
@@ -98,6 +104,10 @@ const BUNDLED_SKINS: &[(&str, &str)] = &[
     ("Fold.html", DEFAULT_SKIN_FOLD),
     ("lilt.html", DEFAULT_SKIN_LILT),
     ("Prism.html", DEFAULT_SKIN_PRISM),
+    ("Ember.html", DEFAULT_SKIN_EMBER),
+    ("Mochi.html", DEFAULT_SKIN_MOCHI),
+    ("Pane.html", DEFAULT_SKIN_PANE),
+    ("Scrapbook.html", DEFAULT_SKIN_SCRAPBOOK),
 ];
 
 // ---- Helpers ----
@@ -297,6 +307,57 @@ fn sync_bundled_skins_once(skins_dir: &Path) {
     }
 }
 
+/// EVERY bundled skin (current and any added later) is REPLACED on disk whenever its
+/// bundled content changes — even if the user edited the file, and with no backup
+/// (deliberate, per the maintainer). A manifest file records the hash of the content that
+/// was last written for each skin, so a skin is rewritten exactly once per new version:
+/// user edits made after that survive until the bundled file changes again. A skin the
+/// user deleted comes back only when its bundled content changes. The first launch after
+/// this mechanism ships has no manifest, so every bundled skin is written once.
+const SKIN_MANIFEST: &str = ".melo-skin-manifest";
+
+fn skin_content_hash(content: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = format!("{:x}", Sha256::digest(content.as_bytes()));
+    digest[..16].to_string()
+}
+
+fn force_update_skins_once(skins_dir: &Path) {
+    let manifest_path = skins_dir.join(SKIN_MANIFEST);
+    let mut recorded: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    if let Ok(text) = std::fs::read_to_string(&manifest_path) {
+        for line in text.lines() {
+            if let Some((n, h)) = line.split_once('\t') {
+                recorded.insert(n.to_string(), h.to_string());
+            }
+        }
+    }
+    let mut changed = false;
+    for &(name, content) in BUNDLED_SKINS {
+        let hash = skin_content_hash(content);
+        if recorded.get(name).map(|h| h.as_str()) == Some(hash.as_str()) {
+            continue;
+        }
+        // Only record the hash when the write worked, so a failure is retried next launch.
+        if std::fs::write(skins_dir.join(name), content).is_ok() {
+            recorded.insert(name.to_string(), hash);
+            changed = true;
+        }
+    }
+    if changed {
+        let body: String = recorded.iter().map(|(n, h)| format!("{}\t{}\n", n, h)).collect();
+        let _ = std::fs::write(&manifest_path, body);
+    }
+    // Drop the per-skin markers of the earlier Bean-only mechanism.
+    if let Ok(entries) = std::fs::read_dir(skins_dir) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(".melo-force-") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
 fn ensure_default_skins_on_disk(skins_dir: &Path) {
     // One-time bundled-skins migrations run on every launch (each gated by its
     // own marker) so already-seeded installs pick up renames and retirements.
@@ -304,6 +365,7 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
     // Bundled skins missing from the folder are added once per bundled set —
     // on fresh installs AND on upgraded installs (runs before the seed guard).
     sync_bundled_skins_once(skins_dir);
+    force_update_skins_once(skins_dir);
 
     // One-time seeding: bundled skins are written on the very first run only.
     // A marker file records the seeding, so skins the user deletes are NEVER
@@ -366,6 +428,10 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
         ("Fold.html", DEFAULT_SKIN_FOLD),
         ("lilt.html", DEFAULT_SKIN_LILT),
         ("Prism.html", DEFAULT_SKIN_PRISM),
+        ("Ember.html", DEFAULT_SKIN_EMBER),
+        ("Mochi.html", DEFAULT_SKIN_MOCHI),
+        ("Pane.html", DEFAULT_SKIN_PANE),
+        ("Scrapbook.html", DEFAULT_SKIN_SCRAPBOOK),
     ] {
         let f = skins_dir.join(fname);
         if !f.exists() {
@@ -414,6 +480,38 @@ fn migrate_retired_mica_once(skins_dir: &Path) {
 }
 
 // ---- Tauri Commands ----
+
+/// Finished leading columns of a waveform that is still being decoded.
+#[derive(Clone, serde::Serialize)]
+struct WaveformChunk {
+    peaks: Vec<u8>,
+}
+
+/// Columns (0..=255, `waveform::BINS` of them) for the waveform seek bar. Computed once
+/// per file on a blocking thread and cached under AppData/waveform-cache. While a decode
+/// runs, the finished leading columns are streamed through `on_chunk` so the UI can fill
+/// the waveform in from the left; a cache hit sends no chunks. An Err (unsupported codec,
+/// unreadable file, or superseded by a newer request) just means the UI keeps/returns to
+/// the plain seek bar.
+#[tauri::command]
+async fn get_waveform_peaks(
+    app: tauri::AppHandle,
+    track_path: String,
+    on_chunk: tauri::ipc::Channel<WaveformChunk>,
+) -> Result<Vec<u8>, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("waveform-cache");
+    tauri::async_runtime::spawn_blocking(move || {
+        waveform::get_or_compute(&dir, Path::new(&track_path), &mut |cols| {
+            let _ = on_chunk.send(WaveformChunk { peaks: cols.to_vec() });
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 #[tauri::command]
 fn get_lyrics_cache_dir(app: tauri::AppHandle) -> Option<PathBuf> {
@@ -863,6 +961,7 @@ fn main() {
             library_db::append_queue_tracks,
             library_db::replace_queue_from_playlist,
             library_db::replace_queue_from_library,
+            library_db::replace_queue_from_group,
             library_db::clear_queue,
             library_db::sort_queue,
             library_db::move_queue_track,
@@ -885,6 +984,7 @@ fn main() {
             library_db::delete_library_group,
             library_db::open_track_folder,
             get_cli_tracks,
+            get_waveform_peaks,
             get_track_lyrics,
             get_cached_lyrics,
             save_lyrics_lrc,

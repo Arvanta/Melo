@@ -508,6 +508,7 @@ export interface SkinCapabilities {
   currentLyric: boolean;
   embeddedLyrics: boolean;
   embeddedPlaylist: boolean;
+  waveform: boolean;
 }
 
 /** The built-in Default skin ships all three hooks (see main.ts player template). */
@@ -515,12 +516,14 @@ export const DEFAULT_SKIN_CAPABILITIES: SkinCapabilities = {
   currentLyric: true,
   embeddedLyrics: true,
   embeddedPlaylist: true,
+  waveform: true,
 };
 
 const NO_SKIN_CAPABILITIES: SkinCapabilities = {
   currentLyric: false,
   embeddedLyrics: false,
   embeddedPlaylist: false,
+  waveform: false,
 };
 
 export function detectSkinCapabilities(htmlText: string): SkinCapabilities {
@@ -531,6 +534,7 @@ export function detectSkinCapabilities(htmlText: string): SkinCapabilities {
     currentLyric: has("skinCurrentLyric", "current-lyric") || has("skinNextLyric", "next-lyric"),
     embeddedLyrics: has("embedded-lyrics", "embedded-lyrics"),
     embeddedPlaylist: has("embedded-playlist", "embedded-playlist"),
+    waveform: has("skinWaveform", "waveform"),
   };
 }
 

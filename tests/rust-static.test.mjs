@@ -16,6 +16,7 @@ const RS_FILES = [
   "src-tauri/src/library_db.rs",
   "src-tauri/src/main.rs",
   "src-tauri/src/instance_guard.rs",
+  "src-tauri/src/waveform.rs",
 ];
 
 // Tokenize: strip string literals ("…", r#"…"#, 'c') and comments (// /* */),
@@ -535,6 +536,10 @@ test("rust static: round 86 bundled skins are embedded and seeded on fresh insta
     ["DEFAULT_SKIN_FOLD", "Fold.html", "Fold.html"],
     ["DEFAULT_SKIN_LILT", "lilt.html", "lilt.html"],
     ["DEFAULT_SKIN_PRISM", "Prism.html", "Prism.html"],
+    ["DEFAULT_SKIN_EMBER", "Ember.html", "Ember.html"],
+    ["DEFAULT_SKIN_MOCHI", "Mochi.html", "Mochi.html"],
+    ["DEFAULT_SKIN_PANE", "Pane.html", "Pane.html"],
+    ["DEFAULT_SKIN_SCRAPBOOK", "Scrapbook.html", "Scrapbook.html"],
   ];
   for (const [konst, file, seedName] of cases) {
     assert.match(main, new RegExp(`const ${konst}: &str = include_str!\\("\\.\\./\\.\\./skins/${file.replace(".", "\\.")}"\\);`),
@@ -561,4 +566,24 @@ test("rust static: round 88 bundled skins sync once per bundled set (install + u
   const callAt = main.indexOf("sync_bundled_skins_once(skins_dir);\n", main.indexOf("fn ensure_default_skins_on_disk"));
   const guardAt = main.indexOf('let marker = skins_dir.join(".melo-seeded");');
   assert.ok(callAt > 0 && guardAt > callAt, "sync is called before the .melo-seeded early return");
+});
+
+test("rust static: every bundled skin is force-replaced once per content version (no backup)", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  assert.match(main, /const SKIN_MANIFEST: &str = "\.melo-skin-manifest";/, "manifest of written hashes");
+  assert.match(main, /fn force_update_skins_once/, "function");
+  assert.match(main, /for &\(name, content\) in BUNDLED_SKINS \{\s*let hash = skin_content_hash\(content\);/, "iterates ALL bundled skins, not a name list");
+  assert.ok(!/FORCE_UPDATE_SKINS/.test(main), "no per-name allow-list any more");
+  assert.match(main, /sync_bundled_skins_once\(skins_dir\);\s*force_update_skins_once\(skins_dir\);/, "runs on every launch, before the seed guard");
+});
+
+test("rust static: group Play replaces the queue from an artist/album/genre scope, ignoring search", () => {
+  const db = readSrc("src-tauri/src/library_db.rs");
+  const i = db.indexOf("pub async fn replace_queue_from_group");
+  assert.ok(i > 0, "command exists");
+  const blk = db.slice(i, i + 1600);
+  assert.match(blk, /library_filter_field\(None, None, artist, album_artist, album, genre\)/, "no search input");
+  assert.match(blk, /DELETE FROM queue/);
+  assert.match(blk, /renumber_queue/);
+  assert.match(readSrc("src-tauri/src/main.rs"), /library_db::replace_queue_from_group,/, "registered");
 });

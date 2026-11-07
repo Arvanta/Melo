@@ -582,6 +582,18 @@ body:has(#micaTransparent:checked).tauri-main .player-card {
 }
 button:focus-visible, input:focus-visible, .mica-brand-trigger:focus-visible { outline: 2px solid var(--mica-accent); outline-offset: 2px; }
 .mica-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--mica-text) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
 <body data-window-width="720" data-window-height="420" data-min-width="500" data-min-height="230" data-max-width="1280" data-max-height="800" data-resizable="true">
@@ -671,6 +683,7 @@ button:focus-visible, input:focus-visible, .mica-brand-trigger:focus-visible { o
         <div class="mica-progress-row">
           <div class="mica-progress-main">
             <span class="mica-time" data-melo="current-time">0:00</span>
+            <div data-melo="waveform"></div>
             <input class="mica-range" type="range" data-melo="seek" min="0" max="100" value="0" aria-label="Seek">
             <span class="mica-time end" data-melo="duration">0:00</span>
           </div>

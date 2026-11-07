@@ -403,6 +403,18 @@
   }
   .ms-current-lyric.melo-lyric-empty { display: none !important; }
   html.melo-show-lyrics .ms-current-lyric { display: none !important; }
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--ms-ink) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
 <body data-window-width="740" data-window-height="300" data-min-width="740" data-min-height="300" data-max-width="740" data-max-height="300" data-resizable="false">
@@ -478,6 +490,7 @@
           <button class="ms-ghost" data-melo="repeat" id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
         </div>
         <span class="ms-time" data-melo="current-time" id="curTime">0:00</span>
+        <div data-melo="waveform"></div>
         <input class="ms-seek" type="range" data-melo="seek" id="seekBar" min="0" max="100" value="0" />
         <span class="ms-time end" data-melo="duration" id="durTime">0:00</span>
       </div>

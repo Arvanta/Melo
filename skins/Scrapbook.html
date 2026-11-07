@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Melo — Scrapbook</title>
+<style>
+  /* ------------------------------------------------------------------
+     SCRAPBOOK — a hand-made, playful collage.
+     ------------------------------------------------------------------ */
+  :root,
+  :root[data-theme="light"],
+  [data-theme="light"] {
+    --sb-paper: #f6ecd8;
+    --sb-paper2: #fbf4e4;
+    --sb-dot: rgba(96, 66, 50, .11);
+    --sb-w1: rgba(255, 190, 165, .55);
+    --sb-w2: rgba(190, 228, 205, .50);
+    --sb-w3: rgba(205, 188, 240, .50);
+    --sb-edge: rgba(110, 70, 40, .10);
+    --sb-card: #fffaf0;
+    --sb-die: #fffdf7;
+    --sb-ink: #2b2a4c;
+    --sb-soft: #5b5878;
+    --sb-mute: #958fb0;
+    --sb-line: rgba(43, 42, 76, .18);
+    --sb-thread-off: rgba(43, 42, 76, .30);
+    --sb-pink: #ff8fb1;
+    --sb-mint: #7fd8b6;
+    --sb-blue: #8fb8ff;
+    --sb-yellow: #ffe27a;
+    --sb-note: #fff1a8;
+    --sb-tape1: rgba(255, 143, 177, .78);
+    --sb-tape2: rgba(127, 216, 182, .78);
+    --sb-tape3: rgba(143, 184, 255, .78);
+    --sb-btn: #fffaf0;
+    --sb-btn-ink: #2b2a4c;
+    --sb-vignette: rgba(140, 90, 50, .16);
+    --sb-page: #fffaf0;
+    --sb-pg-ink: #2b2a4c;
+    --sb-pg-soft: #5b5878;
+    --sb-pg-mute: #8f89ab;
+    --sb-speck: rgba(255, 255, 255, .30);
+    --sb-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .36  0 0 0 0 .24  0 0 0 0 .10  0 0 0 .75 -.18'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    --sb-grain-op: .15;
+    --accent: #ff7aa2;
+    --accent-hover: #ff6392;
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+    --visualizer: #ff7aa2;
+    --track-bg: #e4d3b2;
+    --sb-hand: "Ink Free", "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+  }
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    --sb-paper: #2b2336;
+    --sb-paper2: #382d47;
+    --sb-dot: rgba(255, 244, 228, .075);
+    --sb-w1: rgba(255, 143, 177, .15);
+    --sb-w2: rgba(127, 216, 182, .11);
+    --sb-w3: rgba(143, 184, 255, .15);
+    --sb-edge: rgba(0, 0, 0, .22);
+    --sb-card: #2a2236;
+    --sb-die: #f6ecdc;
+    --sb-ink: #fff4e4;
+    --sb-soft: #e0d3e8;
+    --sb-mute: #a193b5;
+    --sb-line: rgba(255, 244, 228, .16);
+    --sb-thread-off: rgba(255, 244, 228, .42);
+    --sb-pink: #ff8fb1;
+    --sb-mint: #7fd8b6;
+    --sb-blue: #8fb8ff;
+    --sb-yellow: #ffd66b;
+    --sb-note: #ffe38a;
+    --sb-tape1: rgba(255, 143, 177, .6);
+    --sb-tape2: rgba(127, 216, 182, .6);
+    --sb-tape3: rgba(143, 184, 255, .6);
+    --sb-btn: #3a3046;
+    --sb-btn-ink: #fff4e4;
+    --sb-vignette: rgba(10, 4, 24, .55);
+    --sb-page: #f5ebdb;
+    --sb-pg-ink: #2b2a4c;
+    --sb-pg-soft: #5b5878;
+    --sb-pg-mute: #8f89ab;
+    --sb-speck: rgba(255, 244, 228, .035);
+    --sb-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 .92  0 0 0 0 .85  0 0 0 .5 -.2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    --sb-grain-op: .07;
+    --accent: #ffd66b;
+    --accent-hover: #ffe08e;
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+    --visualizer: #ffd66b;
+    --track-bg: #3f3449;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* preview backdrop (only when the file is opened outside the app) */
+  body:not(.tauri-main):has(#melo-player) {
+    min-height: 100vh; margin: 0; padding: 24px;
+    display: grid; place-items: center; overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 40%, #e3d2ae, #c9b48a);
+    color: var(--sb-ink);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+  [data-theme="dark"] body:not(.tauri-main):has(#melo-player) { background: radial-gradient(circle at 50% 40%, #2a2236, #120c1c); }
+
+  /* ---------------- the page ---------------- */
+  #melo-player,
+  body.custom-skin-active .player-card {
+    width: 620px; height: 430px; min-width: 520px; min-height: 400px;
+    margin: 0; padding: 0;
+    position: relative; overflow: hidden;
+    background:
+      linear-gradient(160deg, var(--sb-paper2), var(--sb-paper));
+    color: var(--sb-ink);
+    border-radius: 6px;
+    box-shadow: 0 22px 40px -16px rgba(60, 40, 20, .6), inset 0 0 36px rgba(120, 80, 30, .08);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+  }
+  body.tauri-main #melo-player, body.tauri-main .player-card {
+    width: 100% !important; height: 100vh !important;
+    min-width: 0 !important; min-height: 0 !important; max-height: 100vh !important;
+    border-radius: 0 !important; box-shadow: none !important;
+  }
+
+  /* paper texture, vignette and stitched border (decoration only) */
+  .sb-paper {
+    position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(130% 110% at 50% 42%, transparent 58%, var(--sb-vignette)),
+      var(--sb-grain);
+    background-size: auto, 220px 220px;
+    opacity: 1;
+  }
+  .sb-paper::after { content: ""; position: absolute; inset: 0; background: var(--sb-grain); background-size: 220px 220px; opacity: var(--sb-grain-op); mix-blend-mode: multiply; }
+  [data-theme="dark"] .sb-paper::after { mix-blend-mode: screen; }
+  .sb-stitch {
+    position: absolute; inset: 6px; z-index: 0; pointer-events: none; border-radius: 5px;
+    border: 2px dashed color-mix(in srgb, var(--sb-ink) 24%, transparent);
+  }
+  /* washi tape on two corners */
+  .sb-corner {
+    position: absolute; z-index: 0; width: 110px; height: 24px; pointer-events: none;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.38) 0 5px, transparent 5px 10px),
+      var(--sb-tape1);
+    box-shadow: 0 1px 3px rgba(60,40,20,.18);
+    clip-path: polygon(0 8%, 3% 0, 97% 5%, 100% 0, 100% 92%, 97% 100%, 3% 95%, 0 100%);
+  }
+  .sb-corner.tl { top: 10px; left: -32px; transform: rotate(-38deg); }
+  .sb-corner.br { bottom: 12px; right: -30px; transform: rotate(-38deg); background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.38) 0 5px, transparent 5px 10px), var(--sb-tape3); }
+
+  /* the real layout lives in this wrapper so state selectors work in-app too */
+  .sb-root {
+    position: absolute; inset: 0; z-index: 1;
+    display: flex; flex-direction: column; gap: 8px; padding: 16px 20px 14px;
+  }
+
+  /* only the top strip drags the window: a full-card drag region swallows wheel events */
+  .sb-drag { position: absolute; top: 0; left: 0; right: 0; height: 44px; z-index: 0; -webkit-app-region: drag; }
+  .sb-bar button, .sb-bar .sb-menu, .sb-viz, .sb-lyric, .sb-panel, .sb-seek input,
+  .sb-ctl button, .sb-foot button, .sb-foot input, .sb-vol-ico { -webkit-app-region: no-drag; }
+  button:focus-visible, [data-melo]:focus-visible { outline: 3px solid var(--sb-blue); outline-offset: 2px; }
+  .sb-bar, .sb-main, .sb-seek, .sb-ctl, .sb-foot { position: relative; z-index: 1; }
+
+  /* ---------------- top bar: a washi-taped title + round stickers ---------------- */
+  .sb-bar { display: flex; align-items: center; gap: 7px; height: 32px; min-width: 0; flex: 0 0 auto; z-index: 20; }
+  .sb-menu { position: relative; display: flex; align-items: center; height: 100%; margin-right: auto; }
+  .sb-brand {
+    position: relative; display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 18px;
+    font-family: var(--sb-hand); font-size: 16px; font-weight: 700; color: #2b2a4c;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 5px, transparent 5px 10px),
+      var(--sb-tape1);
+    transform: rotate(-2deg); border-radius: 2px; cursor: default; white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0,0,0,.14);
+    clip-path: polygon(0 8%, 3% 0, 97% 4%, 100% 0, 100% 92%, 97% 100%, 3% 95%, 0 100%);
+  }
+  .sb-brand svg { width: 14px; height: 14px; color: #2b2a4c; }
+  .sb-pop {
+    position: absolute; top: 100%; left: 0; z-index: 30; display: none; flex-direction: column; gap: 2px;
+    min-width: 190px; padding: 8px 6px; margin-top: 8px;
+    background: var(--sb-card); border-radius: 4px; box-shadow: 0 12px 26px -8px rgba(60,40,20,.55);
+    transform: rotate(-1deg);
+  }
+  .sb-pop::before { content: ""; position: absolute; top: -9px; left: 18px; width: 54px; height: 16px; background: var(--sb-tape2); transform: rotate(-4deg); box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+  .sb-menu:hover .sb-pop, .sb-menu:has(:focus-visible) .sb-pop { display: flex; animation: sb-drop .22s cubic-bezier(.3,1.5,.5,1); }
+  /* the top-bar sticker rules also match dropdown items: reset them for the menu */
+  .sb-bar .sb-pop button {
+    width: auto; height: 31px; padding: 0 10px; border: 0; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 9px; justify-content: flex-start; transform: none; box-shadow: none;
+    color: var(--sb-ink); background: transparent; cursor: pointer; text-align: left;
+    font: 600 12.5px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+  .sb-bar .sb-pop button:hover { background: var(--sb-yellow); color: #2b2a4c; transform: none; }
+  .sb-bar .sb-pop svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--sb-pink); }
+
+  .sb-bar > button {
+    width: 30px; height: 30px; padding: 0; border: 2.5px solid var(--sb-die); border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; cursor: pointer; color: var(--sb-soft); background: var(--sb-btn);
+    box-shadow: 0 2px 5px -1px rgba(60,40,20,.45);
+    transition: transform .18s cubic-bezier(.3, 1.6, .5, 1), color .15s ease, background .15s ease;
+  }
+  .sb-bar > button:hover { color: #2b2a4c; transform: translateY(-2px) rotate(-10deg); background: var(--sb-yellow); }
+  .sb-bar > button:active { transform: scale(.9); }
+  .sb-bar > button.close:hover { color: #fff; background: var(--sb-pink); }
+  .sb-bar svg { width: 14px; height: 14px; }
+  .sb-bar .sb-sep { width: 0; height: 16px; margin: 0 2px; border-left: 2px dotted var(--sb-line); flex-shrink: 0; }
+
+  /* ---------------- main: polaroids (left) + notes (right) ---------------- */
+  .sb-main { position: relative; flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 26px; align-items: center; padding: 2px 2px 0 6px; }
+
+  .sb-polaroid {
+    position: relative; align-self: center; justify-self: center; padding: 9px 9px 0; background: transparent; border-radius: 3px;
+    box-shadow: 0 10px 20px -8px rgba(60,40,20,.6), 0 1px 0 rgba(0,0,0,.05);
+    transform: rotate(-3deg); transition: transform .3s cubic-bezier(.3,1.4,.5,1);
+  }
+  .sb-polaroid:hover { transform: rotate(-1deg) scale(1.03); }
+  .sb-frame { position: absolute; inset: 0; background: #fffdf7; border-radius: 3px; pointer-events: none; }
+  /* a second photo peeking out underneath */
+  .sb-polaroid::after {
+    content: ""; position: absolute; inset: 2px -10px -7px 8px; z-index: -1; border-radius: 3px;
+    background: color-mix(in srgb, #e8d9bd 70%, #fffdf7);
+    transform: rotate(7deg); box-shadow: 0 0 0 1px rgba(60,40,20,.10), 0 7px 13px -6px rgba(60,40,20,.55);
+  }
+  /* washi tape on the top-left corner … */
+  .sb-polaroid::before {
+    content: ""; position: absolute; top: -9px; left: -16px; width: 62px; height: 19px; z-index: 3;
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,.38) 0 5px, transparent 5px 10px), var(--sb-tape2);
+    transform: rotate(-36deg); clip-path: polygon(0 10%, 6% 0, 94% 6%, 100% 0, 100% 90%, 94% 100%, 6% 94%, 0 100%);
+    box-shadow: 0 1px 2px rgba(0,0,0,.1);
+  }
+  /* … and the top-right one */
+  .sb-tape {
+    position: absolute; top: -8px; right: -17px; width: 62px; height: 19px; z-index: 3; pointer-events: none;
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,.38) 0 5px, transparent 5px 10px), var(--sb-tape1);
+    transform: rotate(34deg); clip-path: polygon(0 10%, 6% 0, 94% 6%, 100% 0, 100% 90%, 94% 100%, 6% 94%, 0 100%);
+    box-shadow: 0 1px 2px rgba(0,0,0,.1);
+  }
+  .sb-pic {
+    position: relative; width: clamp(118px, min(33vh, 26vw), 270px); height: clamp(118px, min(33vh, 26vw), 270px);
+    overflow: hidden; background: #efe6d6; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08), inset 0 3px 8px rgba(0,0,0,.14);
+  }
+  .sb-pic img { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .sb-pic:has(img[style*="block"]) .sb-face { display: none !important; }
+  .sb-pic::after { /* glossy print sheen */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(125deg, rgba(255,255,255,.28), transparent 38%, transparent 70%, rgba(255,255,255,.12));
+  }
+  .sb-face {
+    position: absolute; inset: 0; display: grid !important; place-items: center;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(255,255,255,.7) 0 8%, transparent 9%),
+      linear-gradient(135deg, var(--sb-mint), var(--sb-blue) 55%, var(--sb-pink));
+  }
+  .sb-face svg { width: 42%; color: #fff; filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); }
+  .sb-face .note { transform-box: fill-box; transform-origin: 50% 100%; }
+  .sb-caption {
+    position: relative; height: 36px; padding: 5px 4px 0; text-align: center; overflow: hidden; white-space: nowrap;
+    font-family: var(--sb-hand); font-size: 14px; line-height: 1.3; color: #5a4a78;
+  }
+  .sb-caption .on { display: none; }
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-caption .on { display: inline; }
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-caption .off { display: none; }
+  /* little heart sticker on the polaroid's lower corner */
+  .sb-sticker { position: absolute; pointer-events: none; z-index: 4; filter: drop-shadow(0 2px 2px rgba(60,40,20,.35)); }
+  .sb-sticker.heart { width: 34px; height: 34px; left: -16px; bottom: -4px; transform: rotate(-14deg); }
+
+  /* right column */
+  .sb-info { position: relative; align-self: stretch; min-width: 0; min-height: 0; max-height: 100%; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; justify-content: center; justify-content: safe center; }
+
+  /* title: handwritten headline with a marker highlight */
+  .sb-headline {
+    max-width: 100%; margin: 0; padding: 0 2px; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    font-family: var(--sb-hand); font-weight: 700; line-height: 1.25;
+    font-size: clamp(22px, min(3.8vw, 6.4vh), 42px); color: var(--sb-ink);
+    overflow-wrap: anywhere; unicode-bidi: plaintext;
+  }
+  .sb-title {
+    padding: 0 6px; -webkit-box-decoration-break: clone; box-decoration-break: clone; unicode-bidi: plaintext;
+    background: linear-gradient(to bottom, transparent 58%, color-mix(in srgb, var(--sb-yellow) 85%, transparent) 58% 90%, transparent 90%);
+    border-radius: 3px;
+  }
+  .sb-artist {
+    position: relative; display: inline-block; max-width: 100%; padding: 3px 16px; border-radius: 3px;
+    font-family: var(--sb-hand); font-size: 17px; font-weight: 700; color: #2b2a4c;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.34) 0 5px, transparent 5px 10px),
+      var(--sb-tape3);
+    transform: rotate(1.5deg); box-shadow: 0 1px 3px rgba(0,0,0,.14);
+    clip-path: polygon(0 8%, 2.5% 0, 97% 5%, 100% 0, 100% 92%, 97.5% 100%, 3% 94%, 0 100%);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext;
+  }
+  .sb-artist:empty { display: none; }
+  .sb-meta { display: flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; padding-left: 4px; font-size: 11.5px; color: var(--sb-soft); overflow: hidden; }
+  .sb-album { min-width: 0; flex: 0 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; unicode-bidi: plaintext; font-style: italic; }
+  .sb-album:empty { display: none; }
+  .sb-codec { flex: 0 0 auto; padding: 2px 9px; border-radius: 999px; background: var(--sb-mint); color: #1f3d33; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; box-shadow: 0 1px 2px rgba(0,0,0,.15); transform: rotate(-2deg); }
+  .sb-codec:empty { display: none; }
+  .sb-specs { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
+
+  /* sticky note: the lyric — pinned, curled, and colour-filled by progress */
+  .sb-lyric {
+    display: none; position: relative; margin-top: 4px; padding: 15px 14px 10px; min-height: 46px; width: 100%; max-width: 100%; cursor: pointer;
+    font-family: var(--sb-hand); font-size: 14.5px; line-height: 1.3; color: #3a2d10;
+    background-image: linear-gradient(to right, color-mix(in srgb, var(--sb-yellow) 78%, #fff) calc(var(--melo-lyric-progress, 0) * 100%), var(--sb-note) calc(var(--melo-lyric-progress, 0) * 100%));
+    box-shadow: 3px 6px 12px -4px rgba(60,40,20,.55);
+    transform: rotate(-1deg); overflow: hidden; unicode-bidi: plaintext;
+    -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    border-radius: 2px 2px 2px 14px / 2px 2px 2px 14px;
+  }
+  .sb-lyric::after { /* push-pin */
+    content: ""; position: absolute; top: 3px; left: 50%; width: 9px; height: 9px; margin-left: -4px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fff 0 12%, #ff5d7e 14% 100%); box-shadow: 0 2px 2px rgba(0,0,0,.35);
+  }
+  html.melo-lyric-skin-on.melo-has-synced-lyrics .sb-lyric { display: -webkit-box; }
+  .sb-lyric:empty, .sb-lyric.melo-lyric-empty { visibility: hidden; }
+  .sb-lyric.melo-lyric-tick { animation: sb-pop .32s cubic-bezier(.3, 1.6, .5, 1) both; }
+  .sb-next {
+    display: none; width: 100%; padding: 0 6px; font-family: var(--sb-hand); font-size: 12.5px; color: var(--sb-soft); opacity: .8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; cursor: pointer;
+  }
+  html.melo-lyric-skin-on.melo-has-synced-lyrics .sb-next { display: block; }
+  .sb-next:empty, .sb-next.melo-lyric-empty { visibility: hidden; }
+
+  /* dashed "vibes" frame for the visualizer */
+  .sb-vizrow {
+    position: relative; width: 100%; flex: 1 1 64px; min-height: 34px; max-height: clamp(150px, 26vh, 260px); margin-top: 14px;
+    border: 2.5px dashed color-mix(in srgb, var(--sb-ink) 38%, transparent); border-radius: 12px;
+    background: color-mix(in srgb, var(--sb-card) 62%, transparent);
+    box-shadow: inset 0 2px 6px rgba(60,40,20,.10);
+  }
+  .sb-vizrow::before {
+    content: "vibes ✦"; position: absolute; left: 12px; top: -11px; padding: 0 7px; z-index: 1;
+    background: color-mix(in srgb, var(--sb-paper) 92%, #fff); border-radius: 3px;
+    font-family: var(--sb-hand); font-size: 13px; color: var(--sb-soft);
+  }
+  .sb-viz { position: absolute; inset: 0; padding: 7px 12px; cursor: pointer; }
+  .sb-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+  html.melo-show-playlist .sb-viz, html.melo-show-lyrics .sb-viz { visibility: hidden; }
+
+  /* queue / lyrics: a spiral-bound lined notebook page over the collage */
+  .sb-panel {
+    display: none; position: absolute; inset: -2px 0 0 0; z-index: 8; background-color: var(--sb-page); border-radius: 6px;
+    box-shadow: 0 12px 24px -10px rgba(60,40,20,.6), 0 0 0 1px rgba(60,40,20,.06);
+    background-image:
+      radial-gradient(circle at 15px 13px, rgba(60,40,20,.28) 0 4px, transparent 5px),
+      linear-gradient(90deg, transparent 38px, rgba(255,110,140,.45) 38px 40px, transparent 40px),
+      repeating-linear-gradient(to bottom, transparent 0 25px, rgba(91,88,120,.16) 25px 26px);
+    background-size: 100% 52px, auto, auto;
+    background-repeat: repeat-y, no-repeat, repeat;
+    overflow: hidden; transform: rotate(-.4deg);
+  }
+  html.melo-show-playlist .sb-panel, html.melo-show-lyrics .sb-panel { display: block; animation: sb-flip .32s cubic-bezier(.3,1.3,.5,1); }
+  html.melo-show-playlist .sb-main > .sb-polaroid, html.melo-show-lyrics .sb-main > .sb-polaroid,
+  html.melo-show-playlist .sb-info, html.melo-show-lyrics .sb-info { visibility: hidden; }
+  html.melo-show-playlist .sb-lyric, html.melo-show-lyrics .sb-lyric { visibility: hidden; }
+  .sb-embed { position: absolute; inset: 0; overflow: auto; padding: 4px 12px 4px 48px; display: none !important; font-size: 13px; }
+  html.melo-show-playlist [data-melo="embedded-playlist"],
+  html.melo-show-lyrics [data-melo="embedded-lyrics"] { display: block !important; }
+  .sb-embed .embedded-playlist, .sb-embed .embedded-lyrics { height: 100% !important; min-height: 100%; }
+  .sb-embed .embedded-playlist-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 0 6px; border-radius: 4px; color: var(--sb-pg-ink); transition: transform .15s ease; }
+  .sb-embed .embedded-playlist-row:hover { background: rgba(255,226,122,.38); transform: translateX(3px); }
+  .sb-embed .embedded-playlist-row.active { background: var(--sb-yellow); color: #2b2a4c; font-weight: 700; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
+  .sb-embed .embedded-playlist-row .t-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sb-embed .embedded-playlist-row .t-artist { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sb-pg-soft); }
+  .sb-embed .embedded-playlist-row.active .t-artist, .sb-embed .embedded-playlist-row.active .t-dur { color: #4a4268; }
+  .sb-embed .embedded-playlist-row .t-dur { flex: 0 0 auto; margin-left: auto; color: var(--sb-pg-soft); font-variant-numeric: tabular-nums; }
+  .sb-embed .track-cover-mini { width: 22px !important; height: 22px !important; border-radius: 4px; }
+  .sb-embed .embedded-playlist-empty { color: var(--sb-pg-soft); padding: 22px 8px; text-align: center; font-family: var(--sb-hand); font-size: 15px; }
+  .sb-embed .embedded-lyrics-title { display: none; }
+  .sb-embed .lyric-line { font-family: var(--sb-hand); font-size: 15px; line-height: 26px; padding: 0 8px; color: var(--sb-pg-mute); transform: none !important; unicode-bidi: plaintext; text-align: start; }
+  .sb-embed .lyric-line.passed { opacity: .6; }
+  .sb-embed .lyric-line.active { font-size: 17px; font-weight: 700; color: #2b2a4c; background: var(--sb-yellow); border-radius: 4px; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
+  .sb-embed .embedded-lyrics:empty::after { content: "no synced lyrics yet"; display: block; padding: 22px 8px; text-align: center; font-family: var(--sb-hand); color: var(--sb-pg-mute); }
+  .sb-embed { scrollbar-width: thin; scrollbar-color: var(--sb-pink) transparent; }
+
+  .sb-ptape {
+    display: none; position: absolute; top: -13px; left: 50%; width: 92px; height: 22px; margin-left: -46px; z-index: 9; pointer-events: none;
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,.38) 0 5px, transparent 5px 10px), var(--sb-tape2);
+    transform: rotate(-2.5deg); box-shadow: 0 1px 3px rgba(0,0,0,.15);
+    clip-path: polygon(0 10%, 5% 0, 95% 6%, 100% 0, 100% 90%, 95% 100%, 5% 94%, 0 100%);
+  }
+  html.melo-show-playlist .sb-ptape, html.melo-show-lyrics .sb-ptape { display: block; }
+
+  /* ---------------- seek: a stitched thread with a star sticker ---------------- */
+  .sb-seek { display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; gap: 8px; align-items: center; flex: 0 0 auto; }
+  .sb-time { font-family: var(--sb-hand); font-size: 14px; color: var(--sb-soft); font-variant-numeric: tabular-nums; }
+  .sb-time.end { text-align: right; }
+  .sb-range { -webkit-appearance: none; appearance: none; outline: none; cursor: pointer; width: 100%; min-width: 0; margin: 0; background: transparent; }
+  .sb-range.is-seek { height: 24px; }
+  .sb-range.is-vol { height: 18px; }
+  /* track 8px / thumb 24px and 6px / 16px: even differences, so thumbs centre on whole pixels */
+  .sb-range.is-seek::-webkit-slider-runnable-track {
+    height: 8px;
+    background:
+      repeating-linear-gradient(90deg, var(--accent) 0 9px, transparent 9px 14px) 0 50% / var(--progress, 0%) 4px no-repeat,
+      repeating-linear-gradient(90deg, var(--sb-thread-off) 0 9px, transparent 9px 14px) 0 50% / 100% 4px no-repeat;
+  }
+  .sb-range.is-seek::-moz-range-track { height: 4px; background: repeating-linear-gradient(90deg, var(--sb-thread-off) 0 9px, transparent 9px 14px); }
+  .sb-range.is-seek::-moz-range-progress { height: 4px; background: repeating-linear-gradient(90deg, var(--accent) 0 9px, transparent 9px 14px); }
+  .sb-range.is-vol::-webkit-slider-runnable-track {
+    height: 6px;
+    background:
+      repeating-linear-gradient(90deg, var(--sb-mint) 0 7px, transparent 7px 11px) 0 50% / var(--vol, 60%) 4px no-repeat,
+      repeating-linear-gradient(90deg, var(--sb-thread-off) 0 7px, transparent 7px 11px) 0 50% / 100% 4px no-repeat;
+  }
+  .sb-range.is-vol::-moz-range-track { height: 4px; background: repeating-linear-gradient(90deg, var(--sb-thread-off) 0 7px, transparent 7px 11px); }
+  .sb-range.is-vol::-moz-range-progress { height: 4px; background: repeating-linear-gradient(90deg, var(--sb-mint) 0 7px, transparent 7px 11px); }
+  .sb-range::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; box-sizing: border-box; width: 24px; height: 24px; margin-top: -8px; border: 0;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 1.6l3.1 7 7.5.7-5.7 5 1.7 7.4L12 17.8l-6.6 3.9 1.7-7.4-5.7-5 7.5-.7z' fill='%23ffd54a' stroke='%232b2a4c' stroke-width='1.7' stroke-linejoin='round'/><circle cx='9.6' cy='11' r='1.1' fill='%232b2a4c'/><circle cx='14.4' cy='11' r='1.1' fill='%232b2a4c'/><path d='M9.8 13.6q2.2 1.8 4.4 0' fill='none' stroke='%232b2a4c' stroke-width='1.2' stroke-linecap='round'/></svg>") center / contain no-repeat;
+    filter: drop-shadow(0 2px 2px rgba(60,40,20,.4));
+    transition: transform .18s cubic-bezier(.3, 1.6, .5, 1);
+  }
+  .sb-range.is-vol::-webkit-slider-thumb {
+    width: 18px; height: 18px; margin-top: -6px;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 21.5s-9-5.6-9-12a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6.4-9 12-9 12z' fill='%23ff8fb1' stroke='%232b2a4c' stroke-width='1.8' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+  }
+  .sb-range::-moz-range-thumb { box-sizing: border-box; width: 20px; height: 20px; border-radius: 50%; background: var(--sb-yellow); border: 2px solid #2b2a4c; }
+  .sb-range.is-vol::-moz-range-thumb { width: 14px; height: 14px; background: var(--sb-pink); }
+  .sb-range:hover::-webkit-slider-thumb { transform: scale(1.2) rotate(18deg); }
+  .sb-range:active::-webkit-slider-thumb { transform: scale(.95) rotate(-8deg); }
+
+  /* ---------------- die-cut sticker buttons ---------------- */
+  .sb-ctl { display: flex; align-items: center; justify-content: center; gap: 15px; flex: 0 0 auto; height: 64px; }
+  .sb-btn {
+    position: relative; flex: 0 0 auto; width: 42px; height: 42px; padding: 0; border: 3px solid var(--sb-die); border-radius: 50%; cursor: pointer;
+    display: grid; place-items: center; color: var(--sb-btn-ink); background: var(--sb-btn);
+    box-shadow: 0 4px 8px -3px rgba(60,40,20,.55), 0 1px 0 rgba(60,40,20,.15);
+    transition: transform .16s cubic-bezier(.3, 1.6, .5, 1), box-shadow .16s ease, background .15s ease;
+  }
+  .sb-btn svg { width: 16px; height: 16px; }
+  .sb-btn.small { width: 34px; height: 34px; color: var(--sb-soft); }
+  .sb-btn.small svg { width: 14px; height: 14px; }
+  .sb-btn.pink { background: var(--sb-pink); color: #2b2a4c; }
+  .sb-btn.mint { background: var(--sb-mint); color: #2b2a4c; }
+  .sb-btn.blue { background: var(--sb-blue); color: #2b2a4c; }
+  .sb-btn:hover { transform: translateY(-3px) rotate(-8deg); box-shadow: 0 8px 12px -4px rgba(60,40,20,.55); }
+  .sb-btn:active { transform: translateY(1px) scale(.93); box-shadow: 0 1px 2px rgba(60,40,20,.4); }
+  .sb-btn.active { background: var(--sb-yellow); color: #2b2a4c; }
+  .sb-btn.active::after { content: ""; position: absolute; bottom: -9px; left: 50%; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--sb-pink); }
+  .sb-btn.small:hover { color: var(--sb-pink); }
+  .sb-btn.small.active:hover { color: #2b2a4c; }
+
+  /* the play button is a die-cut starburst badge */
+  .sb-play {
+    width: 62px; height: 62px; border: 0; background: transparent; box-shadow: none; color: #2b2a4c;
+    filter: drop-shadow(0 5px 5px rgba(60,40,20,.42));
+  }
+  .sb-play::before, .sb-play::after {
+    content: ""; position: absolute; pointer-events: none;
+    clip-path: polygon(50.0% 0.0%, 59.6% 8.1%, 71.7% 5.0%, 76.8% 16.4%, 89.1% 18.8%, 88.7% 31.3%, 98.7% 38.9%, 93.0% 50.0%, 98.7% 61.1%, 88.7% 68.7%, 89.1% 81.2%, 76.8% 83.6%, 71.7% 95.0%, 59.6% 91.9%, 50.0% 100.0%, 40.4% 91.9%, 28.3% 95.0%, 23.2% 83.6%, 10.9% 81.2%, 11.3% 68.7%, 1.3% 61.1%, 7.0% 50.0%, 1.3% 38.9%, 11.3% 31.3%, 10.9% 18.8%, 23.2% 16.4%, 28.3% 5.0%, 40.4% 8.1%);
+  }
+  .sb-play::before { inset: -7px; background: var(--sb-die); }
+  .sb-play::after { inset: -2px; background: radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--sb-yellow) 60%, #fff), var(--sb-yellow) 62%); }
+  .sb-play svg { position: relative; z-index: 1; width: 25px; height: 25px; }
+  .sb-play:hover { transform: translateY(-2px) rotate(10deg) scale(1.06); box-shadow: none; }
+  .sb-play:active { transform: scale(.92); box-shadow: none; }
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-play::before,
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-play::after { animation: sb-spin 18s linear infinite; }
+
+  /* "press play!" doodle — only while paused */
+  .sb-doodle {
+    position: absolute; left: 14px; bottom: 54px; z-index: 1; width: 148px; height: 62px; pointer-events: none; transform: rotate(-4deg);
+    color: var(--sb-soft); font-family: var(--sb-hand);
+  }
+  .sb-doodle span { position: absolute; left: 0; top: 0; font-size: 15px; white-space: nowrap; }
+  .sb-doodle svg { position: absolute; left: 20px; top: 16px; width: 120px; height: 46px; }
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-doodle { display: none; }
+
+  /* ---------------- footer: volume + paper tabs ---------------- */
+  .sb-foot { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 0 0 auto; }
+  .sb-vol { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+  .sb-vol-ico { flex: 0 0 auto; display: grid; place-items: center; width: 24px; height: 24px; color: var(--sb-soft); cursor: pointer; transition: transform .16s cubic-bezier(.3,1.6,.5,1); }
+  .sb-vol-ico:hover { transform: scale(1.18) rotate(-8deg); color: var(--sb-ink); }
+  .sb-vol-ico svg { width: 17px; height: 17px; }
+  .sb-vol-ico .x { display: none; }
+  .sb-vol-ico.muted .waves { display: none; }
+  .sb-vol-ico.muted .x { display: inline; }
+  .sb-vol .sb-range.is-vol { flex: 1 1 auto; width: auto; }
+  .sb-pct { flex: 0 0 36px; text-align: right; font-family: var(--sb-hand); font-size: 14px; color: var(--sb-soft); font-variant-numeric: tabular-nums; }
+  .sb-tab {
+    height: 29px; padding: 0 15px; border: 0; cursor: pointer; flex: 0 0 auto; color: #2b2a4c;
+    font-family: var(--sb-hand); font-size: 14px; font-weight: 700;
+    background: color-mix(in srgb, var(--sb-card) 88%, var(--tab, #fff)); border-radius: 6px 6px 0 0;
+    box-shadow: 0 -3px 0 var(--tab, var(--sb-line)), 0 2px 5px -2px rgba(60,40,20,.4);
+    transition: transform .16s cubic-bezier(.3,1.6,.5,1), background .15s ease;
+  }
+  [data-theme="dark"] .sb-tab { color: var(--sb-ink); }
+  .sb-tab[data-melo="toggle-embedded-playlist"] { --tab: var(--sb-blue); }
+  .sb-tab[data-melo="toggle-embedded-lyrics"] { --tab: var(--sb-mint); }
+  .sb-tab:hover { transform: translateY(-3px); }
+  .sb-tab:active { transform: translateY(1px); }
+  html.melo-show-playlist [data-melo="toggle-embedded-playlist"] { background: var(--sb-blue); color: #1d2c4d; transform: translateY(-3px); }
+  html.melo-show-lyrics [data-melo="toggle-embedded-lyrics"] { background: var(--sb-mint); color: #1f3d33; transform: translateY(-3px); }
+
+  /* ---------------- motion ---------------- */
+  @keyframes sb-pop { from { opacity: 0; transform: rotate(-1deg) scale(.92); } to { opacity: 1; transform: rotate(-1deg); } }
+  @keyframes sb-drop { from { opacity: 0; transform: rotate(-1deg) translateY(-8px) scale(.96); } to { opacity: 1; transform: rotate(-1deg); } }
+  @keyframes sb-flip { from { opacity: 0; transform: rotate(-3deg) translateY(10px) scale(.97); } to { opacity: 1; transform: rotate(-.4deg); } }
+  @keyframes sb-spin { to { transform: rotate(360deg); } }
+  @keyframes sb-sway { 0%, 100% { transform: rotate(-3.4deg); } 50% { transform: rotate(-2deg); } }
+  @keyframes sb-bob { from { transform: translateY(2px) rotate(-6deg); } to { transform: translateY(-4px) rotate(6deg); } }
+  @keyframes sb-wiggle { 0%, 100% { transform: rotate(-14deg) scale(1); } 50% { transform: rotate(-8deg) scale(1.08); } }
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-face .note { animation: sb-bob 1.2s ease-in-out infinite alternate; }
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-polaroid { animation: sb-sway 7s ease-in-out infinite; }
+  .sb-root:has([data-melo="pause-icon"][style*="block"]) .sb-sticker.heart { animation: sb-wiggle 2.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .sb-play::before, .sb-play::after, .sb-face .note, .sb-lyric, .sb-polaroid, .sb-btn, .sb-sticker, .sb-panel, .sb-pop { animation: none !important; transition: none !important; }
+  }
+
+  /* ---------------- compact windows ---------------- */
+  @media (max-height: 450px) {
+    .sb-headline { -webkit-line-clamp: 1; }
+    .sb-next { display: none !important; }
+    .sb-root { gap: 6px; padding-top: 14px; }
+  }
+  @media (max-height: 415px) {
+    .sb-headline { font-size: 21px; }
+    .sb-info { gap: 4px; }
+    .sb-artist { font-size: 15px; padding: 2px 14px; }
+    .sb-meta { font-size: 11px; }
+    html.melo-lyric-skin-on.melo-has-synced-lyrics .sb-lyric { display: block; white-space: nowrap; text-overflow: ellipsis; min-height: 38px; padding: 14px 12px 7px; font-size: 13.5px; }
+    .sb-vizrow { margin-top: 10px; flex-basis: 40px; min-height: 30px; }
+    .sb-ctl { height: 58px; }
+  }
+  @media (max-width: 580px) {
+    .sb-main { gap: 20px; }
+    .sb-doodle { display: none; }
+  }
+</style>
+</head>
+
+<body data-window-width="620" data-window-height="430" data-min-width="520" data-min-height="400" data-max-width="900" data-max-height="640" data-resizable="true">
+<div id="melo-player">
+
+  <div class="sb-paper" aria-hidden="true"></div>
+  <div class="sb-stitch" aria-hidden="true"></div>
+  <i class="sb-corner tl" aria-hidden="true"></i>
+  <i class="sb-corner br" aria-hidden="true"></i>
+  <div class="sb-drag" data-tauri-drag-region aria-hidden="true"></div>
+
+  <div class="sb-root">
+
+    <header class="sb-bar" data-tauri-drag-region>
+      <div class="sb-menu">
+        <div class="sb-brand" title="Melo">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.4 6.6L21 9l-5.2 4.2L17.6 20 12 16.2 6.4 20l1.8-6.8L3 9l6.6-.4z"/></svg>
+          <span>my mixtape</span>
+        </div>
+        <div class="sb-pop">
+          <button type="button" data-melo="add-files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg> Add files</button>
+          <button type="button" data-melo="add-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Add folder</button>
+          <button type="button" data-melo="theme-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg> Light / dark</button>
+        </div>
+      </div>
+
+      <button type="button" data-melo="toggle-library" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+      <button type="button" data-melo="toggle-playlist" title="Queue window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="18" r="2.5"/></svg></button>
+      <button type="button" data-melo="toggle-eq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/></svg></button>
+      <button type="button" data-melo="toggle-lyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg></button>
+      <button type="button" data-melo="toggle-settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+      <span class="sb-sep" aria-hidden="true"></span>
+      <button type="button" data-melo="minimize" title="Minimize" aria-label="minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+      <button type="button" class="close" data-melo="close" title="Close" aria-label="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+
+    <section class="sb-main">
+      <div class="sb-polaroid">
+        <i class="sb-frame" aria-hidden="true"></i>
+        <i class="sb-tape" aria-hidden="true"></i>
+        <div class="sb-pic">
+          <img data-melo="cover" alt="" style="display:none" />
+          <div class="sb-face" data-melo="cover-fallback">
+            <svg viewBox="0 0 64 64" fill="currentColor" aria-hidden="true"><g class="note"><path d="M26 10l24-5v37.5a9 9 0 1 1-5-8V18l-14 3v29.5a9 9 0 1 1-5-8z"/></g></svg>
+          </div>
+        </div>
+        <div class="sb-caption" aria-hidden="true"><span class="on">♪ now spinning ♡</span><span class="off">zZ… on pause</span></div>
+        <svg class="sb-sticker heart" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M24 42S6 31 6 18.5a10 10 0 0 1 18-6 10 10 0 0 1 18 6C42 31 24 42 24 42z" fill="#ff6f9c" stroke="#fffdf7" stroke-width="5" stroke-linejoin="round" paint-order="stroke fill"/>
+          <path d="M14 17q1-4 5-4" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" opacity=".8"/>
+        </svg>
+      </div>
+
+      <div class="sb-info">
+        <h1 class="sb-headline"><span class="sb-title" data-melo="title">Nothing playing</span></h1>
+        <div class="sb-artist" data-melo="artist">Add some music</div>
+        <div class="sb-meta"><span class="sb-album" data-melo="album"></span><span class="sb-codec" data-melo="codec"></span><span class="sb-specs" data-melo="specs"></span></div>
+        <div class="sb-lyric" data-melo="current-lyric" aria-live="polite"></div>
+        <div class="sb-next" data-melo="next-lyric"></div>
+        <div class="sb-vizrow"><div class="sb-viz" data-melo="visualizer" data-bars="30"></div></div>
+      </div>
+
+      <div class="sb-panel">
+        <div class="sb-embed" data-melo="embedded-playlist"></div>
+        <div class="sb-embed" data-melo="embedded-lyrics"></div>
+      </div>
+      <i class="sb-ptape" aria-hidden="true"></i>
+    </section>
+
+    <div class="sb-seek">
+      <span class="sb-time" data-melo="current-time">0:00</span>
+      <input class="sb-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
+      <span class="sb-time end" data-melo="duration">0:00</span>
+    </div>
+
+    <div class="sb-ctl">
+      <button class="sb-btn small" type="button" data-melo="shuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+      <button class="sb-btn mint" type="button" data-melo="prev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2.4v12H6zm4 6 8.5 6V6z"/></svg></button>
+      <button class="sb-btn sb-play" type="button" data-melo="play" title="Play / Pause">
+        <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </button>
+      <button class="sb-btn blue" type="button" data-melo="stop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="3"/></svg></button>
+      <button class="sb-btn pink" type="button" data-melo="next" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m6 18 8.5-6L6 6v12zM15.6 6v12H18V6h-2.4z"/></svg></button>
+      <button class="sb-btn small" type="button" data-melo="repeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+    </div>
+
+    <div class="sb-doodle" aria-hidden="true">
+      <span>press play!</span>
+      <svg viewBox="0 0 120 46" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6c18-2 40 4 56 22 8 9 22 14 40 10"/><path d="M92 28l12 10-15 4"/></svg>
+    </div>
+
+    <footer class="sb-foot">
+      <div class="sb-vol">
+        <span class="sb-vol-ico" data-melo="volume-icon" title="Mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><g class="waves"><path d="M15.54 8.46a5 5 0 0 1 0 7.08M18.4 5.6a9 9 0 0 1 0 12.8"/></g><g class="x"><path d="m16 9.5 5 5M21 9.5l-5 5"/></g></svg></span>
+        <input class="sb-range is-vol" type="range" min="0" max="100" value="60" data-melo="volume" aria-label="Volume" />
+        <span class="sb-pct" data-melo="volume-pct">60%</span>
+      </div>
+      <button class="sb-tab" type="button" data-melo="toggle-embedded-playlist" title="Queue">queue</button>
+      <button class="sb-tab" type="button" data-melo="toggle-embedded-lyrics" title="Lyrics">lyrics</button>
+    </footer>
+
+  </div>
+</div>
+</body>
+</html>

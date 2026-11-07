@@ -1,5 +1,5 @@
 import type { Track, RepeatMode } from "./types";
-import { busEmit, busOn, isTauri } from "./bus";
+import { busEmit, busEmitPosition, busOn, isTauri } from "./bus";
 import { applyDynamicAmbientTheme } from "./cover";
 import { getAudioGraph } from "./audio-graph";
 import { findHook } from "./skin";
@@ -187,11 +187,17 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     volIcon.title = audio.muted ? "Unmute" : "Mute";
   }
 
+  // The Library window's mini player mirrors volume/mute (it has no audio of its own).
+  function emitVolumeState() {
+    busEmit("melo:volume-state", { volume: userVolumePct, muted: audio.muted });
+  }
+
   function toggleMute(notify = true) {
     audio.muted = !audio.muted;
     if (crossfadeActive && cfIncoming) cfIncoming.muted = audio.muted;
     persistMuted(audio.muted);
     syncMuteUI();
+    emitVolumeState();
     if (notify) toast(audio.muted ? "Muted" : "Unmuted");
   }
 
@@ -289,6 +295,22 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   let cfTargetIndex: number | null = null;
   let cfTimer: number | null = null;
 
+  // Gapless (crossfade duration 0): the next track is preloaded on the idle deck a
+  // few seconds early and started on a precise timer just before the current one
+  // ends, so the transition does not wait for the "ended" event + load()/play().
+  const GAPLESS_PRELOAD_S = 10;   // start preloading this long before the end
+  const GAPLESS_ARM_S = 2;        // arm the precise start timer inside this window
+  const GAPLESS_LEAD_S = 0.03;    // start the next deck slightly early (play() latency)
+  let gaplessPrep: { nxt: number; deck: HTMLAudioElement; ready: boolean } | null = null;
+  let gaplessPreparing = false;
+  let gaplessTimer: number | null = null;
+
+  function clearGapless() {
+    if (gaplessTimer) { clearTimeout(gaplessTimer); gaplessTimer = null; }
+    gaplessPrep = null;
+    gaplessPreparing = false;
+  }
+
   function crossfadeEnabled(): boolean {
     return localStorage.getItem("melo-pref-crossfade") === "1";
   }
@@ -296,7 +318,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   function crossfadeDurationSec(): number {
     const raw = parseInt(localStorage.getItem("melo-pref-crossfadeDuration") || "4", 10);
     if (!Number.isFinite(raw)) return 4;
-    return Math.min(12, Math.max(1, raw));
+    return Math.min(12, Math.max(0, raw)); // 0 = gapless (no fade, no gap)
   }
 
   function getSecondaryAudio(): HTMLAudioElement {
@@ -323,6 +345,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   }
 
   function cancelCrossfade() {
+    clearGapless();
     if (cfTimer) {
       clearTimeout(cfTimer);
       cfTimer = null;
@@ -369,6 +392,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if (nxt === null) return;
     const remaining = dur - audio.currentTime;
     if (remaining <= 0) return;
+    if (crossfadeDurationSec() === 0) { handleGapless(nxt, remaining); return; }
     // Never fade for longer than ~90% of the track, so very short tracks
     // still get a (shorter) sensible crossfade instead of a jarring one.
     const effectiveDur = Math.min(crossfadeDurationSec(), Math.max(1, dur * 0.9));
@@ -379,6 +403,77 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // switches to the next track.
     const startDur = Math.max(0.15, Math.min(effectiveDur, remaining));
     startCrossfade(nxt, startDur);
+  }
+
+  async function prepareGapless(nxt: number) {
+    const nextTrack = queue[nxt];
+    if (!nextTrack || gaplessPreparing) return;
+    gaplessPreparing = true;
+    const deck = otherDeck();
+    try {
+      deck.pause();
+      const src = await resolveSrc(nextTrack.path);
+      // Dropped (skip / seek / queue change) while resolving: don't resurrect it.
+      if (!gaplessPreparing || crossfadeActive) return;
+      const prep = { nxt, deck, ready: false };
+      gaplessPrep = prep;
+      deck.volume = computeVolumeFor(nextTrack);
+      deck.muted = audio.muted;
+      deck.addEventListener("canplay", () => { if (gaplessPrep === prep) prep.ready = true; }, { once: true });
+      deck.addEventListener("error", () => { if (gaplessPrep === prep) gaplessPrep = null; }, { once: true });
+      deck.src = src;
+      deck.load();
+    } catch {
+      gaplessPrep = null;
+    } finally {
+      gaplessPreparing = false;
+    }
+  }
+
+  function handleGapless(nxt: number, remaining: number) {
+    if (gaplessTimer) { clearTimeout(gaplessTimer); gaplessTimer = null; }
+    if (remaining > GAPLESS_PRELOAD_S) { if (gaplessPrep) clearGapless(); return; }
+    if (gaplessPrep && gaplessPrep.nxt !== nxt) clearGapless(); // queue / shuffle changed
+    if (!gaplessPrep) { void prepareGapless(nxt); return; }
+    // Not ready (or too early to arm): the next timeupdate re-checks.
+    if (!gaplessPrep.ready || remaining > GAPLESS_ARM_S) return;
+    gaplessTimer = window.setTimeout(() => { gaplessTimer = null; void startGapless(); },
+      Math.max(0, (remaining - GAPLESS_LEAD_S) * 1000));
+  }
+
+  async function startGapless() {
+    const prep = gaplessPrep;
+    if (!prep || !prep.ready || crossfadeActive || audio.paused) return;
+    if (computeNextIndex() !== prep.nxt) { clearGapless(); return; }
+    const outgoing = audio;
+    const incoming = prep.deck;
+    const nextTrack = queue[prep.nxt];
+    const graph = getAudioGraph(primaryAudio);
+    const deckIn = graph.getDeck(incoming);
+    if (!nextTrack || !deckIn) { clearGapless(); return; }
+    gaplessPrep = null;
+    crossfadeActive = true;
+    cfOutgoing = outgoing;
+    cfIncoming = incoming;
+    cfTargetIndex = prep.nxt;
+    incoming.addEventListener("error", () => {
+      if (cfIncoming !== incoming) return;
+      const n = prep.nxt;
+      cancelCrossfade();
+      loadTrack(n, true);
+    }, { once: true });
+    deckIn.gain.gain.cancelScheduledValues(graph.ctx.currentTime);
+    deckIn.gain.gain.setValueAtTime(1, graph.ctx.currentTime);
+    const left = Math.max(0, (outgoing.duration || 0) - outgoing.currentTime);
+    try {
+      await incoming.play();
+    } catch {
+      cancelCrossfade();
+      return;
+    }
+    if (cfIncoming !== incoming || !crossfadeActive) return;
+    // The outgoing deck just plays its last few ms; hand over when it ends.
+    cfTimer = window.setTimeout(() => finishCrossfade(), Math.round(left * 1000) + 20);
   }
 
   async function startCrossfade(nxt: number, dur: number) {
@@ -634,6 +729,21 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   busOn("melo:request-playback-state", () => {
     const track = queue[currentIndex] || null;
     busEmit("melo:playback-state", { track, currentTime: audio.currentTime || 0, paused: audio.paused });
+    emitVolumeState();
+  });
+  // Volume set from the Library mini player (0–100). Same path as the slider.
+  busOn("melo:set-volume", (pct: any) => {
+    const v = Math.max(0, Math.min(100, Math.round(Number(pct))));
+    if (!Number.isFinite(v)) return;
+    userVolumePct = v;
+    if (volBar) {
+      volBar.value = String(v);
+      updateVolBackground();
+      if (volPct) volPct.textContent = volBar.value + "%";
+    }
+    applyReplayGain();
+    persistVolume();
+    emitVolumeState();
   });
   busOn("melo:seek-playback", (seconds: any) => {
     const value = Number(seconds);
@@ -869,6 +979,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
         if (volPct) volPct.textContent = volBar.value + "%";
         applyReplayGain();
         persistVolume();
+        emitVolumeState();
       };
     }
 
@@ -975,9 +1086,13 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   function attachDeckListeners(el: HTMLAudioElement) {
     el.addEventListener("timeupdate", () => {
       if (el !== audio) return; // only the active deck drives UI + scheduling
-      busEmit("melo:playback-position", el.currentTime || 0);
-      if (!isSeeking && seekBar && curTime) {
-        seekBar.value = String(Math.floor(el.currentTime));
+      busEmitPosition(el.currentTime || 0);
+      // The bar and the clock only show whole seconds: touch the DOM when the
+      // second changes (timeupdate fires ~4x/s). The bar's own value is the marker,
+      // so a seek, track change or reset (which all write it) repaints on the next tick.
+      const sec = Math.floor(el.currentTime || 0);
+      if (!isSeeking && seekBar && curTime && seekBar.value !== String(sec)) {
+        seekBar.value = String(sec);
         curTime.textContent = formatTime(el.currentTime);
         updateSeekBackground();
       }
@@ -1015,6 +1130,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
         if (iconPlay) iconPlay.style.display = "none";
         if (iconPause) iconPause.style.display = "block";
         if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
+        busEmit("melo:playback-state", { track: queue[currentIndex] || null, currentTime: audio.currentTime || 0, paused: false });
       }
     });
     el.addEventListener("pause", () => {
@@ -1029,6 +1145,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       if (iconPlay) iconPlay.style.display = "block";
       if (iconPause) iconPause.style.display = "none";
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+      busEmit("melo:playback-state", { track: queue[currentIndex] || null, currentTime: audio.currentTime || 0, paused: true });
     });
     // A failed load (file deleted/moved since the scan) reports and
     // auto-skips to the next track. The crossfade path hands its
@@ -1071,7 +1188,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       }
       // Range, checkbox, radio, etc. fall through and we let the
       // browser's native handling run (Space advances a range slider
-      // by `step`, toggles checkboxes/radios).
+      // by `step`, toggles checkboxes/radios).      // v1.2.0: a FOCUSED slider (e.g. after clicking the progress bar) also
+      // steps itself on the arrow keys — Up/Down then moved the song as well as
+      // the volume. The global shortcuts below own the arrows; stop the native step.
+      if (t === "range" && e.code.startsWith("Arrow")) e.preventDefault();
     }
     if (e.code === "Space") {
       e.preventDefault();

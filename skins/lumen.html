@@ -387,6 +387,18 @@
     .lm-tr .play { width: 38px; height: 38px; }
     .lm-viz { bottom: 110px; }
   }
+  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+     The slot takes the plain range's place in the row while the waveform is ready; the
+     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+  [data-melo="waveform"] {
+    --melo-wave-played: var(--accent);
+    --melo-wave-rest: color-mix(in srgb, var(--lm-ink) 28%, transparent);
+    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  html.melo-wave-on #seekBar,
+  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
 <body data-window-width="460" data-window-height="460" data-min-width="400" data-min-height="400" data-max-width="640" data-max-height="640" data-resizable="true">
@@ -450,6 +462,7 @@
 
       <div class="lm-seek">
         <span class="lm-time" data-melo="current-time" id="curTime">0:00</span>
+        <div data-melo="waveform"></div>
         <input class="lm-range" type="range" data-melo="seek" id="seekBar" min="0" max="100" value="0" />
         <span class="lm-time" data-melo="duration" id="durTime">0:00</span>
       </div>

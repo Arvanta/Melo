@@ -221,6 +221,10 @@ width/height; drop it again on mouseup. */
 .track-meta { min-width: 0; }
 .track-title { font-size: 18px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-artist, .track-album { font-size: 13.5px; color: var(--text-soft); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Default skin: the album line is empty for untagged files; an empty block would
+   collapse to 0px and pull the transport buttons up. Reserve its line so the
+   controls stay put whatever tags a track has. */
+.player-main .track-meta .track-artist, .player-main .track-meta .track-album { line-height: 1.3; min-height: 1.3em; }
 .track-format { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--text-muted); }
 .badge-flac { background: var(--badge-bg); color: var(--badge-text); padding: 2px 6px; border-radius: 5px; font-weight: 700; letter-spacing: 0.03em; font-size: 10.5px; border: 1px solid var(--card-border); }
 .transport { display: flex; align-items: center; gap: 16px; justify-content: center; margin: 4px 0; }
@@ -231,8 +235,29 @@ width/height; drop it again on mouseup. */
 .transport .play-btn:hover { background: var(--track-bg); transform: scale(1.06); }
 .transport .play-btn:active { transform: scale(0.94); }
 .seek-row { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; margin-top: auto; }
-.seek-row .time { min-width: 34px; text-align: center; }
+/* wide enough for "10:00"/"1:00:00": the label growing a pixel or two at 10 minutes would resize the waveform slot */
+.seek-row .time { min-width: 44px; text-align: center; white-space: nowrap; }
 .seek-wrap { flex: 1; position: relative; height: 20px; display: flex; align-items: center; }
+/* Waveform seek bar (see src/waveform.ts). The slot stays hidden until peaks are ready;
+   then it covers the plain bar, which keeps working for the keyboard. It may reach a few
+   px above/below the 20px bar row without moving anything. */
+[data-melo="waveform"] { --melo-wave-played: var(--accent); --melo-wave-rest: color-mix(in srgb, var(--text) 24%, transparent); }
+/* Declared first so a skin/slot class that sets its own position (like .seek-wave) wins. */
+.melo-wave-slot { position: relative; }
+.seek-wave { position: absolute; left: 0; right: 0; top: -5px; bottom: -5px; display: none; cursor: pointer; touch-action: none; }
+html.melo-wave-on .seek-wave { display: block; }
+html.melo-wave-on .seek-wrap input[type="range"].seek { opacity: 0; pointer-events: none; }
+.melo-wave-slot .mw-rest, .melo-wave-slot .mw-played, .melo-wave-slot .mw-hover { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+/* Hover preview: a half-strength copy of the waveform revealed up to the pointer, a thin
+   vertical line at the pointer and a time tooltip above it. Hidden unless hovering. */
+.melo-wave-slot .mw-hover { clip-path: inset(0 calc(100% - var(--mw-h, 0%)) 0 0); opacity: 0; }
+.melo-wave-slot.mw-hovering .mw-hover { opacity: 1; }
+.melo-wave-slot .mw-hline { position: absolute; top: 0; bottom: 0; left: var(--mw-h, 0%); width: 1px; background: var(--melo-wave-played); opacity: 0; pointer-events: none; }
+.melo-wave-slot.mw-hovering .mw-hline { opacity: .85; }
+.melo-wave-slot .mw-tip { position: absolute; bottom: calc(100% + 4px); transform: translateX(-50%); padding: 1px 6px; border-radius: 4px; font: 600 10px/16px var(--font-ui, system-ui, sans-serif); font-variant-numeric: tabular-nums; white-space: nowrap; color: #fff; background: rgba(20,20,24,.92); pointer-events: none; opacity: 0; z-index: 3; }
+.melo-wave-slot.mw-hovering .mw-tip { opacity: 1; }
+.melo-wave-slot .mw-played { clip-path: inset(0 calc(100% - var(--mw-p, 0%)) 0 0); }
+.melo-wave-slot .mw-head { position: absolute; top: 0; bottom: 0; left: var(--mw-p, 0%); width: 2px; margin-left: -1px; border-radius: 1px; background: var(--melo-wave-played); pointer-events: none; }
 input[type="range"].seek { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress, 35%), var(--track-bg) var(--progress, 35%), var(--track-bg) 100%); outline: none; cursor: pointer; }
 input[type="range"].seek::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: white; box-shadow: 0 1px 6px rgba(0,0,0,0.22); border: 1px solid rgba(0,0,0,0.08); cursor: pointer; transition: transform 0.12s; }
 input[type="range"].seek::-webkit-slider-thumb:hover { transform: scale(1.15); }
@@ -544,14 +569,7 @@ body.row-reordering, body.row-reordering * { cursor: grabbing !important; user-s
   flex-shrink: 0;
 }
 .lib-card .num, .lib-card .t-dur, .lib-card .chev-r, .lib-card .btn { display: none !important; }
-#trackList[data-lib-view="compact"] .lib-item,
-#trackList[data-lib-view="compact"] .track-row { padding-top: 3px; padding-bottom: 3px; gap: 7px; }
-#trackList[data-lib-view="compact"] .lib-avatar,
-#trackList[data-lib-view="compact"] .track-cover-mini { width: 22px; height: 22px; }
-#trackList[data-lib-view="compact"] .t-title { font-size: 11px; font-weight: 600; }
-#trackList[data-lib-view="compact"] .t-artist { font-size: 10px; }
 #trackList[data-lib-view="details"] .lib-item:not(.lib-card):not(.track-row) .t-title { font-size: 12px; }
-#trackList[data-lib-view="compact"] .t-dur { font-size: 10px; }
 .tab { padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; background: transparent; color: var(--text-soft); white-space: nowrap; }
 .tab.active { background: var(--track-bg); color: var(--text); }
 .lyrics-box { padding: 14px; font-size: 13px; line-height: 1.8; color: var(--text); white-space: pre-line; }
@@ -603,6 +621,9 @@ body.row-reordering, body.row-reordering * { cursor: grabbing !important; user-s
 .crossfade-range { -webkit-appearance: none; appearance: none; width: 100px; height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--progress, 27%), var(--track-bg) var(--progress, 27%), var(--track-bg) 100%); outline: none; cursor: pointer; }
 .crossfade-range::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: white; box-shadow: 0 1px 6px rgba(0,0,0,0.22); border: 1px solid rgba(0,0,0,0.08); cursor: pointer; }
 .crossfade-range::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 6px rgba(0,0,0,0.22); }
+/* Fixed width: the label flips between "1s" and "Gapless"; a width change would resize
+   the slider under the dragging pointer and make the thumb jump. */
+#crossfadeDurationValue { width: 50px; min-width: 50px; }
 .stepper-value { font-size: 11px; color: var(--text-soft); min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
 /* Responsive for floating windows on small screens */
@@ -1466,21 +1487,6 @@ LIBRARY & PLAYLIST — professional redesign (v0.8.0)
   font-size: 10.5px;
   font-weight: 500;
 }
-/* Pill-styled count badge only in Compact view. In Details view the count
-   stays as plain muted text (no tinted background) to keep the list
-   looking clean and type-set. */
-#trackList[data-lib-view="compact"] .lib-item .lib-count,
-#trackList[data-lib-view="compact"] .lib-count {
-  padding: 2px 8px;
-  border-radius: 99px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--text-soft);
-}
-[data-theme="dark"] #trackList[data-lib-view="compact"] .lib-item .lib-count,
-[data-theme="dark"] #trackList[data-lib-view="compact"] .lib-count {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
 /* Library cards (tiles view) */
 .lib-card {
   margin: 4px !important;
@@ -1930,7 +1936,7 @@ few-px band where scrolled rows peek through. */
 /* Library > Playlists: an explicit two-pane browser. */
 .library-playlist-split {
   display: grid;
-  grid-template-columns: minmax(150px, 34%) minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr); /* v1.2.0: fixed, independent of the window width */
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -1986,7 +1992,6 @@ few-px band where scrolled rows peek through. */
 .library-playlist-track-list .track-row .btn { display: none; }
 .library-playlists-empty { padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 540px) {
-  .library-playlist-split { grid-template-columns: minmax(125px, 39%) minmax(0, 1fr); }
   .library-playlist-content-head { padding-left: 8px; padding-right: 8px; }
   .library-playlist-track-list { padding-left: 2px; padding-right: 2px; }
 }
@@ -2256,28 +2261,7 @@ few-px band where scrolled rows peek through. */
 .lib-main-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .lib-alone-btn { margin-left: -6px; }
 
-/* Artist list sidebar: names ONLY, compact, always jumpable */
-/* Translucent panel (round 83): 35% of --track-bg over whatever sits behind it,
-   so the sidebar reads as part of the window instead of a solid card. */
-.lib-artist-sidebar { width: 142px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--card-border); background: color-mix(in srgb, var(--track-bg) 35%, transparent); }
-/* a class display would beat the [hidden] attribute — keep the toggle honest */
-.lib-artist-sidebar[hidden] { display: none; }
-.lib-artist-sidebar-head { font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--text-muted); font-weight: 700; padding: 8px 10px 5px; }
-.lib-artist-sidebar-list { flex: 1; overflow-y: auto; padding: 0 6px 8px; display: flex; flex-direction: column; gap: 1px; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; scrollbar-gutter: stable; }
-/* round 77: WebView2 paints a classic (space-less, OVERLAYING) scrollbar here —
-   with no gutter reservation long artist names slid under it and looked
-   "printed on top of each other". Thin + gutter-stable keeps the text clear. */
-.lib-artist-sidebar-list::-webkit-scrollbar { width: 6px; }
-.lib-artist-sidebar-list::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; }
-.lib-artist-sidebar-list::-webkit-scrollbar-track { background: transparent; }
-/* Round 79: rows are children of a flex column — with default flex-shrink:1
-   a crowded sidebar SQUASHED every ~22px name row to ~10px (measured), and
-   the ellipsis-clipped text read as names piled on each other. Shrink off;
-   the list already scrolls. */
-.lib-side-artist { flex: 0 0 auto; display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text); font-size: 11.5px; font-family: inherit; padding: 4px 8px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lib-side-artist:hover { background: var(--track-bg); }
-.lib-side-artist.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 600; }
-.lib-side-empty { padding: 8px; font-size: 10.5px; color: var(--text-muted); }
+/* Artist list sidebar: see the "Show artist list" block at the end of this file */
 
 /* "All"-filter search sections: artists first, then albums, tracks below */
 .lib-search-sections { border-bottom: 1px solid var(--card-border); background: var(--card); padding: 8px 10px 9px; flex-shrink: 0; }
@@ -2351,3 +2335,308 @@ few-px band where scrolled rows peek through. */
 .skin-feature-note { font-size: 11px; color: var(--text-soft); margin-top: 3px; }
 /* The lyric switch stays visible but inert when the active skin has no slot. */
 .skin-feature-unavailable { opacity: 0.45; pointer-events: none; }
+
+/* ==========================================================================
+   v1.2.0 — Library redesign: group-root cards (Default + Tiles), the labelled
+   "Show artist list" toggle + its side panel, and the icon stats strip.
+   Colours map the reference mock's tokens onto Melo's own variables.
+   ========================================================================== */
+:root { --lib-grad: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 62%, #7c3aed)); }
+
+/* Columns… only exists in Details: the class `display` would beat [hidden]. */
+.lib-view-btn[hidden] { display: none !important; }
+
+/* --- icon stats strip --- */
+.lib-stats-line { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.lib-stat { display: inline-flex; align-items: center; gap: 5px; }
+.lib-stat svg { flex: none; opacity: .85; }
+.lib-stat-sep { opacity: .5; }
+
+/* --- group-root cards: Default (one per row) and Tiles ---
+   The virtual list is inset 12px per side so cards never touch the scrollbar edge. */
+#trackList[data-grp] .virtual-list-space { margin: 0 12px; width: auto; }
+/* Cards (--card) sit on a slightly darker backdrop (like the mock's window vs card). */
+#trackList[data-grp] { background: #FCFCFD; }
+[data-theme="dark"] #trackList[data-grp] { background: color-mix(in srgb, var(--bg) 60%, var(--card)); }
+#trackList .lib-item.lib-grp {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px 8px 8px !important; box-sizing: border-box;
+  border-radius: 12px; background: var(--card);
+  border: 1px solid var(--card-border) !important;
+  box-shadow: 0 1px 3px rgba(15,23,42,.06);
+  transition: transform .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+#trackList .lib-item.lib-grp:hover {
+  background: color-mix(in srgb, var(--accent) 9%, var(--track-bg)) !important;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px -6px rgba(15,23,42,.22), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+#trackList .lib-item.lib-grp .grp-avatar {
+  width: 48px; height: 48px; flex: none; border-radius: 12px !important;
+  border: 1px solid var(--card-border); background-color: var(--track-bg);
+  box-shadow: 0 2px 6px rgba(0,0,0,.12); font-size: 16px; letter-spacing: .5px;
+  position: relative; overflow: hidden; isolation: isolate;
+}
+/* The picture zooms INSIDE its frame (like the reference mock): the frame
+   never changes size; a clone of the avatar's own background scales under
+   the clipped edge, above the avatar's background and below its text. */
+#trackList .lib-item.lib-grp .grp-avatar::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; background: inherit; border-radius: inherit;
+  transition: transform .35s cubic-bezier(.16,1,.3,1);
+}
+#trackList .lib-item.lib-grp:hover .grp-avatar::before { transform: scale(1.08); }
+@media (prefers-reduced-motion: reduce) { #trackList .lib-item.lib-grp .grp-avatar::before { transition: none; } }
+
+/* Group Play button: round on Default cards (hover only), pill on Tiles (always). */
+#trackList .lib-item.lib-grp .grp-play {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; cursor: pointer;
+  border: 0; font: inherit; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  transition: opacity .15s ease, background-color .15s ease, color .15s ease, transform .15s ease;
+}
+#trackList .lib-item.lib-grp .grp-play:hover { background: var(--accent); color: #fff; }
+#trackList .lib-item.lib-grp .grp-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; opacity: 1; }
+#trackList .lib-item.lib-grp .grp-play:active { transform: scale(.94); }
+#trackList .lib-item.lib-grp .grp-play svg { flex: none; }
+#trackList .lib-item.lib-grp .grp-play-round { width: 30px; height: 30px; border-radius: 50%; opacity: 0; }
+#trackList .lib-item.lib-grp:hover .grp-play-round,
+#trackList .lib-item.lib-grp:focus-within .grp-play-round { opacity: 1; }
+#trackList .lib-item.lib-grp-tile .grp-foot { margin-top: auto; height: 28px; display: flex; align-items: center; justify-content: center; }
+#trackList .lib-item.lib-grp .grp-play-tile { height: 28px; padding: 0 16px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+/* Left artist panel: hover only. */
+.las-play {
+  flex: none; width: 26px; height: 26px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+  display: none; align-items: center; justify-content: center;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent);
+  transition: background-color .15s ease, color .15s ease;
+}
+.las-row:hover .las-play, .las-row:focus-within .las-play { display: inline-flex; }
+.las-play:hover { background: var(--accent); color: #fff; }
+.las-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#trackList .lib-item.lib-grp .grp-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+#trackList .lib-item.lib-grp .grp-name {
+  font-size: 13.5px; font-weight: 600; letter-spacing: -.1px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#trackList .lib-item.lib-grp .grp-meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 11.5px; color: var(--text-soft); }
+#trackList .lib-item.lib-grp .grp-pill { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
+#trackList .lib-item.lib-grp .grp-pill svg { flex: none; color: var(--text-muted); }
+#trackList .lib-item.lib-grp .grp-pill-name { flex: 0 1 auto; min-width: 0; }
+#trackList .lib-item.lib-grp .grp-pill-name > span { overflow: hidden; text-overflow: ellipsis; }
+#trackList .lib-item.lib-grp .grp-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); flex: none; }
+#trackList .lib-item.lib-grp .grp-chev { flex: none; color: var(--text-muted); transition: transform .15s ease, color .15s ease; }
+#trackList .lib-item.lib-grp:hover .grp-chev { color: var(--text); transform: translateX(3px); }
+/* Tiles: centred card, square cover on top */
+#trackList .lib-item.lib-grp.lib-grp-tile {
+  flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 10px;
+  padding: 10px !important; text-align: center;
+}
+#trackList .lib-item.lib-grp-tile .grp-avatar {
+  width: 100% !important; height: auto !important; max-width: none !important; max-height: none !important; aspect-ratio: 1 / 1; align-self: stretch !important; border-radius: 10px !important;
+  font-size: 34px; display: grid; place-items: center;
+}
+#trackList .lib-item.lib-grp-tile .grp-txt { flex: 0 0 auto; align-items: center; width: 100%; gap: 3px; }
+#trackList .lib-item.lib-grp-tile .grp-name { max-width: 100%; font-size: 12.5px; line-height: 17px; }
+#trackList .lib-item.lib-grp-tile .grp-meta { justify-content: center; max-width: 100%; font-size: 11px; line-height: 15px; height: 15px; gap: 8px; }
+#trackList .lib-item.lib-grp-tile .grp-meta .grp-dot { display: none; }
+#trackList .lib-item.lib-grp-tile .grp-meta svg { width: 10px; height: 10px; }
+/* Albums tab: the artist pill only (tracks pill would not fit under the cover). */
+#trackList .lib-item.lib-grp-tile .grp-pill-name ~ .grp-pill { display: none; }
+
+/* --- "Show / Hide artist list" toggle --- */
+#libraryTabs { container-type: inline-size; container-name: libtabs; }
+.lib-side-toggle {
+  display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px 0 10px; flex: none;
+  border-radius: 999px; border: 1px solid var(--card-border); background: var(--card); color: var(--text-soft);
+  font: inherit; font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.lib-side-toggle:hover { color: var(--text); border-color: color-mix(in srgb, var(--text-muted) 55%, transparent); }
+.lib-side-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lib-side-toggle svg { flex: none; }
+.lib-side-toggle.active { background: color-mix(in srgb, var(--text) 7%, var(--card)); border-color: color-mix(in srgb, var(--text-muted) 40%, transparent); color: var(--text); }
+.lib-side-toggle:disabled { opacity: .4; cursor: default; pointer-events: none; }
+@container libtabs (max-width: 600px) { .lib-side-toggle-label { display: none; } .lib-side-toggle { padding: 0 9px; } }
+
+/* --- artist side panel --- */
+.lib-artist-sidebar {
+  position: relative; flex: 0 0 auto; width: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  visibility: hidden;
+  background: color-mix(in srgb, var(--track-bg) 35%, transparent);
+  border-right: 1px solid var(--card-border);
+}
+/* v1.2.0 perf: NO width transition — animating width re-laid-out the whole list beside
+   the panel on every frame (and could re-run the column calculation). The width flips
+   once; the contents slide/fade in with transform + opacity (compositor only). */
+.lib-artist-sidebar.open { width: 236px; visibility: visible; }
+.lib-artist-sidebar.open .las-toolbar, .lib-artist-sidebar.open .las-body { animation: lasPanelIn .26s cubic-bezier(.16,1,.3,1) both; }
+@keyframes lasPanelIn { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
+.las-toolbar, .las-body { width: 236px; }
+.las-toolbar { flex: none; padding: 10px 10px 8px; }
+.las-search { position: relative; }
+.las-search > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+.las-search input {
+  width: 100%; height: 28px; padding: 0 26px 0 28px; box-sizing: border-box;
+  border-radius: 9px; border: 1px solid var(--card-border); background: var(--card); color: var(--text);
+  font: inherit; font-size: 11.5px; outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.las-search input::placeholder { color: var(--text-muted); }
+.las-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.las-search-clear {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+  display: none; place-items: center; color: var(--text-muted); background: var(--track-bg); font-size: 10px; line-height: 1; cursor: pointer;
+}
+.las-search-clear.visible { display: grid; }
+.las-search-clear:hover { color: var(--text); }
+.las-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; border-top: 1px solid var(--card-border); }
+.las-list {
+  position: relative; flex: 1 1 auto; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 2px 4px 12px 8px;
+  scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.las-list::-webkit-scrollbar { width: 6px; }
+.las-list::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+.las-list::-webkit-scrollbar-track { background: transparent; }
+.las-group {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 0 6px;
+  height: 26px; box-sizing: border-box; /* fixed: the section/row estimate below must equal reality */
+  font-size: 10px; font-weight: 800; letter-spacing: 1.2px; color: var(--accent);
+  /* Opaque (sticky labels must hide the rows under them) but the SAME colour the
+     translucent panel resolves to over the window, so no visible band. */
+  background: color-mix(in srgb, var(--track-bg) 35%, var(--card)); pointer-events: none;
+}
+.las-group::after { content: ""; flex: 1; height: 1px; background: var(--card-border); }
+.las-row {
+  position: relative; display: flex; align-items: center; gap: 9px; padding: 0 7px; margin: 0;
+  height: 48px; box-sizing: border-box; /* fixed row height — never content-dependent */
+  border-radius: 10px; border: 1px solid transparent; cursor: pointer; user-select: none;
+  /* Off-screen rows are skipped, and their size is EXACT (same 48px, no `auto`): the
+     scroll height is right from the first frame, so the scrollbar drag and the A–Z
+     jump land precisely instead of drifting until every row has been seen once. */
+  content-visibility: auto; contain-intrinsic-size: 0 48px;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.las-row:hover { background: var(--track-bg); }
+.las-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.las-row.active { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.las-row.active::before { content: ""; position: absolute; left: -1px; top: 22%; bottom: 22%; width: 3px; border-radius: 0 3px 3px 0; background: var(--lib-grad); }
+.las-avatar {
+  position: relative; width: 34px; height: 34px; flex: none; border-radius: 9px; overflow: hidden;
+  display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .5px;
+  background: linear-gradient(135deg, hsl(var(--h, 215), 68%, 52%), hsl(calc(var(--h, 215) + 45), 68%, 42%));
+  border: 1px solid var(--card-border); box-shadow: 0 1px 3px rgba(0,0,0,.12);
+}
+.las-row.active .las-avatar { border: 2px solid var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent); }
+.las-info { flex: 1; min-width: 0; }
+.las-name { line-height: 16px; font-size: 12px; font-weight: 600; letter-spacing: -.1px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.las-row.active .las-name { color: var(--accent); }
+.las-meta { margin-top: 1px; line-height: 13px; height: 13px; display: flex; align-items: center; gap: 9px; font-size: 9.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; }
+.las-stat { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
+.las-stat svg { flex: none; }
+.las-rail { flex: none; width: 18px; display: flex; flex-direction: column; padding: 6px 3px 6px 0; user-select: none; }
+.las-rail button {
+  flex: 1 1 0; min-height: 0; width: 15px; padding: 0; border: 0; background: transparent; display: grid; place-items: center;
+  border-radius: 4px; font: inherit; font-size: 8px; font-weight: 700; line-height: 1; color: var(--text-muted); opacity: .4;
+  transition: color .12s ease, background-color .12s ease, opacity .12s ease;
+}
+.las-rail button.has { opacity: 1; cursor: pointer; }
+.las-rail button.has:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.las-rail button.current { color: #fff; background: var(--accent); opacity: 1; }
+.las-empty {
+  position: absolute; inset: 0; z-index: 4; display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 20px; text-align: center; background: var(--card);
+}
+.las-empty.visible { display: flex; }
+.las-empty-icon { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--track-bg); color: var(--text-muted); }
+.las-empty-title { font-size: 12px; font-weight: 700; color: var(--text); }
+.las-empty-desc { font-size: 10.5px; color: var(--text-muted); line-height: 1.5; }
+.las-empty-clear { margin-top: 4px; height: 26px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--accent); color: #fff; font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; }
+.las-empty-clear[hidden] { display: none; }
+@keyframes lasRowIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+.las-list.entering .las-row.las-anim { animation: lasRowIn .4s cubic-bezier(.16,1,.3,1) both; animation-delay: calc(var(--i, 0) * 20ms); }
+@media (prefers-reduced-motion: reduce) {
+  .lib-artist-sidebar, .las-row, .lib-item.lib-grp, .lib-side-toggle { transition: none !important; }
+  .lib-artist-sidebar.open .las-toolbar, .lib-artist-sidebar.open .las-body { animation: none !important; }
+  .las-list.entering .las-row.las-anim { animation: none !important; }
+}
+
+/* v1.2.0 — default skin: logo + "Melo" opens a drop-down (Open Files / Open Folder / theme) */
+.brand-menu-wrap { position: relative; -webkit-app-region: no-drag; }
+.player-titlebar .brand-menu-btn {
+  border: 0; background: transparent; font-family: inherit; cursor: pointer; border-radius: 8px;
+  -webkit-app-region: no-drag; transition: background .15s ease;
+}
+.player-titlebar .brand-menu-btn:hover, .brand-menu-wrap.open .brand-menu-btn { background: var(--track-bg); }
+.player-titlebar .brand-menu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.brand-caret { color: var(--text-muted); transition: transform .18s ease; }
+.brand-menu-wrap.open .brand-caret { transform: rotate(180deg); }
+.brand-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 60; min-width: 190px; padding: 5px;
+  background: var(--card); border: 1px solid var(--card-border); border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.28);
+}
+.brand-menu[hidden] { display: none; }
+.brand-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.brand-menu-item:hover, .brand-menu-item:focus-visible { background: var(--track-bg); outline: none; }
+.brand-menu-item svg { flex: none; color: var(--text-muted); }
+.brand-menu-item span { flex: 1; }
+.brand-menu-item kbd { font: inherit; font-size: 10.5px; color: var(--text-muted); }
+.brand-menu-sep { height: 1px; margin: 4px 6px; background: var(--card-border); }
+.titlebar-spacer { flex: 1; min-width: 0; }
+
+/* Columns… is always visible; only enabled in Details */
+.lib-view-btn:disabled { opacity: .35; cursor: default; }
+.lib-view-btn:disabled:hover { background: transparent; color: inherit; }
+
+/* --- Mini player switch (Library header) --- */
+.library-search-row { container-type: inline-size; container-name: libsearch; }
+.lib-mini-switch { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; height: 30px; padding: 0 4px; cursor: pointer; user-select: none; font-size: 11.5px; font-weight: 600; color: var(--text-soft); }
+.lib-mini-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.lms-track { position: relative; width: 30px; height: 17px; border-radius: 999px; background: var(--card-border); transition: background-color .15s ease; flex: none; }
+.lms-knob { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s ease; }
+.lib-mini-switch input:checked + .lms-track { background: var(--accent); }
+.lib-mini-switch input:checked + .lms-track .lms-knob { transform: translateX(13px); }
+.lib-mini-switch input:focus-visible + .lms-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lib-mini-switch:hover { color: var(--text); }
+@container libsearch (max-width: 520px) { .lms-label { display: none; } }
+
+/* --- Mini player (docked bar). One line when wide, two when narrow. --- */
+.lib-mini { flex: 0 0 auto; container-type: inline-size; container-name: libmini; border-top: 1px solid var(--card-border); background: var(--card); }
+.lib-mini[hidden] { display: none; }
+.lm-grid { display: grid; align-items: center; column-gap: 14px; row-gap: 2px; padding: 7px 12px;
+  grid-template-columns: minmax(150px, 1.2fr) auto minmax(180px, 2.2fr) auto; grid-template-areas: "track controls scrub vol"; }
+@container libmini (max-width: 660px) {
+  .lm-grid { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "track controls vol" "scrub scrub scrub"; padding: 6px 12px 5px; }
+}
+@container libmini (max-width: 420px) { .lm-volbar { display: none; } }
+.lm-track { grid-area: track; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lm-cover { width: 36px; height: 36px; flex: none; border-radius: 8px; background: var(--track-bg) center / cover no-repeat; border: 1px solid var(--card-border); }
+.lm-text { min-width: 0; }
+.lm-title { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 16px; }
+.lm-artist { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 14px; }
+.lm-controls { grid-area: controls; display: flex; align-items: center; gap: 4px; }
+.lm-btn { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-soft); cursor: pointer; transition: background-color .12s ease, color .12s ease; }
+.lm-btn:hover { background: var(--track-bg); color: var(--text); }
+.lm-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lm-play { width: 32px; height: 32px; background: var(--lib-grad); color: #fff; }
+.lm-play:hover { background: var(--lib-grad); color: #fff; filter: brightness(1.08); }
+.lm-i-pause, .lm-i-muted { display: none; }
+.lib-mini.is-playing .lm-i-play { display: none; }
+.lib-mini.is-playing .lm-i-pause { display: block; }
+.lib-mini.is-muted .lm-i-vol { display: none; }
+.lib-mini.is-muted .lm-i-muted { display: block; }
+.lm-scrub { grid-area: scrub; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lm-time { flex: none; min-width: 32px; font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--text-muted); text-align: center; }
+.lm-scrub .lm-bar { flex: 1; min-width: 0; }
+.lm-vol { grid-area: vol; display: flex; align-items: center; gap: 2px; }
+.lm-volbar { width: 84px; flex: none; }
+.lm-bar { position: relative; height: 16px; cursor: pointer; touch-action: none; border-radius: 8px; }
+.lm-bar::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 4px; border-radius: 2px; background: var(--card-border); }
+.lm-fill { position: absolute; left: 0; right: 0; top: 6px; height: 4px; border-radius: 2px; background: var(--lib-grad); transform-origin: left center; transform: scaleX(0); will-change: transform; }
+.lm-thumb { position: absolute; top: 3px; left: 0; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); opacity: 0; transition: opacity .12s ease; }
+.lm-bar:hover .lm-thumb, .lm-bar:focus-visible .lm-thumb { opacity: 1; }
+.lm-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lib-mini.is-empty .lm-controls, .lib-mini.is-empty .lm-scrub { opacity: .45; pointer-events: none; }

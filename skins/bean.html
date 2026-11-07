@@ -779,10 +779,23 @@
   .nk-btn.nk-play svg { width: 14px; height: 14px; }
 
   .nk-seek {
+    position: relative;
     min-width: 0;
     overflow: hidden;
     width: 100%;
   }
+  /* Optional waveform (Settings → Waveform seek bar). Fills the seek cell; the plain
+     range stays underneath as the keyboard control and is hidden while it shows. */
+  .nk-wave {
+    position: absolute; left: 0; right: 0; top: 6px; bottom: 6px;
+    display: none; cursor: pointer; touch-action: none;
+    -webkit-app-region: no-drag;
+  }
+  html.melo-wave-on .nk-wave { display: block; }
+  html.melo-wave-on .nk-range.is-seek { opacity: 0; pointer-events: none; }
+  /* The seek cell clips its content; while the waveform shows, let its hover time tooltip
+     (above the slot) escape it. */
+  html.melo-wave-on .nk-foot > .nk-seek { overflow: visible; }
   .nk-time {
     flex-shrink: 0;
     font-size: 9.5px; font-weight: 650; color: var(--nk-mute);
@@ -912,7 +925,7 @@
   data-min-width="400"
   data-min-height="190"
   data-max-width="640"
-  data-max-height="380"
+  data-max-height="600"
   data-resizable="true">
 <div id="melo-player">
 
@@ -1063,6 +1076,7 @@
 
       <span class="nk-time is-elapsed" data-melo="current-time">0:00</span>
       <div class="nk-seek">
+        <div class="nk-wave" data-melo="waveform"></div>
         <input class="nk-range is-seek" type="range" min="0" max="100" value="0" data-melo="seek" aria-label="Seek" />
       </div>
       <span class="nk-time is-duration" data-melo="duration">0:00</span>
