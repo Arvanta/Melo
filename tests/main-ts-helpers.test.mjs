@@ -2516,3 +2516,13 @@ test("round 110: group Play buttons, symmetric tiles geometry, inside-frame zoom
   assert.match(readSrc("src/waveform.ts"), /\$\{playedColor\} 32%, transparent/, "lighter hover layer");
   assert.match(readSrc("skins/bean-compact.html"), /html\.melo-wave-on \.nk-foot > \.nk-seek \{ overflow: visible; \}/, "tooltip not clipped");
 });
+
+test("round 110: removing a scanned folder asks for confirmation first", () => {
+  const lib = readSrc("src/library.ts");
+  const i = lib.indexOf('const path = button.dataset.manageRemove || "";');
+  assert.ok(i > 0);
+  const blk = lib.slice(i, i + 700);
+  assert.match(blk, /confirmDanger\(\s*"Remove Folder\?"/);
+  assert.match(blk, /remove all of its tracks from the Library/);
+  assert.ok(blk.indexOf("confirmDanger") < blk.indexOf('"remove_library_root"'), "asks before invoking");
+});

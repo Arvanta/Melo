@@ -1177,7 +1177,7 @@ the Library panel is width-invariant, just like the Playlist panel. */
   background: var(--card); color: var(--text); box-shadow: var(--shadow-lg);
 }
 .confirm-title { font-size: 14px; font-weight: 750; margin-bottom: 7px; }
-.confirm-message { font-size: 12px; line-height: 1.55; color: var(--text-soft); }
+.confirm-message { white-space: pre-line; overflow-wrap: anywhere; font-size: 12px; line-height: 1.55; color: var(--text-soft); }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 15px; }
 .confirm-input { width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--track-bg); color: var(--text); font-size: 13px; outline: none; box-sizing: border-box; }
 .confirm-input:focus { border-color: var(--accent); }

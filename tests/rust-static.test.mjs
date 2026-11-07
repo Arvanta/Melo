@@ -587,3 +587,14 @@ test("rust static: group Play replaces the queue from an artist/album/genre scop
   assert.match(blk, /renumber_queue/);
   assert.match(readSrc("src-tauri/src/main.rs"), /library_db::replace_queue_from_group,/, "registered");
 });
+
+test("rust static: every tag READ goes through the tolerant reader; tag WRITE stays strict", () => {
+  const db = readSrc("src-tauri/src/library_db.rs");
+  const main = readSrc("src-tauri/src/main.rs");
+  assert.match(db, /pub fn read_tagged_tolerant\(path: &Path\)/);
+  assert.match(db, /ParsingMode::Relaxed/, "relaxed parsing first");
+  assert.match(db, /props_only\.read_tags\(false\)/, "properties-only fallback (filename metadata)");
+  assert.equal((db.match(/Probe::open/g) || []).length, 2, "only the helper opens files in library_db");
+  assert.doesNotMatch(main.slice(0, main.indexOf("fn write_tags")), /Probe::open/, "no strict reads before write_tags");
+  assert.match(main, /let mut tagged = lofty::probe::Probe::open\(p\)/, "write_tags is still strict");
+});

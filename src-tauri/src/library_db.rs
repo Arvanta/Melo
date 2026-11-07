@@ -491,6 +491,32 @@ fn is_mka(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Tolerant tag reader used by every READ path (scan, artwork, lyrics, quick
+/// parse). Strict parsing rejected whole files over one bad frame — e.g.
+/// JRiver writes `TYER = "0"` and lofty fails with "invalid year length" —
+/// although the audio itself is fine. First try Relaxed mode with tags; if
+/// the tags still cannot be parsed, read the audio properties only so the
+/// file is imported with filename-based metadata instead of being dropped.
+/// (Tag WRITING stays strict: see `write_tags` in main.rs.)
+pub fn read_tagged_tolerant(path: &Path) -> Result<lofty::file::TaggedFile, String> {
+    use lofty::config::{ParseOptions, ParsingMode};
+    let relaxed = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
+    let mut props_only = relaxed;
+    props_only.read_tags(false);
+    let first = lofty::probe::Probe::open(path)
+        .map_err(|e| e.to_string())?
+        .options(relaxed)
+        .read();
+    match first {
+        Ok(t) => Ok(t),
+        Err(first_err) => lofty::probe::Probe::open(path)
+            .map_err(|e| e.to_string())?
+            .options(props_only)
+            .read()
+            .map_err(|_| first_err.to_string()),
+    }
+}
+
 fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) -> Option<(DbTrack, u64, i64)> {
     let metadata = std::fs::metadata(path).ok()?;
     let file_size = metadata.len();
@@ -528,7 +554,7 @@ fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) ->
         };
         return Some((track, file_size, modified_at));
     }
-    let tagged = lofty::probe::Probe::open(path).ok()?.read().ok()?;
+    let tagged = read_tagged_tolerant(path).ok()?;
     let tag = tagged.primary_tag().or(tagged.first_tag());
     let title = tag
         .and_then(|t| t.title().map(|s| s.to_string()))
@@ -2266,7 +2292,7 @@ fn ensure_track_artwork_sync(conn: &Connection, id: &str, artwork_dir: &Path) ->
     let existing:Option<String>=conn.query_row("SELECT artwork_path FROM tracks WHERE id=?1",params![id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.flatten();
     if existing.as_ref().map(|p|Path::new(p).exists()).unwrap_or(false){return Ok(existing);}
     let path:String=conn.query_row("SELECT path FROM tracks WHERE id=?1",params![id],|r|r.get(0)).map_err(|e|e.to_string())?;
-    let tagged=lofty::probe::Probe::open(&path).map_err(|e|e.to_string())?.read().map_err(|e|e.to_string())?;
+    let tagged=read_tagged_tolerant(Path::new(&path))?;
     let tag=tagged.primary_tag().or(tagged.first_tag());
     let artwork=tag.and_then(|t|t.pictures().first()).and_then(|p|cache_artwork(p.data(),artwork_dir));
     if let Some(ref value)=artwork{conn.execute("UPDATE tracks SET artwork_path=?2 WHERE id=?1",params![id,value]).map_err(|e|e.to_string())?;}
@@ -2321,10 +2347,7 @@ pub async fn get_track_artwork_full(id: String, state: State<'_, LibraryState>) 
         let path: String = conn
             .query_row("SELECT path FROM tracks WHERE id=?1", params![id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        let tagged = lofty::probe::Probe::open(&path)
-            .map_err(|e| e.to_string())?
-            .read()
-            .map_err(|e| e.to_string())?;
+        let tagged = read_tagged_tolerant(Path::new(&path))?;
         let tag = tagged.primary_tag().or(tagged.first_tag());
         let data_url = tag
             .and_then(|t| t.pictures().first())

@@ -941,6 +941,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         button.onclick = async () => {
           if (!invoke || activeScanId) return;
           const path = button.dataset.manageRemove || "";
+          if (!await confirmDanger(
+            "Remove Folder?",
+            `Removing this folder will remove all of its tracks from the Library.\n${displayPath(path)}\nThe audio files on disk are not deleted.`,
+            "Remove Folder",
+            true
+          )) return;
           try {
             libraryRoots = await invoke<LibraryRoot[]>("remove_library_root", { path });
             refreshManageDialog();

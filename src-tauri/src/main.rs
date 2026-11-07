@@ -170,7 +170,7 @@ fn parse_track(p: &Path) -> Option<Track> {
             replay_gain: None,
         });
     }
-    let tagged = lofty::probe::Probe::open(p).ok()?.read().ok()?;
+    let tagged = library_db::read_tagged_tolerant(p).ok()?;
     let tag = tagged.primary_tag().or(tagged.first_tag());
 
     let title = tag
@@ -587,7 +587,7 @@ fn get_track_lyrics(path: String) -> Option<String> {
     // from the frontend.)
 
     // 3. Check embedded lyrics via lofty
-    if let Some(tagged) = lofty::probe::Probe::open(p).ok().and_then(|pr| pr.read().ok()) {
+    if let Some(tagged) = library_db::read_tagged_tolerant(p).ok() {
         let tag = tagged.primary_tag().or(tagged.first_tag());
         if let Some(t) = tag {
             if let Some(lyrics) = t.get_string(&lofty::tag::ItemKey::Lyrics) {
