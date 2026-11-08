@@ -491,6 +491,91 @@ fn is_mka(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Size in bytes of the ID3v2 tag starting at `pos` (header + body + footer),
+/// or None when no ID3v2 header sits there.
+fn id3v2_total_len(f: &mut std::fs::File, pos: u64) -> Option<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut h = [0u8; 10];
+    f.seek(SeekFrom::Start(pos)).ok()?;
+    f.read_exact(&mut h).ok()?;
+    if &h[0..3] != b"ID3" || h[6..10].iter().any(|b| b & 0x80 != 0) {
+        return None;
+    }
+    let body = h[6..10].iter().fold(0u64, |n, b| (n << 7) | u64::from(*b));
+    let footer = if h[5] & 0x10 != 0 { 10 } else { 0 };
+    Some(10 + body + footer)
+}
+
+/// Some taggers leave the OLD ID3v2 tag in place when they write a new one,
+/// so a file starts with two (or more) ID3v2 tags back to back. Lofty merges
+/// them and the stale tag (often a download site's advert in the artist /
+/// title) wins. Returns the byte range of the extra tags that follow the first.
+fn extra_id3v2_span(path: &Path) -> Option<(u64, u64)> {
+    let mut f = std::fs::File::open(path).ok()?;
+    let first_end = id3v2_total_len(&mut f, 0)?;
+    let mut pos = first_end;
+    while let Some(n) = id3v2_total_len(&mut f, pos) {
+        pos += n;
+    }
+    (pos > first_end).then_some((first_end, pos))
+}
+
+/// A file as if the byte range [cut_start, cut_end) were not there.
+struct SkipSpan {
+    file: std::fs::File,
+    cut_start: u64,
+    cut_len: u64,
+    len: u64,
+    pos: u64,
+}
+
+impl std::io::Read for SkipSpan {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use std::io::{Seek, SeekFrom};
+        if self.pos >= self.len || buf.is_empty() {
+            return Ok(0);
+        }
+        let mut want = buf.len() as u64;
+        let mut phys = self.pos;
+        if self.pos < self.cut_start {
+            want = want.min(self.cut_start - self.pos);
+        } else {
+            phys += self.cut_len;
+        }
+        self.file.seek(SeekFrom::Start(phys))?;
+        let n = std::io::Read::read(&mut self.file, &mut buf[..want as usize])?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl std::io::Seek for SkipSpan {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+        use std::io::SeekFrom;
+        let target = match to {
+            SeekFrom::Start(n) => n as i128,
+            SeekFrom::End(d) => self.len as i128 + d as i128,
+            SeekFrom::Current(d) => self.pos as i128 + d as i128,
+        };
+        if target < 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "seek before start"));
+        }
+        self.pos = target as u64;
+        Ok(self.pos)
+    }
+}
+
+fn read_skipping_extra_id3v2(path: &Path, span: (u64, u64), opts: lofty::config::ParseOptions) -> Option<lofty::file::TaggedFile> {
+    let file = std::fs::File::open(path).ok()?;
+    let total = file.metadata().ok()?.len();
+    let cut_len = span.1 - span.0;
+    if span.1 > total {
+        return None;
+    }
+    let reader = std::io::BufReader::new(SkipSpan { file, cut_start: span.0, cut_len, len: total - cut_len, pos: 0 });
+    lofty::probe::Probe::new(reader).options(opts).guess_file_type().ok()?.read().ok()
+}
+
 /// Tolerant tag reader used by every READ path (scan, artwork, lyrics, quick
 /// parse). Strict parsing rejected whole files over one bad frame — e.g.
 /// JRiver writes `TYER = "0"` and lofty fails with "invalid year length" —
@@ -503,6 +588,16 @@ pub fn read_tagged_tolerant(path: &Path) -> Result<lofty::file::TaggedFile, Stri
     let relaxed = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
     let mut props_only = relaxed;
     props_only.read_tags(false);
+    // Stacked ID3v2 tags: trust the FIRST (newest) one; fall back to the merged
+    // read below when the first tag carries neither a title nor an artist.
+    if let Some(span) = extra_id3v2_span(path) {
+        if let Some(t) = read_skipping_extra_id3v2(path, span, relaxed) {
+            let has_identity = t.primary_tag().or(t.first_tag()).map_or(false, |tag| tag.title().is_some() || tag.artist().is_some());
+            if has_identity {
+                return Ok(t);
+            }
+        }
+    }
     let first = lofty::probe::Probe::open(path)
         .map_err(|e| e.to_string())?
         .options(relaxed)

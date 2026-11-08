@@ -598,3 +598,14 @@ test("rust static: every tag READ goes through the tolerant reader; tag WRITE st
   assert.doesNotMatch(main.slice(0, main.indexOf("fn write_tags")), /Probe::open/, "no strict reads before write_tags");
   assert.match(main, /let mut tagged = lofty::probe::Probe::open\(p\)/, "write_tags is still strict");
 });
+
+test("rust static: stacked ID3v2 tags — the first tag wins, merged read is the fallback", () => {
+  const db = readSrc("src-tauri/src/library_db.rs");
+  assert.match(db, /fn extra_id3v2_span\(path: &Path\)/);
+  assert.match(db, /struct SkipSpan/, "virtual file without the stale tags");
+  const i = db.indexOf("pub fn read_tagged_tolerant");
+  const blk = db.slice(i, i + 2200);
+  assert.match(blk, /extra_id3v2_span\(path\)/);
+  assert.match(blk, /tag\.title\(\)\.is_some\(\) \|\| tag\.artist\(\)\.is_some\(\)/, "identity check before trusting the first tag");
+  assert.ok(blk.indexOf("extra_id3v2_span") < blk.indexOf("let first ="), "tried before the merged read");
+});
