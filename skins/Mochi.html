@@ -256,6 +256,11 @@
   .cm-lyric.melo-lyric-tick { animation: cm-bubble .35s cubic-bezier(.3, 1.6, .5, 1) both; }
   html.melo-show-playlist .cm-lyric, html.melo-show-lyrics .cm-lyric { display: none !important; }
   html.melo-show-playlist .cm-viz, html.melo-show-lyrics .cm-viz { visibility: hidden; }
+  /* While the speech bubble is showing a line it covers the whole strip, so the visualizer
+     underneath is switched OFF (display:none → Melo pauses its render loop; see skins/README.md
+     §5.5 "Pausing the visualizer"). It comes back the moment the bubble empties, the track has no
+     synced lyrics, the setting is turned off, or a queue / lyrics panel opens. */
+  html.melo-lyric-skin-on.melo-has-synced-lyrics .cm-vizrow:has(.cm-lyric:not(.melo-lyric-empty):not(:empty)) .cm-viz { display: none; }
 
   /* queue / lyrics: a sticker card over the whole stage */
   .cm-panel {

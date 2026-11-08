@@ -2526,3 +2526,13 @@ test("round 110: removing a scanned folder asks for confirmation first", () => {
   assert.match(blk, /remove all of its tracks from the Library/);
   assert.ok(blk.indexOf("confirmDanger") < blk.indexOf('"remove_library_root"'), "asks before invoking");
 });
+
+test("round 112: visualizer pauses whenever a skin hides it (any state); Mochi hides it under the lyric bubble", () => {
+  const main = readSrc("src/main.ts");
+  assert.match(main, /function watchVisualizerVisibility\(\)/);
+  assert.match(main, /mo\.observe\(document\.documentElement, \{ attributes: true, attributeFilter: \["class"\] \}\)/, "html classes");
+  assert.match(main, /mo\.observe\(card, \{ attributes: true, attributeFilter: \["class", "style", "hidden"\], subtree: true, childList: true \}\)/, "player contents + skin swap");
+  assert.match(main, /syncVisualizerPauseState\(\); \}\);/, "re-reads the REAL visibility (no stale paused flag)");
+  assert.match(readSrc("skins/Mochi.html"), /html\.melo-lyric-skin-on\.melo-has-synced-lyrics \.cm-vizrow:has\(\.cm-lyric:not\(\.melo-lyric-empty\):not\(:empty\)\) \.cm-viz \{ display: none; \}/);
+  assert.match(readSrc("skins/README.md"), /Pausing the visualizer \(opt-in, any state\)/);
+});

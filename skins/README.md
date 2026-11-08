@@ -196,6 +196,25 @@ pauses its render loop entirely (rather than just leaving it invisible),
 so there's no wasted drawing/CPU while it's swapped out — this happens
 automatically, you don't need to do anything extra for it.
 
+**Pausing the visualizer (opt-in, any state).** The same rule works for *any*
+condition, not just the playlist/lyrics panels: if your CSS hides the
+`visualizer` container with `display: none`, Melo pauses it, and resumes it
+the moment it is shown again. Melo re-checks whenever a class on `<html>`
+(or anything inside the player) changes, the track changes, the lyric
+setting is toggled, or the skin is swapped, so it can never stay stuck
+paused. A skin that never hides its visualizer is never affected — most
+skins show the visualizer and the current lyric line in separate places and
+need nothing. Skins that lay the lyric line **over** the visualizer can
+switch it off while the line is showing, e.g. (Mochi):
+
+```css
+html.melo-lyric-skin-on.melo-has-synced-lyrics
+  .vizrow:has(.my-lyric:not(.melo-lyric-empty):not(:empty)) [data-melo="visualizer"] { display: none; }
+```
+
+Use `display: none` — `opacity: 0`, `visibility: hidden` or covering it with
+another element still looks hidden but keeps the visualizer drawing.
+
 Two settings — under Settings → Appearance → *Embedded Playlist (skins)* —
 let the user show/hide cover art and scale the text size of the embedded
 playlist independently of the standalone Playlist window's own look;

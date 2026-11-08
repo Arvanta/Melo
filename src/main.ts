@@ -2799,6 +2799,32 @@ function syncVisualizerPauseState() {
   window.__MELO_VISUALIZER_SET_PAUSED__?.(hidden);
 }
 
+// A skin can switch its visualizer off by hiding it with `display:none` under
+// ANY state it likes (e.g. while its current-lyric line is covering it). The
+// stage buttons already re-check on every mode change; this watcher covers
+// everything else — a track with/without synced lyrics (html classes), the
+// lyric setting toggled, the lyric slot emptying (class on the slot), a skin
+// swap (childList on #playerCard) — by re-reading the REAL visibility each
+// time, so there is no stale "paused" state to get stuck in. Opt-in is
+// implicit: a skin that never hides its visualizer is never paused.
+let vizWatchStarted = false;
+function watchVisualizerVisibility() {
+  if (vizWatchStarted) return;
+  const card = document.getElementById("playerCard");
+  if (!card || typeof MutationObserver === "undefined") return;
+  vizWatchStarted = true;
+  let queued = false;
+  const schedule = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; syncVisualizerPauseState(); });
+  };
+  const mo = new MutationObserver(schedule);
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  mo.observe(card, { attributes: true, attributeFilter: ["class", "style", "hidden"], subtree: true, childList: true });
+  schedule();
+}
+
 function attachEmbeddedPanels() {
   const embeddedPlaylist = window.__MELO_EMBEDDED_PLAYLIST__;
   const playlistHook = findHook<HTMLElement>("embedded-playlist", "embedded-playlist");
@@ -2856,6 +2882,7 @@ function attachEmbeddedPanels() {
     if (mode === "playlist") embeddedPlaylist?.refresh?.();
     syncVisualizerPauseState();
   }
+  watchVisualizerVisibility();
 
   const toggleViz = findHook<HTMLElement>("toggle-embedded-viz", "toggle-embedded-viz");
   if (toggleViz) toggleViz.onclick = () => setStageMode("viz");
