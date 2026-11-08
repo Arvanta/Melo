@@ -1350,7 +1350,7 @@ window.__TOAST__ = showToast;
 // Fire while Tauri's handler is enabled — no double import). m3u/m3u8
 // Drops expand to their tracks: REPLACE the queue on the player, APPEND
 // On the Playlist window.
-const AUDIO_DROP_EXTENSIONS = ["mp3", "flac", "wav", "ogg", "aac", "m4a", "alac", "opus", "wma", "aiff", "mka", "m3u", "m3u8"];
+const AUDIO_DROP_EXTENSIONS = ["mp3", "flac", "wav", "ogg", "aac", "m4a", "alac", "opus", "aiff", "mka", "m3u", "m3u8"];
 function isSupportedAudioFilename(name: string): boolean {
   const dot = name.lastIndexOf(".");
   if (dot < 0) return false;
@@ -1983,7 +1983,7 @@ async function addFilesViaDialog() {
   if (isTauri) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "wma", "aiff", "mka"] }] });
+      const sel = await open({ multiple: true, filters: [{ name: "Audio", extensions: ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "aiff", "mka"] }] });
       if (!sel) return;
       const paths = Array.isArray(sel) ? sel : [sel];
       const list: any[] = await lib?.importPaths?.(paths, "replace") || [];
@@ -1997,7 +1997,7 @@ async function addFilesViaDialog() {
   // Cap the browser selection before consuming it; the explicit cap toast
   // Still fires so the preview can't pretend the batch went through.
   const input = document.createElement("input");
-  input.type = "file"; input.multiple = true; input.accept = "audio/*,.mp3,.flac,.wav,.aac,.ogg,.m4a,.alac,.opus,.wma,.aiff,.mka";
+  input.type = "file"; input.multiple = true; input.accept = "audio/*,.mp3,.flac,.wav,.aac,.ogg,.m4a,.alac,.opus,.aiff,.mka";
   input.onchange = async () => {
     const files = Array.from(input.files || []);
     if (!files.length) return;

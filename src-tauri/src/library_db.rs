@@ -193,7 +193,7 @@ fn supported_ext(path: &Path) -> bool {
         .map(|e| {
             matches!(
                 e.to_ascii_lowercase().as_str(),
-                "mp3" | "flac" | "wav" | "ogg" | "aac" | "m4a" | "alac" | "opus" | "wma" | "aiff" | "mka"
+                "mp3" | "flac" | "wav" | "ogg" | "aac" | "m4a" | "alac" | "opus" | "aiff" | "mka"
             )
         })
         .unwrap_or(false)

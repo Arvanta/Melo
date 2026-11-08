@@ -58,7 +58,6 @@
           "m4a",
           "alac",
           "opus",
-          "wma",
           "aiff"
         ],
         "name": "Audio File",

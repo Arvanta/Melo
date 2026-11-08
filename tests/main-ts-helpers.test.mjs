@@ -263,7 +263,7 @@ test("drop import: supported-extension filter matches the backend's supported_ex
   // m3u/m3u8 accepted too — expand_drop_paths resolves playlist
   // files to their tracks (player drop = queue replace, playlist drop = append).
   assert.deepEqual(items.sort(),
-    ["aac", "aiff", "alac", "flac", "m3u", "m3u8", "m4a", "mka", "mp3", "ogg", "opus", "wav", "wma"].sort(),
+    ["aac", "aiff", "alac", "flac", "m3u", "m3u8", "m4a", "mka", "mp3", "ogg", "opus", "wav"].sort(),
     "drop filter must accept the audio extensions plus playlist files");
   assert.match(src, /function isSupportedAudioFilename\(/,
     "isSupportedAudioFilename helper must exist");
