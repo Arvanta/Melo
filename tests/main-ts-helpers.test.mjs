@@ -2543,3 +2543,13 @@ test("round 114: group Play hover/rest backgrounds are quieter", () => {
   assert.match(css, /\.las-play:hover \{ background: color-mix\(in srgb, var\(--text\) 7%, transparent\); color: color-mix\(in srgb, var\(--text\) 72%, var\(--text-soft\)\); \}/);
   assert.match(css, /\.grp-play-tile \{[^}]*background: color-mix\(in srgb, var\(--text\) 4%, transparent\); \}/);
 });
+
+test("round 115: bundled Mica — small cover, side panel, no viz button, bars keep size", () => {
+  const mica = readSrc("skins/mica.html");
+  assert.match(mica, /<div class="mica-now">\s*<div class="mica-art">/);
+  assert.doesNotMatch(mica, /data-melo="toggle-embedded-viz"|data-melo="codec"|data-melo="specs"/);
+  assert.match(mica, /<aside class="mica-side-panel">/);
+  assert.match(mica, /grid-template-rows: 48px minmax\(0, 1fr\) 88px;/);
+  assert.doesNotMatch(mica, /@media \(max-width: 560px\)/);
+  assert.match(mica, /<div data-melo="waveform"><\/div>/);
+});

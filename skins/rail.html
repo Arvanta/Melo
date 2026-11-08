@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Melo — Rail</title>
 <style>
-/* ── Rail── */
+/* ── Rail ── */
 :root,
 :root[data-theme="dark"],
 [data-theme="dark"] {
@@ -77,7 +77,7 @@ body:not(.tauri-main):has(#melo-player) {
 body.tauri-main .player-card,
 body.custom-skin-active .player-card {
   position: relative;
-  width: 780px; height: 480px; 
+  width: 780px; height: 480px;
   min-width: 500px; min-height: 230px;
   overflow: hidden;
   color: var(--mica-text);
@@ -98,58 +98,78 @@ body.custom-skin-active .player-card {
   box-shadow: none !important;
 }
 
-/* ── Root Layout ── */
+/* ── Root layout ── */
 .fluent-root {
   position: absolute; inset: 0;
-  display: flex; 
+  display: flex;
   isolation: isolate;
   background: var(--mica-surface-solid);
 }
 
-/* ── Left Rail (Sidebar) ── */
+/* ── Left rail ── */
 .fluent-rail {
-  width: 56px; flex: 0 0 56px;
+  width: 56px; flex: 0 0 56px; min-height: 0;
   display: flex; flex-direction: column; align-items: center;
-  padding: 12px 0;
-  gap: 2px;
+  padding: 10px 0 8px;
+  gap: 6px;
   border-right: 1px solid var(--mica-border-soft);
   background: var(--mica-surface-solid);
   z-index: 10;
   -webkit-app-region: drag;
 }
-.rail-top, .rail-bottom { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.rail-bottom { margin-top: auto; }
 
-.rail-btn {
-  width: 40px; height: 40px; padding: 0; display: grid; place-items: center;
-  border: 0; border-radius: 10px; background: transparent; color: var(--mica-text-muted);
-  cursor: pointer; transition: all .15s ease; position: relative;
+/* Everything below the menu button scrolls when the window is too short. */
+.rail-scroll {
+  flex: 1 1 auto; min-height: 0; width: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
   -webkit-app-region: no-drag;
 }
-.rail-btn:hover { background: var(--mica-surface-2-hover); color: var(--mica-text); }
-.rail-btn.active { color: var(--mica-accent); }
+.rail-scroll::-webkit-scrollbar { width: 3px; }
+.rail-scroll::-webkit-scrollbar-track { background: transparent; }
+.rail-scroll::-webkit-scrollbar-thumb { background: var(--mica-border-strong); border-radius: 3px; }
+.rail-scroll:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--mica-accent) 55%, transparent); }
+
+.rail-top, .rail-bottom {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.rail-bottom { margin-top: auto; padding-top: 6px; }
+
+.rail-btn,
+.rail-btn.stage-btn {
+  flex: 0 0 auto;
+  width: 40px; height: 40px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 10px; background: transparent; color: var(--mica-text-muted);
+  cursor: pointer; transition: background .15s ease, color .15s ease; position: relative;
+  -webkit-app-region: no-drag;
+}
+.rail-btn:hover,
+.rail-btn.stage-btn:hover { background: var(--mica-surface-2-hover); color: var(--mica-text); }
+.rail-btn.active,
+.rail-btn.stage-btn.active { color: var(--mica-accent); background: var(--mica-accent-soft); }
 .rail-btn.active::after {
-  content: ""; position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
-  width: 3px; height: 16px; border-radius: 2px; background: var(--mica-accent);
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 16px; border-radius: 0 2px 2px 0; background: var(--mica-accent);
 }
 .rail-btn svg { width: 18px; height: 18px; }
 
-/* Brand Logo as Menu Trigger - Fixed Centering */
-.rail-brand { margin-bottom: 8px; display: flex; align-items: center; justify-content: center; }
-.rail-brand .mica-mark { 
-  width: 32px; height: 32px; border-radius: 10px; 
+/* Brand logo = menu trigger (pinned above the scrolling area) */
+.rail-brand { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; }
+.rail-brand .mica-mark {
+  width: 32px; height: 32px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   background: var(--mica-accent-soft); color: var(--mica-accent);
   border: 1px solid color-mix(in srgb, var(--mica-accent) 22%, transparent);
 }
 .rail-brand .mica-mark svg { width: 16px; height: 16px; }
 
-/* ── Main Content Wrapper ── */
+/* ── Main column ── */
 .fluent-main {
   flex: 1; display: grid;
-  grid-template-rows: 42px minmax(0, 1fr) 82px;
+  grid-template-rows: 42px minmax(0, 1fr) 100px;
   min-width: 0; min-height: 0;
-  background: var(--mica-bg); 
+  background: var(--mica-bg);
 }
 
 /* ── Header ── */
@@ -164,11 +184,8 @@ body.custom-skin-active .player-card {
 .fluent-brand-text {
   font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--mica-text-soft);
 }
-
-/* Header Actions: Switch + Win Controls */
 .topbar-actions { display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
 
-/* Fluent Toggle Switch */
 .topbar-switch { display: flex; align-items: center; cursor: pointer; }
 .topbar-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .switch-track {
@@ -193,19 +210,81 @@ body.custom-skin-active .player-card {
 .fluent-win .close:hover { background: var(--mica-danger); color: #fff; }
 .fluent-win svg { width: 14px; height: 14px; }
 
-/* ── Stage ── */
+/* ── Stage: one frame, 4px from its surroundings ── */
 .fluent-stage {
   position: relative; z-index: 1;
   min-width: 0; min-height: 0; overflow: hidden;
-  background: transparent; 
+  container-type: size;
+  background: transparent;
 }
-.fluent-viz-box {
-  position: absolute; inset: 12px;
+.fluent-frame {
+  position: absolute; inset: 4px;
+  display: grid;
+  /* cover column follows the stage height, so the cover stays as large as fits */
+  grid-template-columns: clamp(120px, min(46cqw, calc(100cqh - 24px)), 400px) minmax(0, 1fr);
   border-radius: var(--mica-radius);
   overflow: hidden;
   background: var(--mica-surface-solid);
   border: 1px solid var(--mica-border-soft);
   box-shadow: var(--mica-shadow-soft);
+}
+
+/* Left: current lyric line above a large cover */
+.fluent-cover-col {
+  position: relative;
+  display: flex; flex-direction: column;
+  min-height: 0; padding: 12px;
+  border-right: 1px solid var(--mica-border-soft);
+  background: color-mix(in srgb, var(--mica-surface-solid) 84%, var(--mica-bg)); /* a touch darker than the visualizer pane */
+}
+/* The lyric row floats in the top margin; when it is enabled the same space is
+   reserved at the bottom too, so the cover stays exactly centered. */
+html.melo-lyric-skin-on .fluent-cover-col { padding-block: 38px; }
+.fluent-cover-wrap {
+  flex: 1 1 0; min-height: 0;
+  container-type: size;
+  display: grid; place-items: center;
+}
+.fluent-cover {
+  position: relative;
+  width: min(100cqw, 100cqh); height: min(100cqw, 100cqh);
+  border-radius: 12px; overflow: hidden;
+  background: var(--mica-surface-2); border: 1px solid var(--mica-border);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.30);
+}
+.fluent-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fluent-art-fallback {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--mica-accent); background: var(--mica-accent-soft);
+}
+.fluent-art-fallback svg { width: 36%; height: 36%; }
+
+/* Current lyric line. The engine hides the slot with inline display:none while
+   there is nothing to show; when the Settings switch is on, the row is kept
+   (visibility only) so the cover does not change size between lines. */
+.fluent-lyric-line {
+  display: none;
+  position: absolute; top: 8px; left: 12px; right: 12px;
+  height: 24px; padding: 0 12px;
+  border-radius: var(--mica-radius-pill);
+  border: 1px solid color-mix(in srgb, var(--mica-accent) 24%, transparent);
+  background:
+    linear-gradient(var(--mica-accent), var(--mica-accent)) left bottom / calc(var(--melo-lyric-progress, 0) * 100%) 2px no-repeat,
+    var(--mica-accent-soft);
+  color: var(--mica-text);
+  font-size: 12px; font-weight: 600; line-height: 22px; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer; user-select: none;
+}
+html.melo-lyric-skin-on .fluent-lyric-line { display: block !important; }
+html.melo-lyric-skin-on .fluent-lyric-line.melo-lyric-empty { visibility: hidden; }
+.fluent-lyric-line.melo-lyric-tick { animation: fluent-line-in .28s ease-out; }
+@keyframes fluent-line-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* Right: visualizer / lyrics / playlist share one pane */
+.fluent-pane {
+  position: relative; min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--mica-surface-solid);
 }
 .fluent-viz {
   position: absolute !important; inset: 0 !important;
@@ -213,106 +292,88 @@ body.custom-skin-active .player-card {
   display: block !important; overflow: hidden !important; cursor: pointer;
 }
 .fluent-viz canvas { width: 100% !important; height: 100% !important; display: block; opacity: 0.8; }
+html.melo-show-playlist .fluent-viz,
+html.melo-show-lyrics .fluent-viz { display: none !important; }
 
-/* Lyric Pill */
-.fluent-lyric-pill {
-  position: absolute; z-index: 5;
-  bottom: 20px; left: 50%; transform: translateX(-50%);
-  max-width: 80%;
-  padding: 6px 16px;
-  display: inline-flex; align-items: center; gap: 8px;
-  border-radius: var(--mica-radius-pill);
-  background: var(--mica-surface-solid);
-  border: 1px solid var(--mica-border);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-  color: var(--mica-text-soft);
-  font-size: 12px; font-weight: 500;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  cursor: pointer; user-select: none;
-  transition: all .22s ease;
-}
-.fluent-lyric-pill.melo-lyric-empty { display: none !important; }
+.fluent-pane [data-melo="embedded-playlist"],
+.fluent-pane [data-melo="embedded-lyrics"] { position: absolute; inset: 0; display: none; overflow: hidden; padding: 0; }
+html.melo-show-playlist .fluent-pane [data-melo="embedded-playlist"],
+html.melo-show-lyrics .fluent-pane [data-melo="embedded-lyrics"] { display: block; }
 
-/* Side Panel */
-.fluent-panel {
-  position: absolute; z-index: 6;
-  top: 0; right: 0; bottom: 0; width: 320px;
-  display: flex; flex-direction: column;
-  border-radius: 0;
-  background: color-mix(in srgb, var(--mica-surface-solid) 85%, transparent);
-  backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
-  border-left: 1px solid var(--mica-border);
-  box-shadow: -4px 0 20px rgba(0,0,0,0.15);
-  transform: translateX(100%); opacity: 0; pointer-events: none;
-  transition: transform .3s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
-}
-html.melo-show-playlist .fluent-panel,
-html.melo-show-lyrics .fluent-panel { transform: translateX(0); opacity: 1; pointer-events: auto; }
-
-.panel-head {
-  height: 42px; flex: 0 0 42px;
-  display: flex; align-items: center; padding: 0 16px;
-  border-bottom: 1px solid var(--mica-border-soft);
-  font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--mica-text-muted);
-}
-.panel-body { position: relative; flex: 1; min-height: 0; overflow: hidden; }
-.panel-body [data-melo="embedded-playlist"],
-.panel-body [data-melo="embedded-lyrics"] { position: absolute; inset: 0; display: none; overflow: hidden; padding: 0; }
-html.melo-show-playlist .panel-body [data-melo="embedded-playlist"],
-html.melo-show-lyrics .panel-body [data-melo="embedded-lyrics"] { display: block; }
-
-.panel-body .embedded-playlist,
-.panel-body .embedded-lyrics {
+.fluent-pane .embedded-playlist,
+.fluent-pane .embedded-lyrics {
   height: 100% !important; max-height: 100% !important;
   overflow-y: auto !important; overflow-x: hidden !important;
-  padding: 8px;
+  padding: 8px 10px;
   scrollbar-width: thin;
   scrollbar-color: var(--mica-accent-soft) transparent;
 }
-.panel-body .embedded-playlist-row { min-height: 36px; padding: 6px 8px; border-radius: 8px; transition: background .15s ease; }
-.panel-body .embedded-playlist-row:hover { background: var(--mica-surface-2-hover); }
-.panel-body .embedded-playlist-row.active { background: var(--mica-accent-soft); }
-.panel-body .lyric-line { font-size: 13px; line-height: 1.6; padding: 6px 12px; border-radius: 8px; color: var(--mica-text-muted); }
-.panel-body .lyric-line.active { background: var(--mica-accent-soft); color: var(--mica-text); font-weight: 600; }
+.fluent-pane .embedded-playlist-row { min-height: 36px; padding: 6px 8px; border-radius: 8px; transition: background .15s ease; }
+.fluent-pane .embedded-playlist-row:hover { background: var(--mica-surface-2-hover); }
+.fluent-pane .embedded-playlist-row.active { background: var(--mica-accent-soft); }
+.fluent-pane .lyric-line { font-size: 15px; line-height: 1.7; padding: 6px 12px; border-radius: 8px; text-align: center; color: var(--mica-text-muted); }
+.fluent-pane .lyric-line.active { color: var(--mica-text); font-weight: 700; }
 
-/* ── Footer Player ── */
+/* ── Footer: seek + volume on top, track info (left) and controls (right) below ── */
 .fluent-bottom {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr); /* Removed right vol column */
-  align-items: center; gap: 16px;
-  padding: 0 16px;
+  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  padding: 6px 14px 8px;
   border-top: 1px solid var(--mica-border-soft);
   background: var(--mica-surface-solid);
   z-index: 10;
 }
 
-/* Now Playing Meta */
-.fluent-now {
-  display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: center;
+.fluent-seek-row { display: flex; align-items: center; gap: 8px; height: 24px; }
+.fluent-time { font: 700 10px "Cascadia Mono", Consolas, monospace; color: var(--mica-text-muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.seek-divider { width: 1px; height: 14px; background: var(--mica-border-strong); margin: 0 4px; flex: 0 0 auto; }
+
+.fluent-vol-icon {
+  width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px;
+  color: var(--mica-text-muted); cursor: pointer; transition: all .15s ease; flex: 0 0 auto;
 }
-.fluent-art {
-  position: relative; width: 52px; height: 52px; flex: 0 0 52px;
-  border-radius: 10px; overflow: hidden;
-  background: var(--mica-surface-2); border: 1px solid var(--mica-border);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+.fluent-vol-icon:hover { background: var(--mica-surface-2-hover); color: var(--mica-text); }
+.fluent-vol-icon svg { width: 14px; height: 14px; }
+
+.fluent-range {
+  -webkit-appearance: none; appearance: none;
+  height: 20px; background: transparent; cursor: pointer; outline: none;
 }
-.fluent-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.fluent-art-fallback {
-  position: absolute; inset: 0; display: grid; place-items: center;
+input[data-melo="seek"] { flex: 1 1 0; min-width: 60px; }
+input.vol-track { width: 90px; flex: 0 0 90px; }
+
+.fluent-range::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--mica-accent) 0%, var(--mica-accent) var(--progress, 0%), var(--mica-track) var(--progress, 0%), var(--mica-track) 100%); }
+.fluent-range.vol-track::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--mica-accent) 0%, var(--mica-accent) var(--vol, 60%), var(--mica-track) var(--vol, 60%), var(--mica-track) 100%); }
+.fluent-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--mica-track); }
+.fluent-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--mica-accent); }
+.fluent-range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4px; border-radius: 50%;
+  background: var(--mica-accent); box-shadow: 0 0 0 4px var(--mica-accent-soft), 0 2px 6px rgba(0,0,0,0.2);
+  opacity: 0; transition: opacity .15s ease;
+}
+.fluent-range:hover::-webkit-slider-thumb, .fluent-range:active::-webkit-slider-thumb { opacity: 1; }
+
+.fluent-info-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  height: 56px;
+}
+
+/* Track info (left) */
+.fluent-now { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+.fluent-title { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fluent-codec {
+  flex: 0 0 auto; padding: 1px 6px; border-radius: 6px;
+  font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--mica-accent); background: var(--mica-accent-soft);
 }
-.fluent-art-fallback svg { width: 20px; height: 20px; }
-.fluent-meta { min-width: 0; }
-.fluent-title { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fluent-artist { font-size: 11px; color: var(--mica-text-soft); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fluent-codec:empty { display: none; }
+.fluent-tech { display: flex; align-items: center; gap: 6px; min-height: 15px; min-width: 0; }
+.fluent-specs { font-size: 10px; color: var(--mica-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.fluent-specs:empty { display: none; }
+.fluent-artist { font-size: 11px; color: var(--mica-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fluent-album:not(:empty)::before { content: " · "; }
 
-/* Center Transport */
-.fluent-transport {
-  display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0;
-}
-.fluent-controls { display: flex; align-items: center; gap: 4px; }
+/* Controls (right) */
+.fluent-controls { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
 .fluent-controls button {
   width: 32px; height: 32px; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: 8px; background: transparent; color: var(--mica-text-soft);
@@ -330,45 +391,10 @@ html.melo-show-lyrics .panel-body [data-melo="embedded-lyrics"] { display: block
   box-shadow: 0 4px 12px var(--mica-accent-glow);
   transition: transform .15s ease, box-shadow .15s ease;
 }
-.fluent-controls .play:hover { transform: scale(1.08); box-shadow: 0 6px 20px var(--mica-accent-glow); }
+.fluent-controls .play:hover { transform: scale(1.08); box-shadow: 0 6px 20px var(--mica-accent-glow); background: var(--mica-accent); }
 .fluent-controls .play svg { width: 18px; height: 18px; }
 
-/* Seek & Volume Row (Merged) */
-.fluent-seek-row { 
-  width: 100%; display: flex; align-items: center; gap: 8px; 
-}
-.fluent-time { font: 700 10px "Cascadia Mono", Consolas, monospace; color: var(--mica-text-muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-
-.seek-divider { width: 1px; height: 14px; background: var(--mica-border-strong); margin: 0 4px; flex: 0 0 auto; }
-
-.fluent-vol-icon {
-  width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px;
-  color: var(--mica-text-muted); cursor: pointer; transition: all .15s ease; flex-shrink: 0;
-}
-.fluent-vol-icon:hover { background: var(--mica-surface-2-hover); color: var(--mica-text); }
-.fluent-vol-icon svg { width: 14px; height: 14px; }
-
-.fluent-range {
-  -webkit-appearance: none; appearance: none;
-  height: 20px; background: transparent; cursor: pointer; outline: none;
-}
-/* Seek bar takes available space */
-input[data-melo="seek"] { flex: 1; min-width: 60px; }
-/* Volume bar fixed width */
-input.vol-track { width: 80px; flex: 0 0 80px; }
-
-.fluent-range::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--mica-accent) 0%, var(--mica-accent) var(--progress, 0%), var(--mica-track) var(--progress, 0%), var(--mica-track) 100%); }
-.fluent-range.vol-track::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--mica-accent) 0%, var(--mica-accent) var(--vol, 60%), var(--mica-track) var(--vol, 60%), var(--mica-track) 100%); }
-.fluent-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--mica-track); }
-.fluent-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--mica-accent); }
-.fluent-range::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4px; border-radius: 50%;
-  background: var(--mica-accent); box-shadow: 0 0 0 4px var(--mica-accent-soft), 0 2px 6px rgba(0,0,0,0.2);
-  opacity: 0; transition: opacity .15s ease;
-}
-.fluent-range:hover::-webkit-slider-thumb, .fluent-range:active::-webkit-slider-thumb { opacity: 1; }
-
-/* ── Menu Context ── */
+/* ── Menu ── */
 .fluent-menu-wrap {
   position: absolute; top: 12px; left: 64px; z-index: 200;
   width: 200px; padding: 6px;
@@ -394,7 +420,7 @@ input.vol-track { width: 80px; flex: 0 0 80px; }
 .dismiss-overlay { position: fixed; inset: 0; z-index: 150; display: none; cursor: default; }
 .fluent-root:has(#micaMenuToggle:checked) .dismiss-overlay { display: block; }
 
-/* ── Transparency Logic ── */
+/* ── Transparency ── */
 html:has(#micaTransparent:checked) body { background: transparent !important; }
 html:has(#micaTransparent:checked) #melo-player,
 body:has(#micaTransparent:checked) #melo-player {
@@ -408,85 +434,84 @@ body:has(#micaTransparent:checked) #melo-player {
   background: color-mix(in srgb, var(--mica-surface-solid) 65%, transparent);
   border-color: var(--mica-border);
 }
-.fluent-root:has(#micaTransparent:checked) .fluent-viz-box {
+.fluent-root:has(#micaTransparent:checked) .fluent-frame {
   background: color-mix(in srgb, var(--mica-bg) 40%, transparent);
   border-color: color-mix(in srgb, var(--mica-border) 80%, transparent);
 }
-.fluent-root:has(#micaTransparent:checked) .fluent-panel {
-  background: color-mix(in srgb, var(--mica-surface-solid) 60%, transparent);
-}
+.fluent-root:has(#micaTransparent:checked) .fluent-cover-col { background: transparent; }
+.fluent-root:has(#micaTransparent:checked) .fluent-pane { background: transparent; }
 
-/* Responsive */
-@media (max-width: 700px) {
-  .fluent-rail { width: 48px; flex: 0 0 48px; }
-  .fluent-bottom { grid-template-columns: 1fr; padding: 0 10px; gap: 8px; }
-  .fluent-now { display: none; }
-  input.vol-track { width: 60px; flex: 0 0 60px; }
-}
-@media (max-width: 500px) {
-  .fluent-rail { display: none; }
-  .fluent-bottom { grid-template-columns: 1fr; height: 100px; }
+/* ── Responsive: nothing resizes with width (only the progress bar stretches) ── */
+/* Very short windows: drop the cover column, keep the pane and the footer. */
+@media (max-height: 300px) {
+  .fluent-frame { grid-template-columns: minmax(0, 1fr); }
+  .fluent-cover-col { display: none; }
 }
 
 @keyframes mica-pop { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--mica-accent); outline-offset: 2px; }
 .fluent-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-  /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
-     The slot takes the plain range's place in the row while the waveform is ready; the
-     range stays in the DOM (keyboard) but leaves the layout and is invisible. */
-  [data-melo="waveform"] {
-    --melo-wave-played: var(--accent);
-    --melo-wave-rest: color-mix(in srgb, var(--mica-text) 28%, transparent);
-    display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
-    align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
-  }
-  html.melo-wave-on [data-melo="waveform"] { display: block; }
-  html.melo-wave-on #seekBar,
-  html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
+/* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
+   The slot takes the plain range's place in the row while the waveform is ready; the
+   range stays in the DOM (keyboard) but leaves the layout and is invisible. */
+[data-melo="waveform"] {
+  --melo-wave-played: var(--mica-accent);
+  --melo-wave-rest: color-mix(in srgb, var(--mica-text) 28%, transparent);
+  display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 22px;
+  align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+}
+html.melo-wave-on [data-melo="waveform"] { display: block; }
+html.melo-wave-on #seekBar,
+html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
 <body data-window-width="780" data-window-height="480" data-min-width="500" data-min-height="230" data-max-width="1280" data-max-height="800" data-resizable="true">
 
 <div id="melo-player">
   <div class="fluent-root">
-    
-    <!-- Hidden Input for Menu Logic -->
+
+    <!-- Hidden input for the menu -->
     <input id="micaMenuToggle" type="checkbox" class="fluent-hidden">
 
-    <!-- Left Rail -->
+    <!-- Left rail: menu button pinned, the rest scrolls when there is not enough height -->
     <aside class="fluent-rail">
-      <div class="rail-top">
-        <label class="rail-btn rail-brand" for="micaMenuToggle" title="Menu">
-          <span class="mica-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          </span>
-        </label>
-        
-        <button type="button" class="rail-btn" data-melo="toggle-embedded-playlist" title="Queue">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>
-        </button>
-        <button type="button" class="rail-btn" data-melo="toggle-embedded-lyrics" title="Lyrics">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
-        </button>
-        <button type="button" class="rail-btn" data-melo="toggle-library" title="Library">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M10 6v14M15 8v12M20 10v10"/></svg>
-        </button>
-        <button type="button" class="rail-btn" data-melo="toggle-playlist" title="Playlist Window">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg>
-        </button>
-      </div>
+      <label class="rail-btn rail-brand" for="micaMenuToggle" title="Menu">
+        <span class="mica-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </span>
+      </label>
 
-      <div class="rail-bottom">
-        <button type="button" class="rail-btn" data-melo="toggle-settings" title="Settings">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
-        </button>
+      <div class="rail-scroll">
+        <div class="rail-top">
+          <button type="button" class="rail-btn stage-btn active" data-melo="toggle-embedded-viz" title="Visualizer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 20V12M10 20V5M15 20V9M20 20V14"/></svg>
+          </button>
+          <button type="button" class="rail-btn stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
+          </button>
+          <button type="button" class="rail-btn stage-btn" data-melo="toggle-embedded-playlist" title="Queue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg>
+          </button>
+          <button type="button" class="rail-btn" data-melo="toggle-library" title="Library">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M10 6v14M15 8v12M20 10v10"/></svg>
+          </button>
+          <button type="button" class="rail-btn" data-melo="toggle-playlist" title="Playlist Window">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5h12v14H4zM16 8h4v8h-4"/></svg>
+          </button>
+        </div>
+
+        <div class="rail-bottom">
+          <button type="button" class="rail-btn" data-melo="toggle-settings" title="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+          </button>
+        </div>
       </div>
     </aside>
 
-    <!-- Main Content -->
+    <!-- Main -->
     <div class="fluent-main">
-      
+
       <!-- Header -->
       <header class="fluent-topbar" data-tauri-drag-region>
         <span class="fluent-brand-text">MELO</span>
@@ -502,43 +527,57 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--mica-accent
         </div>
       </header>
 
-      <!-- Stage -->
+      <!-- Stage: [lyric line + big cover] | [visualizer / lyrics / playlist] -->
       <main class="fluent-stage">
-        <div class="fluent-viz-box">
-          <div class="fluent-viz" data-melo="visualizer" data-bars="42"></div>
-        </div>
-        <div class="fluent-lyric-pill" data-melo="current-lyric" aria-live="polite" title="Click to seek"></div>
-        <div class="fluent-hidden" data-melo="next-lyric" aria-hidden="true"></div>
+        <div class="fluent-frame">
 
-        <!-- Side Panel -->
-        <aside class="fluent-panel">
-          <div class="panel-head">Queue & Lyrics</div>
-          <div class="panel-body">
+          <section class="fluent-cover-col">
+            <div class="fluent-lyric-line" data-melo="current-lyric" aria-live="polite" title="Click to seek"></div>
+            <div class="fluent-cover-wrap">
+              <div class="fluent-cover">
+                <img data-melo="cover" alt="Cover" style="display:none">
+                <div class="fluent-art-fallback" data-melo="cover-fallback" aria-hidden="true">
+                  <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="24" cy="24" r="14"/><circle cx="24" cy="24" r="5"/><path d="M24 10v7M38 24h-7M24 38v-7M10 24h7"/></svg>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="fluent-pane">
+            <div class="fluent-viz" data-melo="visualizer" data-bars="42"></div>
             <div data-melo="embedded-playlist"></div>
             <div data-melo="embedded-lyrics"></div>
-          </div>
-        </aside>
+          </section>
+
+        </div>
+        <div class="fluent-hidden" data-melo="next-lyric" aria-hidden="true"></div>
       </main>
 
-      <!-- Footer Player -->
+      <!-- Footer -->
       <footer class="fluent-bottom">
-        
-        <!-- Left: Meta -->
-        <div class="fluent-now">
-          <div class="fluent-art">
-            <img data-melo="cover" alt="Cover" style="display:none">
-            <div class="fluent-art-fallback" data-melo="cover-fallback" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="24" cy="24" r="14"/><circle cx="24" cy="24" r="5"/><path d="M24 10v7M38 24h-7M24 38v-7M10 24h7"/></svg>
-            </div>
-          </div>
-          <div class="fluent-meta">
-            <div class="fluent-title" data-melo="title">No track loaded</div>
-            <div class="fluent-artist"><span data-melo="artist">Add music to begin</span></div>
-          </div>
+
+        <!-- Progress + volume -->
+        <div class="fluent-seek-row">
+          <span class="fluent-time" data-melo="current-time">0:00</span>
+          <div data-melo="waveform"></div>
+          <input class="fluent-range" type="range" data-melo="seek" min="0" max="100" value="0" aria-label="Seek">
+          <span class="fluent-time" data-melo="duration">0:00</span>
+
+          <span class="seek-divider"></span>
+          <span class="fluent-vol-icon" data-melo="volume-icon" title="Mute">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M11 5 6 9H2v6h4l5 4V5zM15 9.5a4 4 0 0 1 0 5M18 7a8 8 0 0 1 0 10"/></svg>
+          </span>
+          <input class="fluent-range vol-track" type="range" data-melo="volume" min="0" max="100" value="60" aria-label="Volume">
         </div>
 
-        <!-- Center: Transport & Seek + Volume -->
-        <div class="fluent-transport">
+        <!-- Track info (left) + controls (right) -->
+        <div class="fluent-info-row">
+          <div class="fluent-now">
+            <div class="fluent-title" data-melo="title">No track loaded</div>
+            <div class="fluent-artist"><span data-melo="artist">Add music to begin</span><span class="fluent-album" data-melo="album"></span></div>
+            <div class="fluent-tech"><span class="fluent-codec" data-melo="codec"></span><span class="fluent-specs" data-melo="specs"></span></div>
+          </div>
+
           <div class="fluent-controls">
             <button type="button" data-melo="shuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg></button>
             <button type="button" data-melo="prev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg></button>
@@ -546,28 +585,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--mica-accent
               <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
               <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
             </button>
+            <button type="button" data-melo="stop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
             <button type="button" data-melo="next" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg></button>
             <button type="button" data-melo="repeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
-          </div>
-          <div class="fluent-seek-row">
-            <span class="fluent-time" data-melo="current-time">0:00</span>
-            <div data-melo="waveform"></div>
-            <input class="fluent-range" type="range" data-melo="seek" min="0" max="100" value="0" aria-label="Seek">
-            <span class="fluent-time" data-melo="duration">0:00</span>
-            
-            <!-- Volume Group Moved Here -->
-            <span class="seek-divider"></span>
-            <span class="fluent-vol-icon" data-melo="volume-icon" title="Mute">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M11 5 6 9H2v6h4l5 4V5zM15 9.5a4 4 0 0 1 0 5M18 7a8 8 0 0 1 0 10"/></svg>
-            </span>
-            <input class="fluent-range vol-track" type="range" data-melo="volume" min="0" max="100" value="60" aria-label="Volume">
           </div>
         </div>
 
       </footer>
     </div>
 
-    <!-- Context Menu -->
+    <!-- Context menu -->
     <div class="fluent-menu-wrap">
       <label class="menu-item" for="micaMenuToggle" data-melo="add-files">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
