@@ -2394,7 +2394,7 @@ few-px band where scrolled rows peek through. */
   border: 0; font: inherit; color: var(--text-soft); background: transparent;
   transition: opacity .15s ease, background-color .15s ease, color .15s ease, transform .15s ease;
 }
-#trackList .lib-item.lib-grp .grp-play:hover { background: color-mix(in srgb, var(--text) 14%, transparent); color: var(--text); }
+#trackList .lib-item.lib-grp .grp-play:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: color-mix(in srgb, var(--text) 72%, var(--text-soft)); }
 #trackList .lib-item.lib-grp .grp-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; opacity: 1; }
 #trackList .lib-item.lib-grp .grp-play:active { transform: scale(.94); }
 #trackList .lib-item.lib-grp .grp-play svg { flex: none; }
@@ -2403,8 +2403,8 @@ few-px band where scrolled rows peek through. */
 #trackList .lib-item.lib-grp:focus-within .grp-play-round { opacity: 1; }
 #trackList .lib-item.lib-grp-tile .grp-foot { margin-top: auto; height: 28px; display: flex; align-items: center; justify-content: center; }
 /* Tiles: always visible, so it keeps a quiet neutral (grey) fill at rest. */
-#trackList .lib-item.lib-grp .grp-play-tile { height: 28px; padding: 0 16px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: color-mix(in srgb, var(--text) 8%, transparent); }
-#trackList .lib-item.lib-grp .grp-play-tile:hover { background: color-mix(in srgb, var(--text) 16%, transparent); }
+#trackList .lib-item.lib-grp .grp-play-tile { height: 28px; padding: 0 16px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: color-mix(in srgb, var(--text) 4%, transparent); }
+#trackList .lib-item.lib-grp .grp-play-tile:hover { background: color-mix(in srgb, var(--text) 16%, transparent); color: var(--text); }
 /* Left artist panel: hover only. */
 .las-play {
   flex: none; width: 26px; height: 26px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
@@ -2413,7 +2413,7 @@ few-px band where scrolled rows peek through. */
   transition: background-color .15s ease, color .15s ease;
 }
 .las-row:hover .las-play, .las-row:focus-within .las-play { display: inline-flex; }
-.las-play:hover { background: color-mix(in srgb, var(--text) 14%, transparent); color: var(--text); }
+.las-play:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: color-mix(in srgb, var(--text) 72%, var(--text-soft)); }
 .las-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 #trackList .lib-item.lib-grp .grp-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 #trackList .lib-item.lib-grp .grp-name {

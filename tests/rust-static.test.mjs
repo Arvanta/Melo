@@ -609,3 +609,14 @@ test("rust static: stacked ID3v2 tags — the first tag wins, merged read is the
   assert.match(blk, /tag\.title\(\)\.is_some\(\) \|\| tag\.artist\(\)\.is_some\(\)/, "identity check before trusting the first tag");
   assert.ok(blk.indexOf("extra_id3v2_span") < blk.indexOf("let first ="), "tried before the merged read");
 });
+
+test("rust static: missing playlist entries are not scan errors; dead now_secs removed", () => {
+  const db = readSrc("src-tauri/src/library_db.rs");
+  assert.doesNotMatch(db, /fn now_secs\(/, "unused helper removed (build warning)");
+  const i = db.indexOf("match import_m3u_sync(playlist_path");
+  const blk = db.slice(i, i + 1400);
+  assert.doesNotMatch(blk, /playlist_errors \+= result\.total/, "missing entries not counted");
+  assert.doesNotMatch(blk, /list\.push\(path\.clone\(\)\)/, "missing entries not listed as unreadable files");
+  assert.match(blk, /playlist_errors \+= 1;/, "a playlist FILE that cannot be imported still counts");
+  assert.match(blk, /"missing": result\.missing/, "still reported in the playlist-imported event");
+});

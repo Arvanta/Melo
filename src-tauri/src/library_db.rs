@@ -139,13 +139,6 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn now_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
-
 /// Escapes `%`, `_` and the escape char itself so a literal path can be used
 /// as a LIKE prefix pattern (paired with `ESCAPE '$'`).
 fn like_escape(input: &str) -> String {
@@ -1131,15 +1124,10 @@ pub async fn start_managed_library_scan(
             for playlist_path in &pending_playlists {
                 match import_m3u_sync(playlist_path, &artwork_dir, &mut conn, Some(&id), Some(&roots)) {
                     Ok(result) => {
-                        playlist_errors += result.total.saturating_sub(result.imported);
-                        if !result.missing.is_empty() {
-                            if let Ok(mut list) = failed_paths.lock() {
-                                for path in &result.missing {
-                                    if list.len() >= 50 { break; }
-                                    list.push(path.clone());
-                                }
-                            }
-                        }
+                        // Entries a playlist lists that no longer exist (or lie outside the
+                        // scanned folders) are NOT audio-file errors: they are neither counted
+                        // nor listed under "Files that couldn't be read". They stay available
+                        // in the `melo:playlist-imported` event below (`missing`).
                         let _ = app.emit("melo:playlist-imported", serde_json::json!({
                             "scanId": id, "path": playlist_path, "playlistId": result.playlist_id,
                             "playlistName": result.playlist_name, "imported": result.imported,

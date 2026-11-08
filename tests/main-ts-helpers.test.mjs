@@ -2536,3 +2536,10 @@ test("round 112: visualizer pauses whenever a skin hides it (any state); Mochi h
   assert.match(readSrc("skins/Mochi.html"), /html\.melo-lyric-skin-on\.melo-has-synced-lyrics \.cm-vizrow:has\(\.cm-lyric:not\(\.melo-lyric-empty\):not\(:empty\)\) \.cm-viz \{ display: none; \}/);
   assert.match(readSrc("skins/README.md"), /Pausing the visualizer \(opt-in, any state\)/);
 });
+
+test("round 114: group Play hover/rest backgrounds are quieter", () => {
+  const css = readSrc("src/app.css");
+  assert.match(css, /\.grp-play:hover \{ background: color-mix\(in srgb, var\(--text\) 7%, transparent\); color: color-mix\(in srgb, var\(--text\) 72%, var\(--text-soft\)\); \}/);
+  assert.match(css, /\.las-play:hover \{ background: color-mix\(in srgb, var\(--text\) 7%, transparent\); color: color-mix\(in srgb, var\(--text\) 72%, var\(--text-soft\)\); \}/);
+  assert.match(css, /\.grp-play-tile \{[^}]*background: color-mix\(in srgb, var\(--text\) 4%, transparent\); \}/);
+});
