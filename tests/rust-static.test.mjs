@@ -388,7 +388,8 @@ test("rust static: library_groups pages first, resolves covers per PAGE ROW with
     "the aggregate COUNT must only run when requested");
   // deterministic album paging + the terms the album index is declared with
   assert.ok(q.includes('"album COLLATE NOCASE, album_artist COLLATE NOCASE"'), "album groups must order by album then album artist (stable paging)");
-  assert.ok(q.includes("ORDER BY {group_by}"), "ORDER BY must equal GROUP BY so the index order satisfies both");
+  assert.ok(q.includes("ORDER BY {order_by}") && q.includes('{ "year DESC" } else { group_by }'),
+    "ORDER BY must equal GROUP BY (index order) for every kind except the Years tab, which lists newest first");
   // pinned index with a safe fallback
   assert.ok(q.includes("INDEXED BY idx_lib_album_album_artist"), "the album-first index must be pinned for the unscoped album list");
   assert.match(q, /Err\(_\) if pin_album_index => conn\.prepare\(&page_sql\("tracks"\)\)/, "a refused hint must fall back to the plain statement");
@@ -619,4 +620,21 @@ test("rust static: missing playlist entries are not scan errors; dead now_secs r
   assert.doesNotMatch(blk, /list\.push\(path\.clone\(\)\)/, "missing entries not listed as unreadable files");
   assert.match(blk, /playlist_errors \+= 1;/, "a playlist FILE that cannot be imported still counts");
   assert.match(blk, /"missing": result\.missing/, "still reported in the playlist-imported event");
+});
+
+test("round 116c: listen_log + stats commands are registered", () => {
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  const main = readFileSync(join(here, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(db, /CREATE TABLE IF NOT EXISTS listen_log/);
+  for (const c of ["library_listen_stats", "record_listen", "clear_listen_log", "library_mix_tracks"]) {
+    assert.ok(main.includes("library_db::" + c), c);
+  }
+});
+
+test("round 116c: Home has stats ranges with Monday-start weeks and customize layout", () => {
+  const src = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  assert.match(src, /\(d\.getDay\(\) \+ 6\) % 7/);
+  assert.match(src, /melo-home-layout/);
+  assert.match(src, /library_listen_stats/);
+  assert.match(src, /melo:listened/);
 });

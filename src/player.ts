@@ -104,11 +104,11 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // boundaries only (next track loads, 'ended', pagehide/quit) — never on
   // a timer — and fires once per pass (repeat-one loops: once per loop).
   // last_played_at still stamps at track start via a separate command.
-  type PlaySession = { id: string; durMs: number; listenedMs: number; resumeAt: number; counted: boolean };
+  type PlaySession = { id: string; durMs: number; listenedMs: number; loggedMs: number; resumeAt: number; counted: boolean };
   let playSession: PlaySession | null = null;
   function newSession(t: Track): PlaySession {
     const d = Number(t.duration);
-    return { id: t.id, durMs: d > 0 ? d * 1000 : 0, listenedMs: 0, resumeAt: audio.paused ? 0 : Date.now(), counted: false };
+    return { id: t.id, durMs: d > 0 ? d * 1000 : 0, listenedMs: 0, loggedMs: 0, resumeAt: audio.paused ? 0 : Date.now(), counted: false };
   }
   function beginPlaySession(t: Track) {
     evaluatePlaySession(); // settle the outgoing track first
@@ -122,10 +122,22 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     const s = playSession;
     if (s && !s.resumeAt && audio && !audio.paused) s.resumeAt = Date.now();
   }
+  // Round 116: the same wall-clock meter feeds the listening statistics. The
+  // not-yet-reported part of the meter is handed to the library at the same
+  // boundaries (track change, ended, pause, pagehide) — no timer, no
+  // per-timeupdate work. Segments under a second are dropped.
+  function flushListen(s: PlaySession | null) {
+    if (!s || !s.id) return;
+    const deltaMs = s.listenedMs - s.loggedMs;
+    if (deltaMs < 1000) return;
+    s.loggedMs = s.listenedMs;
+    busEmit("melo:listened", { trackId: s.id, startedAt: Date.now() - deltaMs, seconds: deltaMs / 1000 });
+  }
   function evaluatePlaySession() {
     const s = playSession;
     if (!s) return;
     if (audio && !audio.paused) accumulateSession();
+    flushListen(s);
     if (s.counted || !s.id) return;
     const threshold = s.durMs > 0 ? Math.min(30000, s.durMs / 2) : 30000;
     if (s.listenedMs >= threshold) {
@@ -1138,6 +1150,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       // restore) re-shows the Play icon.
       if (el !== audio) return;
       accumulateSession(); // paused: the listen meter stops here
+      flushListen(playSession);
       // Settle NOW too (the once-flag makes re-evaluation harmless): a user
       // who listens, pauses, then closes the app must not lose the count if
       // the webview skips pagehide on shutdown.

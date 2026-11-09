@@ -285,6 +285,19 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_lib_artist_album ON tracks(artist COLLATE NOCASE, album COLLATE NOCASE) WHERE library_owned=1;
         CREATE INDEX IF NOT EXISTS idx_lib_album_artist_album ON tracks(album_artist COLLATE NOCASE, album COLLATE NOCASE) WHERE library_owned=1;
         CREATE INDEX IF NOT EXISTS idx_lib_genre ON tracks(genre COLLATE NOCASE) WHERE library_owned=1;
+        CREATE INDEX IF NOT EXISTS idx_lib_year ON tracks(year) WHERE library_owned=1;
+
+        -- Round 116: one row per listening segment (written by the player at
+        -- track boundaries). Powers the Home statistics; rows of tracks that
+        -- were later removed are ignored by every join.
+        CREATE TABLE IF NOT EXISTS listen_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          track_id TEXT NOT NULL,
+          started_at INTEGER NOT NULL,
+          seconds REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_listen_started ON listen_log(started_at);
+        CREATE INDEX IF NOT EXISTS idx_listen_track ON listen_log(track_id);
         CREATE INDEX IF NOT EXISTS idx_lib_title_id ON tracks(title COLLATE NOCASE, id) WHERE library_owned=1;
 
         CREATE TABLE IF NOT EXISTS playlists (
@@ -1388,6 +1401,9 @@ fn query_groups(
             "album_artist COLLATE NOCASE",
         ),
         "genres" => ("genre", "genre", "COUNT(*) || ' tracks'", "genre COLLATE NOCASE"),
+        // Round 116: Years tab. Release year as text; unknown (0) years are
+        // excluded below, newest year first (ORDER BY override further down).
+        "years" => ("CAST(year AS TEXT)", "CAST(year AS TEXT)", "COUNT(*) || ' tracks'", "year"),
         _ => (
             "artist",
             "artist",
@@ -1401,6 +1417,9 @@ fn query_groups(
     let has_artist_filter = album_artist_filter.is_some();
     let mut values: Vec<rusqlite::types::Value> = Vec::new();
     let mut where_sql = String::from(" WHERE library_owned=1");
+    if kind == "years" {
+        where_sql.push_str(" AND year>0");
+    }
     if has_search {
         values.push(search_pattern(&raw_search).into());
         where_sql.push_str(&format!(" AND {} LIKE ?{} COLLATE NOCASE ESCAPE '$'", group_col, values.len()));
@@ -1418,13 +1437,14 @@ fn query_groups(
     };
     let page_sql = |table: &str| {
         format!(
-            "SELECT {key},{name},{subtitle},COUNT(*) FROM {table}{where_sql} GROUP BY {group_by} ORDER BY {group_by} LIMIT ?{li} OFFSET ?{oi}",
+            "SELECT {key},{name},{subtitle},COUNT(*) FROM {table}{where_sql} GROUP BY {group_by} ORDER BY {order_by} LIMIT ?{li} OFFSET ?{oi}",
             key = key_expr,
             name = group_col,
             subtitle = subtitle_expr,
             table = table,
             where_sql = where_sql,
             group_by = group_by,
+            order_by = if kind == "years" { "year DESC" } else { group_by },
             li = values.len() + 1,
             oi = values.len() + 2,
         )
@@ -1464,6 +1484,7 @@ fn query_groups(
         "album-artists" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND album_artist=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
         "artist-albums" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=?1 COLLATE NOCASE AND album=?2 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
         "genres" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND genre=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
+        "years" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND year=CAST(?1 AS INTEGER) AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
         _ => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
     };
     let mut cover_stmt = conn.prepare(cover_sql).map_err(|e| e.to_string())?;
@@ -1557,6 +1578,15 @@ fn library_filter_field(
     }
     for (column, value) in [("artist", artist), ("album_artist", album_artist), ("album", album), ("genre", genre)] {
         if let Some(v) = value.filter(|x| !x.is_empty()) {
+            // Round 116: the Years tab reuses the genre scope slot with a
+            // reserved token ("\u{1}year=2019") so no command signature changes.
+            if column == "genre" {
+                if let Some(y) = v.strip_prefix("\u{1}year=") {
+                    clauses.push("year=?");
+                    values.push(rusqlite::types::Value::Integer(y.parse::<i64>().unwrap_or(0)));
+                    continue;
+                }
+            }
             clauses.push(match column {
                 "artist" => "artist=?",
                 "album_artist" => "album_artist=?",
@@ -1626,6 +1656,438 @@ pub async fn library_tracks(
         .filter_map(log_skipped)
         .collect();
     Ok(Page { items, total, limit, offset })
+}
+
+// ───────── Library Home (round 116) ─────────
+// One round trip for the Home tab: album / artist shelves, the play-count
+// leaderboards and a few counters. Everything derives from columns that
+// already exist (play_count, last_played_at, added_at) - no schema change.
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeGroup {
+    key: String,
+    name: String,
+    subtitle: String,
+    count: i64,
+    plays: i64,
+    cover: Option<String>,
+    artwork_track_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeData {
+    recently_played: Vec<HomeGroup>,
+    recently_added: Vec<HomeGroup>,
+    top_artists: Vec<HomeGroup>,
+    top_albums: Vec<HomeGroup>,
+    total_seconds: f64,
+    never_played: i64,
+    forgotten: i64,
+    last_track: Option<DbTrack>,
+    top_tracks: Vec<HomeTrack>,
+    repeat_tracks: Vec<HomeTrack>,
+    decades: Vec<HomeDecade>,
+    long_count: i64,
+    on_this_day: Vec<OnThisDay>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeTrack {
+    track: DbTrack,
+    /// Plays (Top tracks), recent listens (on repeat) or seconds (stats).
+    plays: i64,
+    seconds: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeDecade {
+    decade: i64,
+    count: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnThisDay {
+    year: i64,
+    seconds: f64,
+    track: Option<DbTrack>,
+}
+
+const TRACK_COLS_T: &str = "t.id,t.path,t.title,t.artist,t.album_artist,t.album,t.genre,t.year,t.duration,t.artwork_path,t.codec,t.specs,t.replay_gain";
+/// Tracks longer than this count as "long listens" (mixes, DJ sets, live albums).
+const HOME_LONG_SECS: f64 = 600.0;
+const HOME_REPEAT_WINDOW_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
+/// "Forgotten" = played at least once, but not within the last 30 days.
+const HOME_FORGOTTEN_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
+fn home_cover(conn: &Connection, by_artist_col: Option<&str>, album_artist: &str, album: &str) -> (Option<String>, Option<String>) {
+    // Same row rule as query_groups: the smallest track id that has artwork.
+    let found: rusqlite::Result<(String, Option<String>)> = match by_artist_col {
+        None => conn.query_row(
+            "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND album_artist=?1 COLLATE NOCASE AND album=?2 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
+            params![album_artist, album],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ),
+        Some("artist") => conn.query_row(
+            "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
+            params![album],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ),
+        _ => conn.query_row(
+            "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND album_artist=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
+            params![album],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ),
+    };
+    match found.optional().ok().flatten() {
+        Some((id, path)) => (path, Some(id)),
+        None => (None, None),
+    }
+}
+
+/// Album shelf: grouped like the Albums tab (album artist + album). `time_col`
+/// orders by the newest timestamp in the group; `by_plays` orders by the sum of
+/// play counts instead (and drops albums nobody played).
+fn home_albums(conn: &Connection, filter: &str, order_expr: &str, having: &str, limit: i64) -> Result<Vec<HomeGroup>, String> {
+    let sql = format!(
+        "SELECT album_artist,album,COUNT(*),COALESCE(SUM(play_count),0) FROM tracks \
+         WHERE library_owned=1 AND album<>''{} GROUP BY album COLLATE NOCASE, album_artist COLLATE NOCASE{} ORDER BY {} LIMIT ?1",
+        filter, having, order_expr
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows: Vec<(String, String, i64, i64)> = stmt
+        .query_map(params![limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    let mut out = Vec::with_capacity(rows.len());
+    for (album_artist, album, count, plays) in rows {
+        let (cover, artwork_track_id) = home_cover(conn, None, &album_artist, &album);
+        out.push(HomeGroup { key: format!("{}\0{}", album_artist, album), name: album, subtitle: album_artist, count, plays, cover, artwork_track_id });
+    }
+    Ok(out)
+}
+
+fn home_artists(conn: &Connection, column: &str, limit: i64) -> Result<Vec<HomeGroup>, String> {
+    let sql = format!(
+        "SELECT {c},COUNT(DISTINCT album),COUNT(*),SUM(play_count) AS s FROM tracks \
+         WHERE library_owned=1 AND {c}<>'' GROUP BY {c} COLLATE NOCASE HAVING s>0 ORDER BY s DESC,{c} COLLATE NOCASE LIMIT ?1",
+        c = column
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows: Vec<(String, i64, i64, i64)> = stmt
+        .query_map(params![limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    let mut out = Vec::with_capacity(rows.len());
+    for (name, albums, tracks, plays) in rows {
+        let (cover, artwork_track_id) = home_cover(conn, Some(if column == "artist" { "artist" } else { "album_artist" }), "", &name);
+        out.push(HomeGroup {
+            key: name.clone(),
+            name,
+            subtitle: format!("{} albums · {} tracks", albums, tracks),
+            count: tracks,
+            plays,
+            cover,
+            artwork_track_id,
+        });
+    }
+    Ok(out)
+}
+
+fn query_home(conn: &Connection, artist_kind: &str, limit: i64) -> Result<HomeData, String> {
+    let limit = limit.clamp(1, 30);
+    let artist_col = if artist_kind == "artists" { "artist" } else { "album_artist" };
+    let recently_played = home_albums(
+        conn,
+        " AND last_played_at IS NOT NULL",
+        "MAX(last_played_at) DESC, album COLLATE NOCASE",
+        "",
+        limit,
+    )?;
+    let recently_added = home_albums(conn, "", "MAX(added_at) DESC, album COLLATE NOCASE", "", limit)?;
+    let top_albums = home_albums(conn, "", "SUM(play_count) DESC, album COLLATE NOCASE", " HAVING SUM(play_count)>0", 5)?;
+    let top_artists = home_artists(conn, artist_col, 5)?;
+    let total_seconds: f64 = conn
+        .query_row("SELECT COALESCE(SUM(duration),0) FROM tracks WHERE library_owned=1", [], |r| r.get(0))
+        .unwrap_or(0.0);
+    let never_played: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks WHERE library_owned=1 AND play_count=0 AND last_played_at IS NULL", [], |r| r.get(0))
+        .unwrap_or(0);
+    let cutoff = now_ms() - HOME_FORGOTTEN_MS;
+    let forgotten: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tracks WHERE library_owned=1 AND play_count>=1 AND COALESCE(last_played_at,0)<?1",
+            params![cutoff],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    // The most recently STARTED track: the "Continue listening" card.
+    let last_track: Option<DbTrack> = conn
+        .query_row(
+            &format!("{} WHERE library_owned=1 AND last_played_at IS NOT NULL ORDER BY last_played_at DESC,id LIMIT 1", TRACK_SELECT),
+            [],
+            row_track,
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let top_tracks: Vec<HomeTrack> = {
+        let sql = format!("SELECT {},t.play_count FROM tracks t WHERE t.library_owned=1 AND t.play_count>0 ORDER BY t.play_count DESC,t.title COLLATE NOCASE LIMIT 5", TRACK_COLS_T);
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok(HomeTrack { track: row_track(r)?, plays: r.get(13)?, seconds: 0.0 }))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(log_skipped).collect()
+    };
+    // "Recently on repeat": tracks listened to at least 3 times (20s+ each) in the last 30 days.
+    let repeat_tracks: Vec<HomeTrack> = {
+        let sql = format!(
+            "SELECT {},COUNT(*) AS c,SUM(l.seconds) FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+             WHERE l.started_at>=?1 AND l.seconds>=20 AND t.library_owned=1 GROUP BY t.id HAVING c>=3 \
+             ORDER BY c DESC,MAX(l.started_at) DESC LIMIT 5",
+            TRACK_COLS_T
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![now_ms() - HOME_REPEAT_WINDOW_MS], |r| {
+                Ok(HomeTrack { track: row_track(r)?, plays: r.get(13)?, seconds: r.get(14)? })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(log_skipped).collect()
+    };
+    let decades: Vec<HomeDecade> = {
+        let mut stmt = conn
+            .prepare("SELECT (year/10)*10 AS d,COUNT(*) FROM tracks WHERE library_owned=1 AND year>=1900 GROUP BY d ORDER BY d DESC")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok(HomeDecade { decade: r.get(0)?, count: r.get(1)? }))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(log_skipped).collect()
+    };
+    let long_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks WHERE library_owned=1 AND duration>=?1", params![HOME_LONG_SECS], |r| r.get(0))
+        .unwrap_or(0);
+    // "On this day": the same month/day in earlier years (local time).
+    let on_this_day: Vec<OnThisDay> = {
+        let day_match = "strftime('%m-%d',l.started_at/1000,'unixepoch','localtime')=strftime('%m-%d','now','localtime')";
+        let mut years: Vec<(i64, f64)> = Vec::new();
+        {
+            let sql = format!(
+                "SELECT CAST(strftime('%Y',l.started_at/1000,'unixepoch','localtime') AS INTEGER) AS y,SUM(l.seconds) FROM listen_log l \
+                 WHERE {} AND CAST(strftime('%Y',l.started_at/1000,'unixepoch','localtime') AS INTEGER)<CAST(strftime('%Y','now','localtime') AS INTEGER) \
+                 GROUP BY y ORDER BY y DESC LIMIT 3",
+                day_match
+            );
+            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))).map_err(|e| e.to_string())?;
+            years.extend(rows.filter_map(log_skipped));
+        }
+        let mut out = Vec::new();
+        for (year, seconds) in years {
+            let sql = format!(
+                "SELECT {} FROM listen_log l JOIN tracks t ON t.id=l.track_id WHERE {} AND CAST(strftime('%Y',l.started_at/1000,'unixepoch','localtime') AS INTEGER)=?1 \
+                 AND t.library_owned=1 GROUP BY t.id ORDER BY SUM(l.seconds) DESC LIMIT 1",
+                TRACK_COLS_T, day_match
+            );
+            let track = conn.query_row(&sql, params![year], row_track).optional().map_err(|e| e.to_string())?;
+            out.push(OnThisDay { year, seconds, track });
+        }
+        out
+    };
+    Ok(HomeData { recently_played, recently_added, top_artists, top_albums, total_seconds, never_played, forgotten, last_track, top_tracks, repeat_tracks, decades, long_count, on_this_day })
+}
+
+/// Runs on the blocking pool with its own read connection (like `library_groups`).
+#[tauri::command]
+pub async fn library_home(
+    artist_kind: Option<String>,
+    limit: Option<i64>,
+    state: State<'_, LibraryState>,
+) -> Result<HomeData, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<HomeData, String> {
+        let conn = open_db(&db_path)?;
+        query_home(&conn, artist_kind.as_deref().unwrap_or("album-artists"), limit.unwrap_or(12))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Tracks for a Home mix, in the order they should play (capped, so one IPC
+/// call stays small). `kind`: "forgotten" (played before, least recently
+/// first, older than 30 days), "never" (never played), "shuffle" (whole library,
+/// random order). The caller replaces the queue with them and starts the first.
+#[tauri::command]
+pub async fn library_mix_tracks(
+    kind: String,
+    limit: Option<i64>,
+    state: State<'_, LibraryState>,
+) -> Result<Vec<DbTrack>, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<DbTrack>, String> {
+        let conn = open_db(&db_path)?;
+        let limit = limit.unwrap_or(500).clamp(1, 5000);
+        let cutoff = now_ms() - HOME_FORGOTTEN_MS;
+        let (where_extra, order): (String, &str) = match kind.as_str() {
+            "forgotten" => (" AND play_count>=1 AND COALESCE(last_played_at,0)<?1".to_string(), "COALESCE(last_played_at,0) ASC,id"),
+            "never" => (" AND play_count=0 AND last_played_at IS NULL".to_string(), "artist COLLATE NOCASE,album COLLATE NOCASE,title COLLATE NOCASE,id"),
+            "shuffle" => (String::new(), "RANDOM()"),
+            "long" => (format!(" AND duration>={}", HOME_LONG_SECS), "RANDOM()"),
+            other => match other.strip_prefix("decade:").and_then(|d| d.parse::<i64>().ok()) {
+                Some(d) if (1900..2100).contains(&d) => (format!(" AND year>={} AND year<{}", d, d + 10), "RANDOM()"),
+                _ => return Err(format!("unknown mix: {}", other)),
+            },
+        };
+        let sql = format!("{} WHERE library_owned=1{} ORDER BY {} LIMIT {}", TRACK_SELECT, where_extra, order, limit);
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let items: Vec<DbTrack> = if kind == "forgotten" {
+            stmt.query_map(params![cutoff], row_track).map_err(|e| e.to_string())?.filter_map(log_skipped).collect()
+        } else {
+            stmt.query_map([], row_track).map_err(|e| e.to_string())?.filter_map(log_skipped).collect()
+        };
+        Ok(items)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The player reports one listening segment (wall-clock seconds spent
+/// unpaused on a track) at track boundaries. Tiny insert, never blocks playback.
+#[tauri::command]
+pub async fn record_listen(track_id: String, started_at: i64, seconds: f64, state: State<'_, LibraryState>) -> Result<(), String> {
+    if track_id.is_empty() || !(1.0..=6.0 * 3600.0).contains(&seconds) {
+        return Ok(());
+    }
+    let conn = locked_db(&state)?;
+    conn.execute(
+        "INSERT INTO listen_log(track_id,started_at,seconds) VALUES(?1,?2,?3)",
+        params![track_id, started_at, seconds],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_listen_log(state: State<'_, LibraryState>) -> Result<(), String> {
+    let conn = locked_db(&state)?;
+    conn.execute("DELETE FROM listen_log", []).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamedSeconds {
+    name: String,
+    subtitle: String,
+    seconds: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListenStats {
+    seconds: f64,
+    sessions: i64,
+    active_days: i64,
+    prev_seconds: f64,
+    buckets: Vec<f64>,
+    top_artist: Option<NamedSeconds>,
+    top_album: Option<NamedSeconds>,
+    top_track: Option<HomeTrack>,
+    has_any: bool,
+}
+
+/// Listening statistics for [start, end) (epoch ms, computed by the UI in the
+/// user's local time) against the previous period [prev_start, prev_end).
+/// `bucket_ms` splits the range for the bar chart (an hour or a day).
+#[tauri::command]
+pub async fn library_listen_stats(
+    start: i64,
+    end: i64,
+    prev_start: i64,
+    prev_end: i64,
+    bucket_ms: i64,
+    artist_kind: Option<String>,
+    state: State<'_, LibraryState>,
+) -> Result<ListenStats, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<ListenStats, String> {
+        let conn = open_db(&db_path)?;
+        let artist_col = if artist_kind.as_deref() == Some("artists") { "artist" } else { "album_artist" };
+        let (seconds, sessions, active_days): (f64, i64, i64) = conn
+            .query_row(
+                "SELECT COALESCE(SUM(seconds),0),COUNT(*),COUNT(DISTINCT date(started_at/1000,'unixepoch','localtime')) FROM listen_log WHERE started_at>=?1 AND started_at<?2",
+                params![start, end],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(|e| e.to_string())?;
+        let prev_seconds: f64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(seconds),0) FROM listen_log WHERE started_at>=?1 AND started_at<?2",
+                params![prev_start, prev_end],
+                |r| r.get(0),
+            )
+            .unwrap_or(0.0);
+        let has_any: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM listen_log)", [], |r| r.get(0)).unwrap_or(false);
+        let bucket_ms = bucket_ms.max(60_000);
+        let n_buckets = (((end - start) + bucket_ms - 1) / bucket_ms).clamp(1, 400) as usize;
+        let mut buckets = vec![0.0f64; n_buckets];
+        {
+            let mut stmt = conn
+                .prepare("SELECT (started_at-?1)/?3 AS b,SUM(seconds) FROM listen_log WHERE started_at>=?1 AND started_at<?2 GROUP BY b")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![start, end, bucket_ms], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))
+                .map_err(|e| e.to_string())?;
+            for (b, v) in rows.filter_map(log_skipped) {
+                if b >= 0 && (b as usize) < n_buckets {
+                    buckets[b as usize] += v;
+                }
+            }
+        }
+        let top_artist = conn
+            .query_row(
+                &format!(
+                    "SELECT t.{c},SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+                     WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.{c}<>'' GROUP BY t.{c} COLLATE NOCASE ORDER BY s DESC LIMIT 1",
+                    c = artist_col
+                ),
+                params![start, end],
+                |r| Ok(NamedSeconds { name: r.get(0)?, subtitle: String::new(), seconds: r.get(1)? }),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let top_album = conn
+            .query_row(
+                "SELECT t.album,t.album_artist,SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+                 WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.album<>'' \
+                 GROUP BY t.album COLLATE NOCASE,t.album_artist COLLATE NOCASE ORDER BY s DESC LIMIT 1",
+                params![start, end],
+                |r| Ok(NamedSeconds { name: r.get(0)?, subtitle: r.get(1)?, seconds: r.get(2)? }),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let top_track = conn
+            .query_row(
+                &format!(
+                    "SELECT {},COUNT(*),SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+                     WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 GROUP BY t.id ORDER BY s DESC LIMIT 1",
+                    TRACK_COLS_T
+                ),
+                params![start, end],
+                |r| Ok(HomeTrack { track: row_track(r)?, plays: r.get(13)?, seconds: r.get(14)? }),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(ListenStats { seconds, sessions, active_days, prev_seconds, buckets, top_artist, top_album, top_track, has_any })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 const AUTO_MOST_PLAYED_ID: &str = "__auto_most_played__";

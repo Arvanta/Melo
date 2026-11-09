@@ -979,7 +979,7 @@ test("Library exposes Album Artist grouping and keeps track Artist separate", ()
   assert.match(main, /data-libtab="album-artists">Album Artist<\//,
     "the Library must expose an Album Artist tab");
   const lib = readSrc("src/library.ts");
-  assert.match(lib, /let libTab: "artists" \| "album-artists" \| "albums"/,
+  assert.match(lib, /let libTab: "home" \| "artists" \| "album-artists" \| "albums"/,
     "Album Artist must be a first-class Library tab");
   assert.match(lib, /kind: libraryGroupKind\(\)/,
     "the tab must use the backend group query");
@@ -2552,4 +2552,39 @@ test("round 115: bundled Mica — small cover, side panel, no viz button, bars k
   assert.match(mica, /grid-template-rows: 48px minmax\(0, 1fr\) 88px;/);
   assert.doesNotMatch(mica, /@media \(max-width: 560px\)/);
   assert.match(mica, /<div data-melo="waveform"><\/div>/);
+});
+
+test("round 116: Library Home tab — first tab, own renderer, backend queries registered", () => {
+  const main = readSrc("src/main.ts");
+  assert.match(main, /<div class="tabs" id="libraryTabs"[^>]*>\s*<button class="tab" data-libtab="home">[\s\S]*?<span>Home<\/span><\/button>/, "Home is the first tab");
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /initialLibraryNavigation\?\.tab \|\| "home"/, "fresh installs open on Home; a saved tab is kept");
+  assert.match(lib, /if \(libTab === "home"\) \{[\s\S]*?return renderLibraryHome\(reset\);/, "render dispatch");
+  assert.match(lib, /invoke<HomeData>\("library_home", \{ artistKind: savedArtistMode, limit: 12 \}\)/);
+  assert.match(lib, /invoke<Track\[\]>\("library_mix_tracks"/);
+  assert.match(lib, /if \(librarySearch && libTab === "home"\) leaveHomeForSearch\(\);/, "searching leaves Home");
+  const rs = readSrc("src-tauri/src/library_db.rs");
+  assert.match(rs, /pub async fn library_home\(/);
+  assert.match(rs, /pub async fn library_mix_tracks\(/);
+  const mainRs = readSrc("src-tauri/src/main.rs");
+  assert.match(mainRs, /library_db::library_home,/);
+  assert.match(mainRs, /library_db::library_mix_tracks,/);
+  const css = readSrc("src/app.css");
+  assert.match(css, /\.tabs\.is-home #libLayoutSwitch,\s*\.tabs\.is-home #libViewSwitch \{ visibility: hidden; \}/);
+});
+
+test("round 116b: Years tab, tab icons, last tab survives a restart", () => {
+  const main = readSrc("src/main.ts");
+  assert.match(main, /data-libtab="years">[\s\S]*?<span>Years<\/span>/);
+  assert.match(main, /class="tab-ico"/, "tabs carry icons");
+  assert.match(main, /JSON\.stringify\(\{ tab: nav\.tab, artist: null, album: null, genre: null, playlist: null, scrollTop: 0 \}\)/,
+    "a fresh launch keeps only the last tab");
+  const lib = readSrc("src/library.ts");
+  assert.match(lib, /const YEAR_SCOPE_PREFIX = "\\u0001year="/);
+  assert.match(lib, /if \(libTab === "years"\) return \{ genre: YEAR_SCOPE_PREFIX \+ group\.name \};/);
+  assert.match(lib, /class="home-rank-play"/);
+  const rs = readSrc("src-tauri/src/library_db.rs");
+  assert.match(rs, /"years" => \("CAST\(year AS TEXT\)"/);
+  assert.match(rs, /strip_prefix\("\\u\{1\}year="\)/);
+  assert.match(rs, /order_by = if kind == "years" \{ "year DESC" \}/);
 });

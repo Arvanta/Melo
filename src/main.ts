@@ -128,9 +128,10 @@ app.innerHTML = `
           </button>
         </div>
         <div class="tabs" id="libraryTabs" style="flex-shrink:0;">
+          <button class="tab" data-libtab="home"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg><span>Home</span></button>
           <div class="library-artist-mode-picker" id="libraryArtistMode">
             <button type="button" class="tab library-tab-current" id="libraryArtistModeButton" aria-label="Open selected artist grouping">
-              <span id="libraryArtistModeLabel">Album Artist</span>
+              <svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"/></svg><span id="libraryArtistModeLabel">Album Artist</span>
             </button>
             <button type="button" class="tab library-tab-arrow" id="libraryArtistModeArrow" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose artist grouping" title="Choose Artist or Album Artist">
               <svg class="library-artist-mode-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
@@ -140,9 +141,10 @@ app.innerHTML = `
               <button type="button" role="option" data-libtab="album-artists">Album Artist</button>
             </div>
           </div>
-          <button class="tab" data-libtab="albums">Albums</button>
-          <button class="tab" data-libtab="genres">Genres</button>
-          <button class="tab" data-libtab="playlists">Playlists</button>
+          <button class="tab" data-libtab="albums"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg><span>Albums</span></button>
+          <button class="tab" data-libtab="genres"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8zM7.5 7.5h.01"/></svg><span>Genres</span></button>
+          <button class="tab" data-libtab="years"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg><span>Years</span></button>
+          <button class="tab" data-libtab="playlists"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span>Playlists</span></button>
           <div class="lib-switches">
           <button type="button" class="lib-side-toggle" id="btn-lib-artistbar" aria-expanded="false" aria-controls="libArtistSidebar" aria-label="Show artist list" title="Show artist list">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/><path d="M5.5 9h1.5M5.5 12h1.5M5.5 15h1.5"/></svg>
@@ -2913,9 +2915,16 @@ if (urlPanel) {
   else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
   else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); setupSkinEngine(showToast); }
 } else {
-  // Navigation is remembered while this app process remains alive, but a
-  // fresh launch must always start Library at its first page.
-  try { localStorage.removeItem("melo-library-navigation"); } catch {}
+  // A fresh launch reopens Library on the tab that was last used, but not
+  // inside an artist / album / genre / year drill-in and not scrolled.
+  try {
+    const nav = JSON.parse(localStorage.getItem("melo-library-navigation") || "null");
+    if (nav && typeof nav.tab === "string") {
+      localStorage.setItem("melo-library-navigation", JSON.stringify({ tab: nav.tab, artist: null, album: null, genre: null, playlist: null, scrollTop: 0 }));
+    } else {
+      localStorage.removeItem("melo-library-navigation");
+    }
+  } catch {}
   setupPlayer(audio, showToast);
   setupLibrary(audio, showToast);
   setupEqualizer(audio, showToast);

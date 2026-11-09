@@ -108,7 +108,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const LIBRARY_ARTIST_MODE_KEY = "melo-library-artist-mode";
   let savedArtistMode: "artists" | "album-artists" = localStorage.getItem(LIBRARY_ARTIST_MODE_KEY) === "artists" ? "artists" : "album-artists";
   type LibraryNavigation = {
-    tab: "artists" | "album-artists" | "albums" | "artist-albums" | "genres" | "playlists";
+    tab: "home" | "artists" | "album-artists" | "albums" | "artist-albums" | "genres" | "years" | "playlists";
     artist: string | null;
     album: string | null;
     genre: string | null;
@@ -118,7 +118,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function readLibraryNavigation(): LibraryNavigation | null {
     try {
       const value = JSON.parse(localStorage.getItem(LIBRARY_NAVIGATION_KEY) || "null");
-      if (!value || !["artists", "album-artists", "albums", "genres", "playlists"].includes(value.tab)) return null;
+      if (!value || !["home", "artists", "album-artists", "albums", "genres", "years", "playlists"].includes(value.tab)) return null;
       return {
         tab: value.tab,
         artist: typeof value.artist === "string" ? value.artist : null,
@@ -132,7 +132,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
   const initialLibraryNavigation = readLibraryNavigation();
-  let libTab: "artists" | "album-artists" | "albums" | "artist-albums" | "genres" | "playlists" = initialLibraryNavigation?.tab || savedArtistMode;
+  let libTab: "home" | "artists" | "album-artists" | "albums" | "artist-albums" | "genres" | "years" | "playlists" = initialLibraryNavigation?.tab || "home";
   let selectedArtist: string | null = initialLibraryNavigation?.artist || null;
   let selectedAlbum: string | null = initialLibraryNavigation?.album || null;
   let selectedGenre: string | null = initialLibraryNavigation?.genre || null;
@@ -247,7 +247,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const LIB_GROUP_COLS_GRID = ";--lib-cols:28px minmax(140px,2.2fr) minmax(110px,1.5fr) 56px;padding-left:8px;padding-right:6px;margin-left:0;margin-right:0";
   function libGroupColsHeader(): string {
     const kind = libraryGroupKind();
-    const nameLabel = kind === "albums" ? "Album" : kind === "genres" ? "Genre" : kind === "album-artists" ? "Album Artist" : "Artist";
+    const nameLabel = kind === "albums" ? "Album" : kind === "genres" ? "Genre" : kind === "years" ? "Year" : kind === "album-artists" ? "Album Artist" : "Artist";
     return `<span></span><span class="lc">${nameLabel}</span><span class="lc">Details</span><span class="lc" style="text-align:right">Tracks</span>`;
   }
   function libColsHeader(): string {
@@ -269,7 +269,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let libLayout: LibLayout = localStorage.getItem("melo-lib-layout") === "list" ? "list" : "albums";
   const SHEET_TRACK_LIMIT = 5000;
   function isLibraryTrackDisplay(): boolean {
-    if (libTab === "playlists") return false;
+    if (libTab === "playlists" || libTab === "home") return false;
     return libraryMode() === "tracks" || !!librarySearch || ((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
   }
   function sheetModeActive(): boolean {
@@ -1302,20 +1302,24 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Artists tab: click an artist → albums with their tracks listed under
   // Each album (no extra drill). Albums/Genres tabs still drill one level
   // Into a flat track list.
+  // Round 116: the Years tab reuses the genre scope slot with this reserved
+  // prefix (the Rust filter turns it into `year = N`).
+  const YEAR_SCOPE_PREFIX = "\u0001year=";
   function libraryMode(): "groups" | "tracks" {
     if (libTab === "artists" || libTab === "album-artists") return "groups";
     if (libTab === "albums") return selectedAlbum ? "tracks" : "groups";
     return selectedGenre ? "tracks" : "groups";
   }
 
-  function libraryGroupKind(): "artists" | "album-artists" | "albums" | "artist-albums" | "genres" {
-    return libTab === "playlists" ? "artists" : libTab;
+  function libraryGroupKind(): "artists" | "album-artists" | "albums" | "artist-albums" | "genres" | "years" {
+    return libTab === "playlists" || libTab === "home" ? "artists" : libTab;
   }
 
   function libraryCrumb(): string {
     if ((libTab === "artists" || libTab === "album-artists") && selectedArtist) return selectedArtist;
     if (libTab === "albums" && selectedAlbum) return selectedAlbum;
     if (libTab === "genres" && selectedGenre) return selectedGenre;
+    if (libTab === "years" && selectedGenre) return selectedGenre.replace(YEAR_SCOPE_PREFIX, "");
     return "";
   }
 
@@ -1628,10 +1632,515 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
 
+  // ───────── Home tab (round 116) ─────────
+  type HomeGroup = GroupRow & { plays: number };
+  type HomeTrack = { track: Track; plays: number; seconds: number };
+  type NamedSeconds = { name: string; subtitle: string; seconds: number };
+  type ListenStats = {
+    seconds: number; sessions: number; activeDays: number; prevSeconds: number; buckets: number[];
+    topArtist: NamedSeconds | null; topAlbum: NamedSeconds | null; topTrack: HomeTrack | null; hasAny: boolean;
+  };
+  type HomeData = {
+    recentlyPlayed: HomeGroup[]; recentlyAdded: HomeGroup[]; topArtists: HomeGroup[]; topAlbums: HomeGroup[];
+    totalSeconds: number; neverPlayed: number; forgotten: number; lastTrack: Track | null;
+    topTracks: HomeTrack[]; repeatTracks: HomeTrack[]; decades: { decade: number; count: number }[];
+    longCount: number; onThisDay: { year: number; seconds: number; track: Track | null }[];
+  };
+  let homeRequest = 0;
+  let homeCache: HomeData | null = null;
+  let homeStatsToken = 0;
+  let homeCustomizing = false;
+
+  // Section order / visibility (Customize panel). New sections are appended.
+  const HOME_SECTIONS: { id: string; label: string }[] = [
+    { id: "resume", label: "Continue listening" },
+    { id: "stats", label: "Listening time" },
+    { id: "recentlyPlayed", label: "Recently played" },
+    { id: "recentlyAdded", label: "Recently added" },
+    { id: "ranks", label: "Top artists & albums" },
+    { id: "tracks", label: "Top tracks & on repeat" },
+    { id: "onThisDay", label: "On this day" },
+    { id: "decades", label: "Decades" },
+    { id: "mixes", label: "Quick mixes" },
+  ];
+  type HomeLayout = { order: string[]; hidden: string[] };
+  function readHomeLayout(): HomeLayout {
+    let order: string[] = [];
+    let hidden: string[] = [];
+    try {
+      const raw = JSON.parse(localStorage.getItem("melo-home-layout") || "null");
+      if (raw && Array.isArray(raw.order)) order = raw.order.filter((x: unknown) => typeof x === "string");
+      if (raw && Array.isArray(raw.hidden)) hidden = raw.hidden.filter((x: unknown) => typeof x === "string");
+    } catch {}
+    const known = HOME_SECTIONS.map(s => s.id);
+    order = order.filter(id => known.includes(id));
+    for (const id of known) if (!order.includes(id)) order.push(id);
+    return { order, hidden: hidden.filter(id => known.includes(id)) };
+  }
+  function writeHomeLayout(layout: HomeLayout) {
+    try { localStorage.setItem("melo-home-layout", JSON.stringify(layout)); } catch {}
+  }
+
+  // Statistics ranges, in LOCAL time; weeks start on Monday (ISO 8601).
+  type HomeRangeId = "today" | "yesterday" | "week" | "lastweek" | "month" | "lastmonth" | "year" | "lastyear";
+  const HOME_RANGES: { id: HomeRangeId; label: string; vs: string }[] = [
+    { id: "today", label: "Today", vs: "yesterday" },
+    { id: "yesterday", label: "Yesterday", vs: "the day before" },
+    { id: "week", label: "This week", vs: "last week" },
+    { id: "lastweek", label: "Last week", vs: "the week before" },
+    { id: "month", label: "This month", vs: "last month" },
+    { id: "lastmonth", label: "Last month", vs: "the month before" },
+    { id: "year", label: "This year", vs: "last year" },
+    { id: "lastyear", label: "Last year", vs: "the year before" },
+  ];
+  function readHomeRange(): HomeRangeId {
+    try {
+      const v = localStorage.getItem("melo-home-range") as HomeRangeId | null;
+      if (v && HOME_RANGES.some(r => r.id === v)) return v;
+    } catch {}
+    return "week";
+  }
+  function homeRangeBounds(id: HomeRangeId) {
+    const now = new Date();
+    const day = (d: Date, n = 0) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+    const today = day(now);
+    const monday = (d: Date) => day(d, -((d.getDay() + 6) % 7));
+    let start: Date, end: Date, prevStart: Date, prevEnd: Date;
+    let unit: "hour" | "day" | "week" | "month" = "day";
+    switch (id) {
+      case "today": start = today; end = day(today, 1); prevStart = day(today, -1); prevEnd = today; unit = "hour"; break;
+      case "yesterday": start = day(today, -1); end = today; prevStart = day(today, -2); prevEnd = start; unit = "hour"; break;
+      case "week": start = monday(today); end = day(start, 7); prevStart = day(start, -7); prevEnd = start; unit = "week"; break;
+      case "lastweek": end = monday(today); start = day(end, -7); prevStart = day(start, -7); prevEnd = start; unit = "week"; break;
+      case "month": start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now.getFullYear(), now.getMonth() + 1, 1); prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1); prevEnd = start; unit = "day"; break;
+      case "lastmonth": end = new Date(now.getFullYear(), now.getMonth(), 1); start = new Date(now.getFullYear(), now.getMonth() - 1, 1); prevStart = new Date(now.getFullYear(), now.getMonth() - 2, 1); prevEnd = start; unit = "day"; break;
+      case "year": start = new Date(now.getFullYear(), 0, 1); end = new Date(now.getFullYear() + 1, 0, 1); prevStart = new Date(now.getFullYear() - 1, 0, 1); prevEnd = start; unit = "month"; break;
+      default: end = new Date(now.getFullYear(), 0, 1); start = new Date(now.getFullYear() - 1, 0, 1); prevStart = new Date(now.getFullYear() - 2, 0, 1); prevEnd = start; unit = "month"; break;
+    }
+    return {
+      start: start.getTime(), end: end.getTime(), prevStart: prevStart.getTime(), prevEnd: prevEnd.getTime(),
+      bucketMs: unit === "hour" ? 3600_000 : 86_400_000, unit, startDate: start,
+    };
+  }
+  function homeDuration(seconds: number): string {
+    const s = Math.max(0, Math.round(seconds));
+    if (s < 60) return `${s} s`;
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(s / 3600);
+    const rem = Math.round((s - h * 3600) / 60);
+    return rem ? `${h} h ${rem} min` : `${h} h`;
+  }
+  function homeChart(stats: ListenStats, b: ReturnType<typeof homeRangeBounds>): string {
+    let values = stats.buckets;
+    let labels: string[] = [];
+    if (b.unit === "month") {
+      const months = new Array(12).fill(0) as number[];
+      values.forEach((v, i) => { months[new Date(b.start + i * 86_400_000 + 43_200_000).getMonth()] += v; });
+      values = months;
+      labels = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+    } else if (b.unit === "week") {
+      labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      values = values.slice(0, 7);
+    } else if (b.unit === "hour") {
+      labels = values.map((_, i) => (i % 6 === 0 ? String(i) : ""));
+    } else {
+      labels = values.map((_, i) => ((i + 1) % 5 === 0 || i === 0 ? String(i + 1) : ""));
+    }
+    const max = Math.max(1, ...values);
+    const bars = values.map((v, i) => `<div class="home-bar" title="${esc(homeDuration(v))}"><div class="home-bar-fill" style="height:${Math.max(v > 0 ? 4 : 0, Math.round((v / max) * 100))}%"></div><span class="home-bar-label">${esc(labels[i] || "")}</span></div>`).join("");
+    return `<div class="home-chart">${bars}</div>`;
+  }
+  function homeStatsBodyHtml(stats: ListenStats, rangeId: HomeRangeId): string {
+    const range = HOME_RANGES.find(r => r.id === rangeId)!;
+    const b = homeRangeBounds(rangeId);
+    if (!stats.hasAny) {
+      return `<div class="home-stats-empty">Melo starts counting your listening time from now on. Play something and it will show up here.</div>`;
+    }
+    if (!stats.seconds) {
+      return `<div class="home-stats-empty">Nothing played in this period.</div>`;
+    }
+    let delta = "";
+    if (stats.prevSeconds > 0) {
+      const pct = Math.round(((stats.seconds - stats.prevSeconds) / stats.prevSeconds) * 100);
+      delta = `<span class="home-delta ${pct >= 0 ? "up" : "down"}">${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct)}%</span><span class="home-delta-note">vs ${esc(range.vs)}</span>`;
+    }
+    const facts: string[] = [];
+    if (stats.topArtist) facts.push(`<div class="home-fact"><span>Top artist</span><b title="${esc(stats.topArtist.name)}">${esc(stats.topArtist.name)}</b><em>${esc(homeDuration(stats.topArtist.seconds))}</em></div>`);
+    if (stats.topAlbum) facts.push(`<div class="home-fact"><span>Top album</span><b title="${esc(stats.topAlbum.name)}">${esc(stats.topAlbum.name)}</b><em>${esc(homeDuration(stats.topAlbum.seconds))}</em></div>`);
+    if (stats.topTrack) facts.push(`<div class="home-fact"><span>Top track</span><b title="${esc(stats.topTrack.track.title)}">${esc(stats.topTrack.track.title)}</b><em>${esc(homeDuration(stats.topTrack.seconds))}</em></div>`);
+    return `<div class="home-stats-main">
+      <div class="home-stats-total"><div class="home-stats-big">${esc(homeDuration(stats.seconds))}</div><div class="home-stats-sub">${delta}</div>
+        <div class="home-stats-meta">${stats.sessions} ${stats.sessions === 1 ? "listen" : "listens"} · ${stats.activeDays} ${stats.activeDays === 1 ? "day" : "days"}</div></div>
+      ${homeChart(stats, b)}
+    </div>
+    <div class="home-facts">${facts.join("")}</div>`;
+  }
+  async function fillHomeStats() {
+    const host = trackList?.querySelector<HTMLElement>("#homeStatsBody");
+    if (!host || !invoke) return;
+    const id = readHomeRange();
+    const token = ++homeStatsToken;
+    const b = homeRangeBounds(id);
+    try {
+      const stats = await invoke<ListenStats>("library_listen_stats", {
+        start: b.start, end: b.end, prevStart: b.prevStart, prevEnd: b.prevEnd, bucketMs: b.bucketMs, artistKind: savedArtistMode,
+      });
+      if (token !== homeStatsToken || !host.isConnected) return;
+      host.innerHTML = homeStatsBodyHtml(stats, id);
+    } catch {
+      if (token === homeStatsToken && host.isConnected) host.innerHTML = `<div class="home-stats-empty">Statistics are unavailable right now.</div>`;
+    }
+  }
+
+  function leaveHomeForSearch() {
+    libTab = savedArtistMode;
+    resetLibrarySelection();
+    persistLibraryNavigation();
+    syncLibraryTabButton();
+    syncArtistSidebarControls();
+    if (artistSidebarOpen) void renderArtistSidebarData();
+  }
+  function homeGreeting(): string {
+    const h = new Date().getHours();
+    return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  }
+  function homeHours(seconds: number): string {
+    const h = seconds / 3600;
+    return h >= 100 ? `${Math.round(h)} h` : h >= 1 ? `${h.toFixed(1).replace(/\.0$/, "")} h` : `${Math.max(1, Math.round(seconds / 60))} min`;
+  }
+  function homeCoverHtml(g: { artworkTrackId?: string; cover?: string; name: string }, cls: string, fallback: string): string {
+    const cover = resolvedCover(g.artworkTrackId, artworkUrl(g.cover));
+    return cover
+      ? `<div class="${cls}" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(g.artworkTrackId || "")}"></div>`
+      : `<div class="${cls}" data-artwork-id="${esc(g.artworkTrackId || "")}">${fallback}</div>`;
+  }
+  function homeShelfHtml(title: string, groups: HomeGroup[], kind: string): string {
+    if (!groups.length) return "";
+    const cards = groups.map((g, i) => `<div class="home-card" data-home-open="${kind}" data-home-idx="${i}">
+      <div class="home-cover-wrap">${homeCoverHtml(g, "home-cover", "💿")}<button type="button" class="home-cover-play" data-home-play="${kind}" data-home-idx="${i}" title="Play ${esc(g.name)}" aria-label="Play ${esc(g.name)}">${iconPlay(13)}</button></div>
+      <div class="home-card-title" title="${esc(g.name)}">${esc(g.name)}</div>
+      <div class="home-card-sub">${esc(g.subtitle)}</div>
+    </div>`).join("");
+    return `<section class="home-section"><h2 class="home-h2">${esc(title)}</h2><div class="home-grid">${cards}</div></section>`;
+  }
+  function homeRankHtml(title: string, groups: HomeGroup[], kind: string, artistRows: boolean): string {
+    if (!groups.length) return "";
+    const rows = groups.map((g, i) => `<div class="home-rank-row" data-home-open="${kind}" data-home-idx="${i}">
+      <span class="home-rank-n">${i + 1}</span>
+      ${homeCoverHtml(g, `home-rank-cover${artistRows ? " round" : ""}`, artistRows ? esc(((g.name || "")[0] || "?").toUpperCase()) : "💿")}
+      <div class="home-rank-txt"><div class="home-rank-name" title="${esc(g.name)}">${esc(g.name)}</div><div class="home-rank-sub">${esc(g.subtitle)}</div></div>
+      <span class="home-rank-plays">${g.plays} ${g.plays === 1 ? "play" : "plays"}</span>
+      <button type="button" class="home-rank-play" data-home-play="${kind}" data-home-idx="${i}" title="Play ${esc(g.name)}" aria-label="Play ${esc(g.name)}">${iconPlay(12)}</button>
+    </div>`).join("");
+    return `<div class="home-rank"><div class="home-rank-head"><h2 class="home-h2">${esc(title)}</h2><span class="home-rank-note">by plays</span></div>${rows}</div>`;
+  }
+  function homeTrackRankHtml(title: string, note: string, items: HomeTrack[], kind: "top" | "repeat"): string {
+    if (!items.length) return "";
+    const rows = items.map((it, i) => {
+      const t = normalizeTrack(it.track);
+      const cover = resolvedCover(t.id, t.cover);
+      const count = kind === "top"
+        ? `${it.plays} ${it.plays === 1 ? "play" : "plays"}`
+        : `${it.plays}× · ${homeDuration(it.seconds)}`;
+      return `<div class="home-rank-row" data-home-trackrow="${kind}" data-home-idx="${i}">
+        <span class="home-rank-n">${i + 1}</span>
+        ${cover ? `<div class="home-rank-cover" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(t.id)}"></div>` : `<div class="home-rank-cover" data-artwork-id="${esc(t.id)}">♪</div>`}
+        <div class="home-rank-txt"><div class="home-rank-name" title="${esc(t.title)}">${esc(t.title)}</div><div class="home-rank-sub">${esc(t.artist)}</div></div>
+        <span class="home-rank-plays">${esc(count)}</span>
+        <button type="button" class="home-rank-play" data-home-trackplay="${kind}" data-home-idx="${i}" title="Play ${esc(t.title)}" aria-label="Play ${esc(t.title)}">${iconPlay(12)}</button>
+      </div>`;
+    }).join("");
+    return `<div class="home-rank"><div class="home-rank-head"><h2 class="home-h2">${esc(title)}</h2><span class="home-rank-note">${esc(note)}</span></div>${rows}</div>`;
+  }
+  async function playHomeMix(kind: string) {
+    if (!invoke || groupPlayBusy) return;
+    groupPlayBusy = true;
+    try {
+      const raw = await invoke<Track[]>("library_mix_tracks", { kind, limit: kind === "shuffle" ? 2000 : 500 });
+      const list = (raw || []).map(normalizeTrack);
+      if (!list.length) return;
+      await replaceQueueWith(list);
+      await playFromDbQueue(list[0], true, 0);
+    } catch (e) {
+      toast("Couldn't start this mix: " + String(e));
+    } finally {
+      groupPlayBusy = false;
+    }
+  }
+  /** Replace the queue with a short list (Top tracks, On repeat, …) and start at `index`. */
+  async function playHomeTrackList(tracks: Track[], index: number) {
+    if (!invoke || groupPlayBusy || !tracks.length) return;
+    groupPlayBusy = true;
+    try {
+      const list = tracks.map(normalizeTrack);
+      await replaceQueueWith(list);
+      await playFromDbQueue(list[index] || list[0], true, Math.min(index, list.length - 1));
+    } catch (e) {
+      toast("Couldn't play this track: " + String(e));
+    } finally {
+      groupPlayBusy = false;
+    }
+  }
+  async function playHomeRandomAlbum() {
+    if (!invoke || groupPlayBusy) return;
+    try {
+      const first = await invoke<Page<GroupRow>>("library_groups", { kind: "albums", search: null, artist: null, limit: 1, offset: 0, includeTotal: true });
+      const total = first.total || 0;
+      if (!total) return;
+      const offset = Math.floor(Math.random() * total);
+      const page = total === 1 ? first : await invoke<Page<GroupRow>>("library_groups", { kind: "albums", search: null, artist: null, limit: 1, offset, includeTotal: false });
+      const g = page.items[0];
+      if (!g) return;
+      const parts = String(g.key || "").split("\0");
+      await playGroupScope({ albumArtist: parts[0] || undefined, album: parts[1] || g.name });
+    } catch (e) {
+      toast("Couldn't pick an album: " + String(e));
+    }
+  }
+  function openHomeGroup(kind: string, g: HomeGroup) {
+    const parts = String(g.key || "").split("\0");
+    if (kind === "artist") {
+      libTab = savedArtistMode;
+      selectedArtist = g.name;
+      selectedAlbum = null;
+    } else {
+      libTab = "albums";
+      selectedArtist = parts[0] || null;
+      selectedAlbum = parts[1] || g.name;
+    }
+    selectedGenre = null;
+    savedGroupsScrollTop = 0;
+    clearLibrarySelection();
+    persistLibraryNavigation();
+    syncLibraryTabButton();
+    syncArtistSidebarControls();
+    if (artistSidebarOpen) void renderArtistSidebarData();
+    renderLibraryVirtual(true);
+  }
+  function playHomeGroup(kind: string, g: HomeGroup) {
+    const parts = String(g.key || "").split("\0");
+    if (kind === "artist") void playGroupScope(savedArtistMode === "artists" ? { artist: g.name } : { albumArtist: g.name });
+    else void playGroupScope({ albumArtist: parts[0] || undefined, album: parts[1] || g.name });
+  }
+  async function playHomeLastTrack(track: Track) {
+    if (!invoke || groupPlayBusy) return;
+    groupPlayBusy = true;
+    try {
+      if (track.album) {
+        const args = { artist: null, albumArtist: track.albumArtist || null, album: track.album, genre: null };
+        const count = await invoke<number>("replace_queue_from_group", args);
+        if (count) {
+          const page = await invoke<Page<Track>>("library_tracks", { search: null, field: null, ...args, sort: "title-asc", limit: 5000, offset: 0 });
+          const idx = page.items.findIndex(t => t.id === track.id);
+          if (idx >= 0) { await playFromDbQueue(normalizeTrack(page.items[idx]), true, idx); return; }
+        }
+      }
+      await replaceQueueWith([track]);
+      await playFromDbQueue(track, true, 0);
+    } catch (e) {
+      toast("Couldn't play this track: " + String(e));
+    } finally {
+      groupPlayBusy = false;
+    }
+  }
+
+  function homeCustomizeHtml(layout: HomeLayout): string {
+    const rows = layout.order.map((id, i) => {
+      const label = HOME_SECTIONS.find(s => s.id === id)?.label || id;
+      const shown = !layout.hidden.includes(id);
+      return `<div class="home-cz-row"><label class="home-cz-label"><input type="checkbox" data-cz-toggle="${id}" ${shown ? "checked" : ""}><span>${esc(label)}</span></label>
+        <button type="button" class="home-cz-move" data-cz-move="${id}" data-cz-dir="-1" ${i === 0 ? "disabled" : ""} aria-label="Move ${esc(label)} up" title="Move up">↑</button>
+        <button type="button" class="home-cz-move" data-cz-move="${id}" data-cz-dir="1" ${i === layout.order.length - 1 ? "disabled" : ""} aria-label="Move ${esc(label)} down" title="Move down">↓</button></div>`;
+    }).join("");
+    return `<div class="home-cz"><div class="home-cz-title">Customize Home</div>${rows}
+      <div class="home-cz-foot"><button type="button" class="home-btn-ghost" data-cz-reset>Reset layout</button><button type="button" class="home-btn-ghost" data-cz-clear>Clear listening history…</button></div></div>`;
+  }
+
+  function homeSectionsHtml(data: HomeData, stats: Stats): Record<string, string> {
+    const lt = data.lastTrack ? normalizeTrack(data.lastTrack) : null;
+    const ltCover = lt ? resolvedCover(lt.id, lt.cover) : "";
+    const out: Record<string, string> = {};
+    out.resume = lt ? `<section class="home-resume">
+        ${ltCover ? `<div class="home-resume-cover" style="background-image:url('${esc(ltCover)}');background-size:cover;background-position:center" data-artwork-id="${esc(lt.id)}"></div>` : `<div class="home-resume-cover" data-artwork-id="${esc(lt.id)}">♪</div>`}
+        <div class="home-resume-txt">
+          <span class="home-eyebrow">CONTINUE LISTENING</span>
+          <div class="home-resume-title" title="${esc(lt.title)}">${esc(lt.title)}</div>
+          <div class="home-resume-sub">${esc(lt.artist)}${lt.album ? ` · ${esc(lt.album)}` : ""}</div>
+          <div class="home-resume-actions"><button type="button" class="home-btn-primary" id="homeResume">${iconPlay(12)}<span>Play</span></button>${lt.album ? `<button type="button" class="home-btn-ghost" id="homeOpenAlbum">Open album</button>` : ""}</div>
+        </div></section>` : "";
+    const range = readHomeRange();
+    out.stats = `<section class="home-section"><div class="home-stats-head"><h2 class="home-h2">Listening time</h2>
+        <div class="home-ranges" role="tablist" aria-label="Period">${HOME_RANGES.map(r => `<button type="button" class="home-range${r.id === range ? " active" : ""}" data-home-range="${r.id}" role="tab" aria-selected="${r.id === range}">${esc(r.label)}</button>`).join("")}</div></div>
+        <div class="home-stats-card" id="homeStatsBody"><div class="home-stats-empty">Loading…</div></div></section>`;
+    out.recentlyPlayed = homeShelfHtml("Recently played", data.recentlyPlayed, "recentlyPlayed");
+    out.recentlyAdded = homeShelfHtml("Recently added", data.recentlyAdded, "recentlyAdded");
+    out.ranks = (data.topArtists.length || data.topAlbums.length)
+      ? `<div class="home-ranks">${homeRankHtml("Top artists", data.topArtists, "artist", true)}${homeRankHtml("Top albums", data.topAlbums, "topAlbums", false)}</div>` : "";
+    const tracksHtml = homeTrackRankHtml("Top tracks", "by plays", data.topTracks, "top") + homeTrackRankHtml("Recently on repeat", "last 30 days", data.repeatTracks, "repeat");
+    out.tracks = tracksHtml ? `<div class="home-ranks">${tracksHtml}</div>` : "";
+    out.onThisDay = data.onThisDay.length ? `<section class="home-section"><h2 class="home-h2">On this day</h2><div class="home-otd">${data.onThisDay.map((d, i) => {
+      const t = d.track ? normalizeTrack(d.track) : null;
+      return `<div class="home-otd-row"><span class="home-otd-year">${d.year}</span><div class="home-rank-txt"><div class="home-rank-name">${t ? esc(t.title) : "Listening"}</div><div class="home-rank-sub">${t ? esc(t.artist) + " · " : ""}${esc(homeDuration(d.seconds))} that day</div></div>${t ? `<button type="button" class="home-rank-play" data-home-otd="${i}" title="Play ${esc(t.title)}" aria-label="Play ${esc(t.title)}">${iconPlay(12)}</button>` : ""}</div>`;
+    }).join("")}</div></section>` : "";
+    out.decades = data.decades.length >= 2 ? `<section class="home-section"><h2 class="home-h2">Decades</h2><div class="home-decades">${data.decades.map(d =>
+      `<button type="button" class="home-decade" data-home-decade="${d.decade}" title="Play a shuffled mix from the ${d.decade}s"><span class="home-decade-name">${d.decade}s</span><span class="home-decade-count">${d.count.toLocaleString()} tracks</span><span class="home-decade-play">${iconPlay(11)}</span></button>`).join("")}</div></section>` : "";
+    const mixCard = (id: string, title: string, sub: string, tone: string) => `<button type="button" class="home-mix ${tone}" data-home-mix="${id}"><span class="home-mix-txt"><span class="home-mix-title">${esc(title)}</span><span class="home-mix-sub">${esc(sub)}</span></span><span class="home-mix-play">${iconPlay(13)}</span></button>`;
+    out.mixes = `<section class="home-section"><h2 class="home-h2">Quick mixes</h2><div class="home-mixes">${[
+      data.forgotten ? mixCard("forgotten", "Forgotten favourites", `${data.forgotten.toLocaleString()} tracks you haven't played in a while`, "tone-a") : "",
+      mixCard("album", "Random album", "Surprise me", "tone-b"),
+      data.neverPlayed ? mixCard("never", "Never played", `${data.neverPlayed.toLocaleString()} tracks waiting for a first listen`, "tone-c") : "",
+      data.longCount ? mixCard("long", "Long listens", `${data.longCount.toLocaleString()} tracks over 10 minutes`, "tone-e") : "",
+      mixCard("shuffle", "Shuffle library", "Everything, in random order", "tone-d"),
+    ].join("")}</div></section>`;
+    void stats;
+    return out;
+  }
+
+  function paintHome(data: HomeData, stats: Stats) {
+    if (!trackList) return;
+    const layout = readHomeLayout();
+    const sections = homeSectionsHtml(data, stats);
+    const chips = `<span class="home-chip">${svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', 13)}<b>${esc(homeHours(data.totalSeconds))}</b> of music</span>`;
+    const body = layout.order.filter(id => !layout.hidden.includes(id)).map(id => sections[id] || "").join("");
+    trackList.innerHTML = `<div class="home">
+      <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead">Pick up where you left off, or start something new.</p></div>
+        <div class="home-top-right"><div class="home-chips">${chips}</div><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">Customize</button></div></div>
+      ${homeCustomizing ? homeCustomizeHtml(layout) : ""}
+      ${body}
+    </div>`;
+    const lt = data.lastTrack ? normalizeTrack(data.lastTrack) : null;
+    const lists: Record<string, HomeGroup[]> = { recentlyPlayed: data.recentlyPlayed, recentlyAdded: data.recentlyAdded, topAlbums: data.topAlbums, artist: data.topArtists };
+    const groupOf = (el: HTMLElement | null, attr: string): { kind: string; g: HomeGroup } | null => {
+      const kind = el?.getAttribute(attr) || "";
+      const g = lists[kind]?.[Number(el?.getAttribute("data-home-idx"))];
+      return g ? { kind: kind === "artist" ? "artist" : "album", g } : null;
+    };
+    const trackLists: Record<string, HomeTrack[]> = { top: data.topTracks, repeat: data.repeatTracks };
+    trackList.onclick = event => {
+      const target = event.target as HTMLElement;
+      const playBtn = target.closest<HTMLElement>("[data-home-play]");
+      if (playBtn) { event.stopPropagation(); const hit = groupOf(playBtn, "data-home-play"); if (hit) playHomeGroup(hit.kind, hit.g); return; }
+      const trackPlay = target.closest<HTMLElement>("[data-home-trackplay]");
+      if (trackPlay) {
+        const items = trackLists[trackPlay.getAttribute("data-home-trackplay") || ""] || [];
+        void playHomeTrackList(items.map(i => i.track), Number(trackPlay.getAttribute("data-home-idx")));
+        return;
+      }
+      const trackRow = target.closest<HTMLElement>("[data-home-trackrow]");
+      if (trackRow) {
+        const items = trackLists[trackRow.getAttribute("data-home-trackrow") || ""] || [];
+        void playHomeTrackList(items.map(i => i.track), Number(trackRow.getAttribute("data-home-idx")));
+        return;
+      }
+      const otd = target.closest<HTMLElement>("[data-home-otd]");
+      if (otd) {
+        const d = data.onThisDay[Number(otd.getAttribute("data-home-otd"))];
+        if (d?.track) void playHomeTrackList([d.track], 0);
+        return;
+      }
+      const decade = target.closest<HTMLElement>("[data-home-decade]");
+      if (decade) { void playHomeMix("decade:" + decade.getAttribute("data-home-decade")); return; }
+      const rangeBtn = target.closest<HTMLElement>("[data-home-range]");
+      if (rangeBtn) {
+        try { localStorage.setItem("melo-home-range", rangeBtn.getAttribute("data-home-range") || "week"); } catch {}
+        trackList?.querySelectorAll<HTMLElement>("[data-home-range]").forEach(b => {
+          const on = b === rangeBtn;
+          b.classList.toggle("active", on);
+          b.setAttribute("aria-selected", String(on));
+        });
+        void fillHomeStats();
+        return;
+      }
+      if (target.closest("#homeCustomize")) { homeCustomizing = !homeCustomizing; paintHome(data, stats); void fillHomeStats(); return; }
+      const czToggle = target.closest<HTMLInputElement>("[data-cz-toggle]");
+      if (czToggle) {
+        const layout = readHomeLayout();
+        const id = czToggle.getAttribute("data-cz-toggle") || "";
+        layout.hidden = czToggle.checked ? layout.hidden.filter(x => x !== id) : [...layout.hidden, id];
+        writeHomeLayout(layout);
+        paintHome(data, stats); void fillHomeStats();
+        return;
+      }
+      const czMove = target.closest<HTMLElement>("[data-cz-move]");
+      if (czMove) {
+        const layout = readHomeLayout();
+        const id = czMove.getAttribute("data-cz-move") || "";
+        const dir = Number(czMove.getAttribute("data-cz-dir"));
+        const i = layout.order.indexOf(id);
+        const j = i + dir;
+        if (i >= 0 && j >= 0 && j < layout.order.length) {
+          [layout.order[i], layout.order[j]] = [layout.order[j], layout.order[i]];
+          writeHomeLayout(layout);
+          paintHome(data, stats); void fillHomeStats();
+        }
+        return;
+      }
+      if (target.closest("[data-cz-reset]")) { writeHomeLayout({ order: HOME_SECTIONS.map(s => s.id), hidden: [] }); paintHome(data, stats); void fillHomeStats(); return; }
+      if (target.closest("[data-cz-clear]")) {
+        void (async () => {
+          if (!invoke) return;
+          if (!await confirmDanger("Clear listening history?", "This deletes the recorded listening time that powers Listening time, Recently on repeat and On this day. Play counts and your library are not affected.", "Clear history", true)) return;
+          try { await invoke("clear_listen_log"); toast("Listening history cleared"); homeCache = null; void renderLibraryHome(false); }
+          catch (e) { toast("Couldn't clear the history: " + String(e)); }
+        })();
+        return;
+      }
+      const mix = target.closest<HTMLElement>("[data-home-mix]");
+      if (mix) {
+        const id = mix.getAttribute("data-home-mix");
+        if (id === "album") void playHomeRandomAlbum();
+        else if (id) void playHomeMix(id);
+        return;
+      }
+      if (target.closest("#homeResume") && lt) { void playHomeLastTrack(lt); return; }
+      if (target.closest("#homeOpenAlbum") && lt) {
+        openHomeGroup("album", { key: `${lt.albumArtist || lt.artist}\0${lt.album}`, name: lt.album, subtitle: lt.albumArtist || lt.artist, count: 0, plays: 0 });
+        return;
+      }
+      const open = target.closest<HTMLElement>("[data-home-open]");
+      if (open) { const hit = groupOf(open, "data-home-open"); if (hit) openHomeGroup(hit.kind, hit.g); }
+    };
+    bindLazyArtwork(trackList);
+  }
+
+  async function renderLibraryHome(reset = false) {
+    if (!trackList || !invoke) return;
+    const req = ++homeRequest;
+    trackList.removeAttribute("data-grp");
+    trackList.setAttribute("data-home", "1");
+    trackList.style.display = "block";
+    trackList.style.position = "relative";
+    trackList.style.overflowY = "auto";
+    const keepScroll = trackList.scrollTop;
+    try {
+      const [data, stats] = await Promise.all([
+        invoke<HomeData>("library_home", { artistKind: savedArtistMode, limit: 12 }),
+        invoke<Stats>("library_stats"),
+      ]);
+      if (req !== homeRequest || libTab !== "home") return;
+      homeCache = data;
+      if (!stats.tracks) {
+        trackList.innerHTML = `<div class="home-empty"><div class="home-empty-icon">${iconNote(26)}</div><div class="home-empty-title">Your library is empty</div><div class="home-empty-desc">Add a music folder and Melo will scan it for you.</div><button type="button" class="btn" id="homeAddFolder">Add music folder</button></div>`;
+        trackList.querySelector<HTMLElement>("#homeAddFolder")?.addEventListener("click", () => document.getElementById("btn-manage-library")?.click());
+        return;
+      }
+      paintHome(data, stats);
+      void fillHomeStats();
+      trackList.scrollTop = reset ? 0 : keepScroll;
+    } catch (error) {
+      if (req === homeRequest) trackList.innerHTML = `<div class="library-playlists-empty">Could not read the Library database.</div>`;
+    }
+  }
+
   async function renderLibraryVirtualInner(reset = false, restoreScroll?: number) {
     // The group-card inset/backdrop (data-grp) belongs to the group-root render
     // only; every other branch (discography, sheets, entity search…) starts clean.
     trackList?.removeAttribute("data-grp");
+    if (libTab !== "home" && trackList?.hasAttribute("data-home")) {
+      trackList.removeAttribute("data-home");
+      trackList.onclick = null;
+    }
     if (!trackList || !invoke) return;
     // "All"-field searches get their Artists/Albums sections above EVERY
     // track-display branch (flat list, album sheets); fire-and-forget, a
@@ -1643,6 +2152,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       invalidateLibraryWindow();
       hideLibSearchSections();
       return renderLibraryPlaylists(reset);
+    }
+    if (libTab === "home") {
+      libraryRequest++;
+      invalidateLibraryWindow();
+      hideLibSearchSections();
+      return renderLibraryHome(reset);
     }
     // Round 75: with the Artist/Album search filters an active query shows
     // the MATCHING ENTITIES (artist names / album titles), not tracks.
@@ -1713,7 +2228,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           const group = item as GroupRow;
           const cover = resolvedCover(group.artworkTrackId, artworkUrl(group.cover));
           const avatarClass = `lib-avatar ${libraryGroupKind() === "albums" ? "lib-avatar-album" : ""}${card || cardDefault ? " grp-avatar" : ""}`;
-          const fallback = libraryGroupKind() === "albums" ? "💿" : esc(((group.name || "")[0] || "?").toUpperCase());
+          const fallback = libraryGroupKind() === "albums" ? "💿" : libraryGroupKind() === "years" ? esc(String(group.name || "").slice(-2)) : esc(((group.name || "")[0] || "?").toUpperCase());
           const avatar = cover
             ? `<div class="${avatarClass}" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(group.artworkTrackId || "")}"></div>`
             : `<div class="${avatarClass}" data-artwork-id="${esc(group.artworkTrackId || "")}">${fallback}</div>`;
@@ -1866,7 +2381,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const box = document.getElementById("libSearchSections") as HTMLElement | null;
     if (!box || !invoke) return;
     const gen = ++libSearchSectionsReq;
-    if (!librarySearch || libTab === "playlists" || librarySearchField !== "all") { hideLibSearchSections(); return; }
+    if (!librarySearch || libTab === "playlists" || libTab === "home" || librarySearchField !== "all") { hideLibSearchSections(); return; }
     const q = librarySearch;
     const artistKind: "artists" | "album-artists" = libTab === "album-artists" ? "album-artists" : "artists";
     const albumKind: "albums" | "artist-albums" = libTab === "artists" ? "artist-albums" : "albums";
@@ -2351,6 +2866,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           selectedAlbum = parts[1] || name;
         } else if (libTab === "genres") {
           selectedGenre = name;
+        } else if (libTab === "years") {
+          selectedGenre = YEAR_SCOPE_PREFIX + name;
         }
         persistLibraryNavigation();
         renderLibraryVirtual(true);
@@ -2454,7 +2971,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
       if (libTab === "artists" && selectedArtist) selectedArtist = null;
       else if (libTab === "albums" && selectedAlbum) { selectedArtist = null; selectedAlbum = null; }
-      else if (libTab === "genres" && selectedGenre) selectedGenre = null;
+      else if ((libTab === "genres" || libTab === "years") && selectedGenre) selectedGenre = null;
       clearLibrarySelection();
       renderLibraryVirtual(false, savedGroupsScrollTop);
     });
@@ -2771,7 +3288,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
         if ((libTab === "artists" || libTab === "album-artists") && selectedArtist) { selectedArtist = null; selectedAlbum = null; }
         else if (libTab === "albums" && selectedAlbum) { selectedArtist = null; selectedAlbum = null; }
-        else if (libTab === "genres" && selectedGenre) selectedGenre = null;
+        else if ((libTab === "genres" || libTab === "years") && selectedGenre) selectedGenre = null;
         clearLibrarySelection();
         persistLibraryNavigation();
         renderLibraryVirtual(false, savedGroupsScrollTop);
@@ -3068,6 +3585,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function groupPlayScope(group: GroupRow): GroupPlayScope {
     const parts = String(group.key || group.name || "").split("\0");
     if (libTab === "genres") return { genre: group.name };
+    if (libTab === "years") return { genre: YEAR_SCOPE_PREFIX + group.name };
     if (libTab === "albums") return { albumArtist: parts[0] || undefined, album: parts[1] || group.name };
     if (libTab === "album-artists") return { albumArtist: group.name };
     if (selectedArtist) return { artist: selectedArtist, album: parts[1] || group.name };
@@ -3632,6 +4150,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   });
   syncLibViewButtons();
   function syncLibraryTabButton() {
+    tabs?.classList.toggle("is-home", libTab === "home");
     tabs?.querySelectorAll<HTMLElement>("button[data-libtab]").forEach(button => {
       button.classList.toggle("active", button.dataset.libtab === libTab);
     });
@@ -3744,6 +4263,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const raw = searchInput.value.trim();
     // Minimum query length — see MIN_SEARCH_LEN.
     librarySearch = raw.length >= MIN_SEARCH_LEN ? raw : "";
+    // Home has no list to filter: searching moves to the artist grouping.
+    if (librarySearch && libTab === "home") leaveHomeForSearch();
     // The result set is about to change — any rows still selected belong
     // To the OLD query and may not even be visible after this re-render,
     // While a later bulk action would still apply to them. Clear first.
@@ -3772,7 +4293,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   trackList?.addEventListener("scroll", () => {
     // The removed Recent tab (libTab === "recent") was also a complete list;
     // its durable replacement is the non-virtualized auto playlist pane.
-    if (libTab === "playlists" || ((libTab === "artists" || libTab === "album-artists") && selectedArtist && !librarySearch)) return;
+    if (libTab === "playlists" || libTab === "home" || ((libTab === "artists" || libTab === "album-artists") && selectedArtist && !librarySearch)) return;
     // Album sheets are one complete, non-virtualized render.
     if (sheetModeActive()) return;
     if (libraryWindowCovers()) return;
@@ -4265,6 +4786,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // The player only counts LISTENS (threshold met) — see player.ts.
   busOn("melo:play-counted", (p: any) => {
     if (p?.trackId) void countTrackPlayed(String(p.trackId));
+  });
+  // Round 116: listening segments for the Home statistics (main window only,
+  // like play counting; failures never touch playback).
+  busOn("melo:listened", (p: any) => {
+    if (role !== "main" || !invoke || !p?.trackId) return;
+    void invoke("record_listen", { trackId: String(p.trackId), startedAt: Math.round(Number(p.startedAt) || Date.now()), seconds: Number(p.seconds) || 0 }).catch(() => {});
   });
   // Round 77: shuffle materialises into the real queue. The player proposes
   // the new order (track ids, duplicates consumed greedily by the backend);
