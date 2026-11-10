@@ -2864,3 +2864,9 @@ few-px band where scrolled rows peek through. */
 .home-seg-btn:hover { color: var(--text); }
 .home-seg-btn.on { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
 .home-stat-none { font-size: 11px; color: var(--text-muted); padding: 10px 4px; }
+
+/* "All": records in the chart's place, same height so the card does not jump between ranges */
+.home-records { flex: 1; min-width: 200px; height: 84px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.home-record { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 10px; border-radius: 9px; background: color-mix(in srgb, var(--text) 5%, transparent); }
+.home-record span { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.home-record b { font-size: 12px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

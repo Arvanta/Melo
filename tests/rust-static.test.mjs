@@ -686,3 +686,11 @@ test("round 116h: stat ranking basis switch, All range, bar tooltips, greetings"
   assert.match(db, /strftime\('%Y-%m'/);
   assert.match(db, /HAVING p>0/);
 });
+
+test("round 116i: All range shows records instead of the chart", () => {
+  const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  assert.match(lib, /if \(b\.unit === "all"\) return homeRecords\(stats\);/);
+  assert.match(lib, /Longest streak/);
+  assert.match(db, /longest_day_seconds: f64/);
+});

@@ -1643,6 +1643,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     seconds: number; sessions: number; activeDays: number; prevSeconds: number; buckets: number[];
     topArtists: HomeGroup[]; topAlbums: HomeGroup[]; topTracks: HomeTrack[]; hasAny: boolean;
     plays: number; rangeStart: number; months: { month: string; seconds: number }[];
+    longestDay: string; longestDaySeconds: number; streak: number;
   };
   type HomeData = {
     recentlyPlayed: HomeGroup[]; recentlyAdded: HomeGroup[]; topArtists: HomeGroup[]; topAlbums: HomeGroup[];
@@ -1754,7 +1755,23 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const rem = Math.round((s - h * 3600) / 60);
     return rem ? `${h} h ${rem} min` : `${h} h`;
   }
+  /** "All" shows records in the chart's place (same height, so the card never jumps between ranges). */
+  function homeRecords(stats: ListenStats): string {
+    const en = "en-US";
+    const fmt = (d: Date, withYear = true) => d.toLocaleDateString(en, withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+    const monthName = (ym: string) => { const [y, m] = ym.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString(en, { month: "long", year: "numeric" }); };
+    const best = stats.months.reduce<{ month: string; seconds: number } | null>((a, m) => (!a || m.seconds > a.seconds ? m : a), null);
+    const ld = stats.longestDay ? (() => { const [y, m, d] = stats.longestDay.split("-").map(Number); return new Date(y, m - 1, d); })() : null;
+    const card = (label: string, value: string) => `<div class="home-record"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
+    return `<div class="home-records">${[
+      card("Listening since", fmt(new Date(stats.rangeStart || Date.now()))),
+      card("Longest day", ld ? `${homeDuration(stats.longestDaySeconds)} · ${fmt(ld)}` : "—"),
+      card("Best month", best ? `${monthName(best.month)} · ${homeDuration(best.seconds)}` : "—"),
+      card("Longest streak", stats.streak ? `${stats.streak} ${stats.streak === 1 ? "day" : "days"} in a row` : "—"),
+    ].join("")}</div>`;
+  }
   function homeChart(stats: ListenStats, b: ReturnType<typeof homeRangeBounds>): string {
+    if (b.unit === "all") return homeRecords(stats);
     let values = stats.buckets;
     let labels: string[] = [];
     let names: string[] = [];
@@ -1762,20 +1779,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const sd = b.startDate;
     const dayAt = (i: number) => new Date(sd.getFullYear(), sd.getMonth(), sd.getDate() + i);
     const monthNames = Array.from({ length: 12 }, (_, m) => new Date(2000, m, 1).toLocaleDateString(en, { month: "long" }));
-    if (b.unit === "all") {
-      // One bar per calendar month from the first listen to now.
-      const byMonth = new Map(stats.months.map(m => [m.month, m.seconds]));
-      const first = new Date(stats.rangeStart || Date.now());
-      const now = new Date();
-      values = []; labels = []; names = [];
-      const totalMonths = (now.getFullYear() - first.getFullYear()) * 12 + now.getMonth() - first.getMonth() + 1;
-      for (let y = first.getFullYear(), m = first.getMonth(); y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth());) {
-        values.push(byMonth.get(`${y}-${String(m + 1).padStart(2, "0")}`) || 0);
-        names.push(`${monthNames[m]} ${y}`);
-        labels.push(totalMonths <= 12 ? monthNames[m][0] : m === 0 ? String(y) : "");
-        if (++m > 11) { m = 0; y++; }
-      }
-    } else if (b.unit === "month") {
+    if (b.unit === "month") {
       const months = new Array(12).fill(0) as number[];
       values.forEach((v, i) => { months[new Date(b.start + i * 86_400_000 + 43_200_000).getMonth()] += v; });
       values = months;

@@ -2025,6 +2025,10 @@ pub struct ListenStats {
     /// First day of the range (differs from the request only for "All").
     range_start: i64,
     months: Vec<MonthSeconds>,
+    /// "All" only: the day with the most listening (local date) and the longest run of consecutive listening days.
+    longest_day: String,
+    longest_day_seconds: f64,
+    streak: i64,
     active_days: i64,
     prev_seconds: f64,
     buckets: Vec<f64>,
@@ -2084,7 +2088,25 @@ pub async fn library_listen_stats(
         let n_buckets = if monthly { 0 } else { (((end - start) + bucket_ms - 1) / bucket_ms).clamp(1, 400) as usize };
         let mut buckets = vec![0.0f64; n_buckets];
         let mut months: Vec<MonthSeconds> = Vec::new();
+        let (mut longest_day, mut longest_day_seconds, mut streak) = (String::new(), 0.0f64, 0i64);
         if monthly {
+            let mut stmt = conn
+                .prepare("SELECT date(started_at/1000,'unixepoch','localtime') AS d,CAST(julianday(date(started_at/1000,'unixepoch','localtime')) AS INTEGER) AS n,SUM(seconds) FROM listen_log WHERE started_at>=?1 AND started_at<?2 GROUP BY d ORDER BY d")
+                .map_err(|e| e.to_string())?;
+            let days = stmt
+                .query_map(params![start, end], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, f64>(2)?)))
+                .map_err(|e| e.to_string())?;
+            let (mut run, mut prev_n) = (0i64, i64::MIN);
+            for (d, n, secs) in days.filter_map(log_skipped) {
+                if secs > longest_day_seconds {
+                    longest_day_seconds = secs;
+                    longest_day = d;
+                }
+                run = if n == prev_n + 1 { run + 1 } else { 1 };
+                prev_n = n;
+                streak = streak.max(run);
+            }
+            drop(stmt);
             let mut stmt = conn
                 .prepare("SELECT strftime('%Y-%m',started_at/1000,'unixepoch','localtime') AS m,SUM(seconds) FROM listen_log WHERE started_at>=?1 AND started_at<?2 GROUP BY m ORDER BY m")
                 .map_err(|e| e.to_string())?;
@@ -2163,7 +2185,7 @@ pub async fn library_listen_stats(
                 .map_err(|e| e.to_string())?;
             top_tracks.extend(rows.filter_map(log_skipped));
         }
-        Ok(ListenStats { seconds, sessions, plays, range_start: start, months, active_days, prev_seconds, buckets, top_artists, top_albums, top_tracks, has_any })
+        Ok(ListenStats { seconds, sessions, plays, range_start: start, months, longest_day, longest_day_seconds, streak, active_days, prev_seconds, buckets, top_artists, top_albums, top_tracks, has_any })
     })
     .await
     .map_err(|e| e.to_string())?
