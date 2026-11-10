@@ -663,3 +663,14 @@ test("round 116f: tab restore owner, exit snapshot freeze, decade year cap, forg
   assert.match(db, /\(1900\.\.=2060\)\.contains\(&d\)/);
   assert.doesNotMatch(lib, /class="home-rank-name" title=/);
 });
+
+test("round 116g: Listening-time top lists (size setting, covers, medals) are wired", () => {
+  const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  const css = readFileSync(join(here, "..", "src", "app.css"), "utf8");
+  assert.match(lib, /statTop: \[1, 10, 3\]/);
+  assert.match(lib, /topN: readHomeCounts\(\)\.statTop/);
+  assert.match(db, /top_n: Option<i64>/);
+  assert.match(db, /top_artists: Vec<HomeGroup>/);
+  assert.match(css, /\.home-stat-row\.rank-1/);
+});

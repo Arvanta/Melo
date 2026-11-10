@@ -1675,6 +1675,8 @@ pub struct HomeGroup {
     artwork_track_id: Option<String>,
     /// Recently played / added shelves: the one track Play should queue (not the whole album).
     track: Option<DbTrack>,
+    /// Listening-time rankings only: seconds listened in the selected period.
+    seconds: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -1778,7 +1780,7 @@ fn home_albums(conn: &Connection, filter: &str, order_expr: &str, having: &str, 
     for (album_artist, album, count, plays) in rows {
         let (cover, artwork_track_id) = home_cover(conn, None, &album_artist, &album);
         let track = track_order.and_then(|o| home_group_track(conn, &album_artist, &album, if o.contains("last_played_at") { " AND t.last_played_at IS NOT NULL" } else { "" }, o));
-        out.push(HomeGroup { key: format!("{}\0{}", album_artist, album), name: album, subtitle: album_artist, count, plays, cover, artwork_track_id, track });
+        out.push(HomeGroup { key: format!("{}\0{}", album_artist, album), name: album, subtitle: album_artist, count, plays, cover, artwork_track_id, track, seconds: 0.0 });
     }
     Ok(out)
 }
@@ -1807,6 +1809,7 @@ fn home_artists(conn: &Connection, column: &str, limit: i64) -> Result<Vec<HomeG
             cover,
             artwork_track_id,
             track: None,
+            seconds: 0.0,
         });
     }
     Ok(out)
@@ -2007,23 +2010,15 @@ pub async fn clear_listen_log(state: State<'_, LibraryState>) -> Result<(), Stri
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NamedSeconds {
-    name: String,
-    subtitle: String,
-    seconds: f64,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ListenStats {
     seconds: f64,
     sessions: i64,
     active_days: i64,
     prev_seconds: f64,
     buckets: Vec<f64>,
-    top_artist: Option<NamedSeconds>,
-    top_album: Option<NamedSeconds>,
-    top_track: Option<HomeTrack>,
+    top_artists: Vec<HomeGroup>,
+    top_albums: Vec<HomeGroup>,
+    top_tracks: Vec<HomeTrack>,
     has_any: bool,
 }
 
@@ -2038,6 +2033,7 @@ pub async fn library_listen_stats(
     prev_end: i64,
     bucket_ms: i64,
     artist_kind: Option<String>,
+    top_n: Option<i64>,
     state: State<'_, LibraryState>,
 ) -> Result<ListenStats, String> {
     let db_path = state.db_path.clone();
@@ -2075,41 +2071,61 @@ pub async fn library_listen_stats(
                 }
             }
         }
-        let top_artist = conn
-            .query_row(
-                &format!(
+        let top_n = top_n.unwrap_or(3).clamp(1, 10);
+        // Rankings are by LISTENING TIME inside [start, end), not by play count.
+        let mut top_artists: Vec<HomeGroup> = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(&format!(
                     "SELECT t.{c},SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
-                     WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.{c}<>'' GROUP BY t.{c} COLLATE NOCASE ORDER BY s DESC LIMIT 1",
+                     WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.{c}<>'' GROUP BY t.{c} COLLATE NOCASE ORDER BY s DESC LIMIT ?3",
                     c = artist_col
-                ),
-                params![start, end],
-                |r| Ok(NamedSeconds { name: r.get(0)?, subtitle: String::new(), seconds: r.get(1)? }),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        let top_album = conn
-            .query_row(
-                "SELECT t.album,t.album_artist,SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
-                 WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.album<>'' \
-                 GROUP BY t.album COLLATE NOCASE,t.album_artist COLLATE NOCASE ORDER BY s DESC LIMIT 1",
-                params![start, end],
-                |r| Ok(NamedSeconds { name: r.get(0)?, subtitle: r.get(1)?, seconds: r.get(2)? }),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        let top_track = conn
-            .query_row(
-                &format!(
+                ))
+                .map_err(|e| e.to_string())?;
+            let rows: Vec<(String, f64)> = stmt
+                .query_map(params![start, end, top_n], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
+            for (name, secs) in rows {
+                let (cover, artwork_track_id) = home_cover(&conn, Some(artist_col), "", &name);
+                top_artists.push(HomeGroup { key: name.clone(), name, subtitle: String::new(), count: 0, plays: 0, cover, artwork_track_id, track: None, seconds: secs });
+            }
+        }
+        let mut top_albums: Vec<HomeGroup> = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT t.album,t.album_artist,SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+                     WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.album<>'' \
+                     GROUP BY t.album COLLATE NOCASE,t.album_artist COLLATE NOCASE ORDER BY s DESC LIMIT ?3",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows: Vec<(String, String, f64)> = stmt
+                .query_map(params![start, end, top_n], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
+            for (album, album_artist, secs) in rows {
+                let (cover, artwork_track_id) = home_cover(&conn, None, &album_artist, &album);
+                top_albums.push(HomeGroup { key: format!("{}\0{}", album_artist, album), name: album, subtitle: album_artist, count: 0, plays: 0, cover, artwork_track_id, track: None, seconds: secs });
+            }
+        }
+        let mut top_tracks: Vec<HomeTrack> = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(&format!(
                     "SELECT {},COUNT(*),SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
-                     WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 GROUP BY t.id ORDER BY s DESC LIMIT 1",
+                     WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 GROUP BY t.id ORDER BY s DESC LIMIT ?3",
                     TRACK_COLS_T
-                ),
-                params![start, end],
-                |r| Ok(HomeTrack { track: row_track(r)?, plays: r.get(13)?, seconds: r.get(14)? }),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        Ok(ListenStats { seconds, sessions, active_days, prev_seconds, buckets, top_artist, top_album, top_track, has_any })
+                ))
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![start, end, top_n], |r| Ok(HomeTrack { track: row_track(r)?, plays: r.get(13)?, seconds: r.get(14)? }))
+                .map_err(|e| e.to_string())?;
+            top_tracks.extend(rows.filter_map(log_skipped));
+        }
+        Ok(ListenStats { seconds, sessions, active_days, prev_seconds, buckets, top_artists, top_albums, top_tracks, has_any })
     })
     .await
     .map_err(|e| e.to_string())?
