@@ -146,10 +146,11 @@ app.innerHTML = `
           <button class="tab" data-libtab="years"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg><span>Years</span></button>
           <button class="tab" data-libtab="playlists"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span>Playlists</span></button>
           <div class="lib-switches">
-          <button type="button" class="lib-side-toggle" id="btn-lib-artistbar" aria-expanded="false" aria-controls="libArtistSidebar" aria-label="Show artist list" title="Show artist list">
+          <div class="lib-side-switch">
+          <button type="button" class="lib-view-btn lib-side-toggle" id="btn-lib-artistbar" aria-expanded="true" aria-controls="libArtistSidebar" aria-label="Hide artist list" title="Hide artist list">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/><path d="M5.5 9h1.5M5.5 12h1.5M5.5 15h1.5"/></svg>
-            <span class="lib-side-toggle-label" id="libSideToggleLabel">Show artist list</span>
           </button>
+          </div>
           <div class="lib-layout-switch" id="libLayoutSwitch" title="Track display">
             <button type="button" class="lib-view-btn" data-liblayout="list" title="Track List" aria-label="Track List">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="3" y="16" width="4" height="4" rx="1"/><path d="M11 6h10M11 12h10M11 18h10"/></svg>
@@ -159,7 +160,7 @@ app.innerHTML = `
             </button>
           </div>
           <div class="lib-view-switch" id="libViewSwitch" title="Library view">
-            <button type="button" class="lib-view-btn active" data-libview="default" title="Default">
+            <button type="button" class="lib-view-btn active" data-libview="default" title="Card">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
             </button>
             <button type="button" class="lib-view-btn" data-libview="tiles" title="Tiles">
@@ -212,12 +213,14 @@ app.innerHTML = `
               </div>
             </div>
             <div class="lm-controls">
+              <button type="button" class="lm-btn lm-mode" id="libMiniRepeat" title="Repeat" aria-label="Repeat" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
               <button type="button" class="lm-btn" id="libMiniPrev" title="Previous" aria-label="Previous track"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><rect x="5" y="4" width="2" height="16"/></svg></button>
               <button type="button" class="lm-btn lm-play" id="libMiniPlay" title="Play / Pause" aria-label="Play / Pause">
                 <svg class="lm-i-play" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5.5 2.5 13 8 5.5 13.5z"/></svg>
                 <svg class="lm-i-pause" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="3" width="3" height="10" rx=".8"/><rect x="9" y="3" width="3" height="10" rx=".8"/></svg>
               </button>
               <button type="button" class="lm-btn" id="libMiniNext" title="Next" aria-label="Next track"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><rect x="17" y="4" width="2" height="16"/></svg></button>
+              <button type="button" class="lm-btn lm-mode" id="libMiniShuffle" title="Shuffle" aria-label="Shuffle" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
             </div>
             <div class="lm-scrub">
               <span class="lm-time" id="libMiniCur">0:00</span>
@@ -1691,7 +1694,7 @@ async function openPanelWindow(panel: string) {
       btn?.classList.remove("active");
       return;
     }
-    const sizes: Record<string, [number, number]> = { library: [430, 620], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [630, 660] };
+    const sizes: Record<string, [number, number]> = { library: [1000, 800], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [630, 660] };
     // Per-panel minimums: Library 400×550; Settings min width 650.
 const mins: Record<string, [number, number]> = { library: [400, 550], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [650, 400] };
     const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };

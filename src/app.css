@@ -244,7 +244,7 @@ width/height; drop it again on mouseup. */
 [data-melo="waveform"] { --melo-wave-played: var(--accent); --melo-wave-rest: color-mix(in srgb, var(--text) 24%, transparent); }
 /* Declared first so a skin/slot class that sets its own position (like .seek-wave) wins. */
 .melo-wave-slot { position: relative; }
-.seek-wave { position: absolute; left: 0; right: 0; top: -5px; bottom: -5px; display: none; cursor: pointer; touch-action: none; }
+.seek-wave { position: absolute; left: 0; right: 0; top: -3.5px; bottom: -3.5px; display: none; cursor: pointer; touch-action: none; }
 html.melo-wave-on .seek-wave { display: block; }
 html.melo-wave-on .seek-wrap input[type="range"].seek { opacity: 0; pointer-events: none; }
 .melo-wave-slot .mw-rest, .melo-wave-slot .mw-played, .melo-wave-slot .mw-hover { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
@@ -1187,7 +1187,6 @@ the Library panel is width-invariant, just like the Playlist panel. */
 
 /* Theme-aware custom scrollbars for Library, Playlist, Lyrics (window
 and embedded panel) and artist albums. */
-#trackList,
 #winPlaylistTracks,
 #lyricsContainer,
 .embedded-lyrics,
@@ -1197,7 +1196,6 @@ and embedded panel) and artist albums. */
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
-#trackList::-webkit-scrollbar,
 #winPlaylistTracks::-webkit-scrollbar,
 #lyricsContainer::-webkit-scrollbar,
 .embedded-lyrics::-webkit-scrollbar,
@@ -1223,7 +1221,6 @@ and embedded panel) and artist albums. */
 /* Round 78 · Find-in-Queue flash: the queue view is never filtered, the
    match is only marked (accent-tinted row + inset ring, above .active). */
 #winPlaylistTracks .track-row.pl-find { background: color-mix(in srgb, var(--accent) 24%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
-#trackList::-webkit-scrollbar-track,
 #winPlaylistTracks::-webkit-scrollbar-track,
 #lyricsContainer::-webkit-scrollbar-track,
 .embedded-lyrics::-webkit-scrollbar-track,
@@ -1233,7 +1230,6 @@ and embedded panel) and artist albums. */
   background: var(--scrollbar-track);
   border-radius: 999px;
 }
-#trackList::-webkit-scrollbar-thumb,
 #winPlaylistTracks::-webkit-scrollbar-thumb,
 #lyricsContainer::-webkit-scrollbar-thumb,
 .embedded-lyrics::-webkit-scrollbar-thumb,
@@ -1247,7 +1243,6 @@ and embedded panel) and artist albums. */
   min-height: 32px;
 }
 .artist-album-chips::-webkit-scrollbar-thumb { border-width: 1px; }
-#trackList::-webkit-scrollbar-thumb:hover,
 #winPlaylistTracks::-webkit-scrollbar-thumb:hover,
 #lyricsContainer::-webkit-scrollbar-thumb:hover,
 .embedded-lyrics::-webkit-scrollbar-thumb:hover,
@@ -2803,3 +2798,20 @@ few-px band where scrolled rows peek through. */
 .home-cz-move { width: 26px; height: 24px; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.12)); background: transparent; color: var(--text); cursor: pointer; }
 .home-cz-move:disabled { opacity: .3; cursor: default; }
 .home-cz-foot { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* Artist-list toggle = icon-only, like the other view buttons, with a divider after it. */
+.lib-side-switch { display: flex; padding-right: 18px; border-right: 1px solid var(--card-border); flex-shrink: 0; }
+.lib-side-toggle.lib-view-btn { display: grid; place-items: center; gap: 0; padding: 0; border: none; border-radius: 8px; background: transparent; color: var(--text-muted); }
+.lib-side-toggle.lib-view-btn:hover { background: var(--track-bg); color: var(--text); border-color: transparent; }
+.lib-side-toggle.lib-view-btn.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: transparent; }
+
+.lm-btn.lm-mode { width: 26px; height: 26px; color: var(--text-muted); }
+.lm-btn.lm-mode.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+.home-customize-btn { display: inline-flex; align-items: center; gap: 6px; }
+.home-cz-sub { margin-top: 10px; }
+.home-cz-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 16px; }
+.home-cz-count { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.home-cz-count span { flex: 1; min-width: 0; }
+.home-cz-count input { width: 56px; height: 26px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.14)); background: transparent; color: var(--text); font: inherit; text-align: center; }
+.home-cz-count em { font-style: normal; font-size: 10px; color: var(--text-muted); min-width: 34px; }

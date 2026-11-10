@@ -1801,8 +1801,11 @@ fn home_artists(conn: &Connection, column: &str, limit: i64) -> Result<Vec<HomeG
     Ok(out)
 }
 
-fn query_home(conn: &Connection, artist_kind: &str, limit: i64) -> Result<HomeData, String> {
+fn query_home(conn: &Connection, artist_kind: &str, limit: i64, rank_limit: i64, top_tracks_limit: i64, repeat_limit: i64) -> Result<HomeData, String> {
     let limit = limit.clamp(1, 30);
+    let rank_limit = rank_limit.clamp(1, 30);
+    let top_tracks_limit = top_tracks_limit.clamp(1, 30);
+    let repeat_limit = repeat_limit.clamp(1, 30);
     let artist_col = if artist_kind == "artists" { "artist" } else { "album_artist" };
     let recently_played = home_albums(
         conn,
@@ -1812,8 +1815,8 @@ fn query_home(conn: &Connection, artist_kind: &str, limit: i64) -> Result<HomeDa
         limit,
     )?;
     let recently_added = home_albums(conn, "", "MAX(added_at) DESC, album COLLATE NOCASE", "", limit)?;
-    let top_albums = home_albums(conn, "", "SUM(play_count) DESC, album COLLATE NOCASE", " HAVING SUM(play_count)>0", 5)?;
-    let top_artists = home_artists(conn, artist_col, 5)?;
+    let top_albums = home_albums(conn, "", "SUM(play_count) DESC, album COLLATE NOCASE", " HAVING SUM(play_count)>0", rank_limit)?;
+    let top_artists = home_artists(conn, artist_col, rank_limit)?;
     let total_seconds: f64 = conn
         .query_row("SELECT COALESCE(SUM(duration),0) FROM tracks WHERE library_owned=1", [], |r| r.get(0))
         .unwrap_or(0.0);
@@ -1838,20 +1841,20 @@ fn query_home(conn: &Connection, artist_kind: &str, limit: i64) -> Result<HomeDa
         .optional()
         .map_err(|e| e.to_string())?;
     let top_tracks: Vec<HomeTrack> = {
-        let sql = format!("SELECT {},t.play_count FROM tracks t WHERE t.library_owned=1 AND t.play_count>0 ORDER BY t.play_count DESC,t.title COLLATE NOCASE LIMIT 5", TRACK_COLS_T);
+        let sql = format!("SELECT {},t.play_count FROM tracks t WHERE t.library_owned=1 AND t.play_count>0 ORDER BY t.play_count DESC,t.title COLLATE NOCASE LIMIT {}", TRACK_COLS_T, top_tracks_limit);
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| Ok(HomeTrack { track: row_track(r)?, plays: r.get(13)?, seconds: 0.0 }))
             .map_err(|e| e.to_string())?;
         rows.filter_map(log_skipped).collect()
     };
-    // "Recently on repeat": tracks listened to at least 3 times (20s+ each) in the last 30 days.
+    // "Recently on repeat": tracks listened to at least 2 times (20s+ each) in the last 30 days.
     let repeat_tracks: Vec<HomeTrack> = {
         let sql = format!(
             "SELECT {},COUNT(*) AS c,SUM(l.seconds) FROM listen_log l JOIN tracks t ON t.id=l.track_id \
-             WHERE l.started_at>=?1 AND l.seconds>=20 AND t.library_owned=1 GROUP BY t.id HAVING c>=3 \
-             ORDER BY c DESC,MAX(l.started_at) DESC LIMIT 5",
-            TRACK_COLS_T
+             WHERE l.started_at>=?1 AND l.seconds>=20 AND t.library_owned=1 GROUP BY t.id HAVING c>=2 \
+             ORDER BY c DESC,MAX(l.started_at) DESC LIMIT {}",
+            TRACK_COLS_T, repeat_limit
         );
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
         let rows = stmt
@@ -1908,12 +1911,15 @@ fn query_home(conn: &Connection, artist_kind: &str, limit: i64) -> Result<HomeDa
 pub async fn library_home(
     artist_kind: Option<String>,
     limit: Option<i64>,
+    rank_limit: Option<i64>,
+    top_tracks_limit: Option<i64>,
+    repeat_limit: Option<i64>,
     state: State<'_, LibraryState>,
 ) -> Result<HomeData, String> {
     let db_path = state.db_path.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<HomeData, String> {
         let conn = open_db(&db_path)?;
-        query_home(&conn, artist_kind.as_deref().unwrap_or("album-artists"), limit.unwrap_or(12))
+        query_home(&conn, artist_kind.as_deref().unwrap_or("album-artists"), limit.unwrap_or(14), rank_limit.unwrap_or(5), top_tracks_limit.unwrap_or(5), repeat_limit.unwrap_or(5))
     })
     .await
     .map_err(|e| e.to_string())?

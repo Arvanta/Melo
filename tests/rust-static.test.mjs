@@ -638,3 +638,15 @@ test("round 116c: Home has stats ranges with Monday-start weeks and customize la
   assert.match(src, /library_listen_stats/);
   assert.match(src, /melo:listened/);
 });
+
+test("round 116d: Home item counts, mini-player modes, artist-list icon, keys", () => {
+  const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  const main = readFileSync(join(here, "..", "src", "main.ts"), "utf8");
+  assert.match(lib, /shelf: \[4, 24, 14\], ranks: \[3, 20, 5\], tracks: \[3, 20, 5\], repeat: \[3, 20, 5\]/);
+  assert.match(db, /rank_limit: Option<i64>/);
+  assert.match(main, /id="libMiniRepeat"[\s\S]*id="libMiniPrev"[\s\S]*id="libMiniNext"[\s\S]*id="libMiniShuffle"/);
+  assert.match(main, /library: \[1000, 800\]/);
+  assert.doesNotMatch(lib, /e\.key === "ArrowRight" \|\| e\.key === "ArrowUp"/);
+  assert.match(lib, /syncLibraryTabButton\(\);\n\s+syncArtistSidebarControls\(\);/);
+});

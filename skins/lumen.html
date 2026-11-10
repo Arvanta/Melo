@@ -160,24 +160,36 @@
     .lm-sun, .lm-ring, .lm-dust { animation: none; }
   }
 
+  /* Bottom darkening is one long, eased gradient (many stops) so there is no
+     visible edge, and it is dark enough behind the title in both themes. */
   .lm-scrim {
     position: absolute; inset: 0; pointer-events: none;
     background:
-      linear-gradient(180deg, rgba(6,8,12,.42) 0%, transparent 22%, transparent 48%, rgba(6,8,12,.78) 100%);
+      linear-gradient(180deg, rgba(6,8,12,.46) 0%, rgba(6,8,12,.18) 10%, transparent 22%),
+      linear-gradient(0deg,
+        rgba(6,8,12,.86) 0%, rgba(6,8,12,.80) 12%, rgba(6,8,12,.66) 26%,
+        rgba(6,8,12,.46) 40%, rgba(6,8,12,.26) 54%, rgba(6,8,12,.10) 68%, transparent 82%);
+  }
+  /* The bottom blur fades out gradually: a masked backdrop-filter layer instead
+     of blurring the whole controls box with a hard top edge. */
+  .lm-blur {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 140px; z-index: 4;
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 28%, rgba(0,0,0,.6) 55%, rgba(0,0,0,.2) 80%, transparent 100%);
+    mask-image: linear-gradient(to top, #000 0%, #000 28%, rgba(0,0,0,.6) 55%, rgba(0,0,0,.2) 80%, transparent 100%);
   }
 
+  /* 40px tall, sitting just above the controls (the controls block is 118px
+     tall), clear of the blurred band. */
   .lm-viz {
-    position: absolute; left: 0; right: 0; bottom: 124px; height: 26px;
-    z-index: 3; cursor: pointer; opacity: .78;
+    position: absolute; left: 0; right: 0; bottom: 128px; height: 40px;
+    z-index: 5; cursor: pointer; opacity: .85;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
     mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
   }
-  .lm-root:has([data-melo="cover"][style*="display: none"]) .lm-viz,
-  .lm-root:not(:has([data-melo="cover"]:not([style*="display: none"]))) .lm-viz {
-    bottom: 118px; height: 84px; opacity: 1;
-    -webkit-mask-image: linear-gradient(to top, transparent 0%, #000 18%, #000 78%, transparent 100%);
-    mask-image: linear-gradient(to top, transparent 0%, #000 18%, #000 78%, transparent 100%);
-  }
+  html.melo-show-lyrics .lm-viz,
+  html.melo-show-playlist .lm-viz { display: none !important; }
   .lm-viz canvas { width: 100% !important; height: 100% !important; display: block; }
 
   .lm-bar {
@@ -252,25 +264,25 @@
   .lm-ui {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
     padding: 0 18px 14px; display: flex; flex-direction: column; gap: 8px;
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   }
+  /* title + artist share one line: artist smaller, in a tinted colour */
+  .lm-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; height: 24px; }
   .lm-title {
-    font-size: 18px; font-weight: 750; letter-spacing: -.03em; line-height: 1.25;
+    flex: 0 1 auto; min-width: 0;
+    font-size: 18px; font-weight: 750; letter-spacing: -.03em; line-height: 24px;
+    color: var(--lm-ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    text-shadow: 0 2px 16px rgba(0,0,0,.45);
+    text-shadow: 0 1px 2px rgba(0,0,0,.6), 0 2px 14px rgba(0,0,0,.5);
   }
-  .lm-by {
-    display: flex; align-items: baseline; gap: 8px; min-width: 0;
-    color: var(--lm-soft); font-size: 12.5px; font-weight: 600;
-  }
-  .lm-by span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lm-chip {
-    flex: 0 0 auto; font-size: 9px; letter-spacing: .12em; font-weight: 750;
-    color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    border-radius: 999px; padding: 2px 6px; background: var(--lm-glass);
+  .lm-artist {
+    flex: 0 10 auto; min-width: 56px;
+    font-size: 12.5px; font-weight: 600; line-height: 24px;
+    color: color-mix(in srgb, var(--accent) 72%, var(--lm-ink));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-shadow: 0 1px 2px rgba(0,0,0,.6), 0 1px 10px rgba(0,0,0,.45);
   }
 
-  .lm-seek { display: grid; grid-template-columns: 32px minmax(0,1fr) 32px; gap: 8px; align-items: center; }
+  .lm-seek { height: 22px; display: grid; grid-template-columns: 32px minmax(0,1fr) 32px; gap: 8px; align-items: center; }
   .lm-time {
     font-size: 10px; font-weight: 650; color: var(--lm-mute);
     font-variant-numeric: tabular-nums; text-shadow: 0 1px 6px rgba(0,0,0,.4);
@@ -305,7 +317,7 @@
     outline-offset: 2px;
   }
 
-  .lm-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .lm-row { height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .lm-tr { display: flex; align-items: center; gap: 4px; }
   .lm-tr button {
     width: 34px; height: 34px; padding: 0; border: 0; border-radius: 11px;
@@ -362,6 +374,63 @@
   .lm-volrow .ico.muted .lm-vol-waves { opacity: 0; }
   .lm-pct { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
+  /* Current lyric line: floats under the icon bar, over the cover. The engine
+     hides it (inline display:none) while there is nothing to show; the row is an
+     overlay so it never moves anything. Hidden while a panel covers the cover. */
+  .lm-lyric {
+    display: none;
+    position: absolute; z-index: 6; top: 46px; left: 0; right: 0;
+    margin: 0 auto; width: fit-content; max-width: calc(100% - 28px);
+    height: 26px; padding: 0 14px; border-radius: 999px;
+    background:
+      linear-gradient(var(--accent), var(--accent)) left bottom / calc(var(--melo-lyric-progress, 0) * 100%) 2px no-repeat,
+      rgba(10, 12, 16, .5);
+    -webkit-backdrop-filter: blur(10px) saturate(1.15); backdrop-filter: blur(10px) saturate(1.15);
+    border: 1px solid rgba(255,255,255,.16);
+    color: #fffaf3; font-size: 12px; font-weight: 600; line-height: 24px; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: pointer; user-select: none;
+  }
+  html.melo-lyric-skin-on .lm-lyric { display: block !important; }
+  html.melo-lyric-skin-on .lm-lyric.melo-lyric-empty { visibility: hidden; }
+  html.melo-show-lyrics .lm-lyric,
+  html.melo-show-playlist .lm-lyric { display: none !important; }
+  .lm-lyric.melo-lyric-tick { animation: lm-lyric-in .4s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes lm-lyric-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* Lyrics / Queue shown ON the cover. Dark glass in both themes, so the light
+     text stays readable whatever the artwork or theme is. */
+  .lm-panel {
+    position: absolute; z-index: 6; left: 12px; right: 12px; top: 48px; bottom: 126px;
+    display: none; overflow: hidden; border-radius: 14px;
+    background: rgba(10, 12, 16, .68);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: 0 12px 32px rgba(0,0,0,.35);
+    color: var(--lm-ink);
+  }
+  html.melo-show-lyrics .lm-panel[data-melo="embedded-lyrics"],
+  html.melo-show-playlist .lm-panel[data-melo="embedded-playlist"] { display: block; }
+  .lm-panel .embedded-playlist,
+  .lm-panel .embedded-lyrics {
+    height: 100% !important; max-height: 100% !important;
+    overflow-y: auto !important; overflow-x: hidden !important;
+    padding: 8px 10px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 55%, transparent) transparent;
+  }
+  .lm-panel .embedded-playlist-row { min-height: 34px; padding: 4px 8px; border-radius: 8px; color: var(--lm-ink); transition: background .15s ease; }
+  .lm-panel .embedded-playlist-row:hover { background: rgba(255,255,255,.10); }
+  .lm-panel .embedded-playlist-row.active { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .lm-panel .embedded-playlist-row .t-title { color: var(--lm-ink) !important; font-size: 12px !important; line-height: 1.3 !important; font-weight: 600 !important; }
+  .lm-panel .embedded-playlist-row.active .t-title { color: var(--accent) !important; }
+  .lm-panel .embedded-playlist-row .t-artist,
+  .lm-panel .embedded-playlist-row .t-album,
+  .lm-panel .embedded-playlist-row .t-dur { color: var(--lm-soft) !important; font-size: 11px !important; line-height: 1.25 !important; }
+  .lm-panel .track-cover-mini { border-radius: 6px; width: 28px !important; height: 28px !important; }
+  .lm-panel .lyric-line { font-size: 14px; line-height: 1.65; padding: 5px 12px; border-radius: 8px; text-align: center; color: var(--lm-mute); overflow-wrap: anywhere; }
+  .lm-panel .lyric-line.active { color: var(--lm-ink); background: color-mix(in srgb, var(--accent) 22%, transparent); font-weight: 600; }
+
   /* panel switcher — horizontal icon row in the title bar */
   .lm-panels {
     display: flex; align-items: center; gap: 2px;
@@ -381,11 +450,11 @@
   }
   .lm-panels button.active { color: var(--accent); }
   .lm-panels svg { width: 12px; height: 12px; }
+  .lm-sep { flex: 0 0 1px; width: 1px; height: 14px; margin: 0 5px; background: rgba(255,255,255,.3); }
 
   @media (max-width: 400px), (max-height: 400px) {
     .lm-title { font-size: 17px; }
     .lm-tr .play { width: 38px; height: 38px; }
-    .lm-viz { bottom: 110px; }
   }
   /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
      The slot takes the plain range's place in the row while the waveform is ready; the
@@ -419,6 +488,11 @@
       <div class="lm-scrim"></div>
       <div class="lm-viz" data-melo="visualizer" id="vizBars" data-bars="40"></div>
     </div>
+    <div class="lm-blur"></div>
+
+    <div class="lm-lyric" data-melo="current-lyric" aria-live="polite" title="Click to seek"></div>
+    <div class="lm-panel" data-melo="embedded-lyrics"></div>
+    <div class="lm-panel" data-melo="embedded-playlist"></div>
 
     <div class="lm-bar" data-tauri-drag-region>
       <details class="lm-menu">
@@ -439,10 +513,13 @@
         </div>
       </details>
       <div class="lm-panels">
+        <button class="stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics on cover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h13"/></svg></button>
+        <button class="stage-btn" data-melo="toggle-embedded-playlist" title="Queue on cover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></button>
+        <span class="lm-sep" aria-hidden="true"></span>
         <button data-melo="toggle-library" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
-        <button data-melo="toggle-playlist" title="Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button>
+        <button data-melo="toggle-playlist" title="Playlist window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button>
         <button data-melo="toggle-eq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
-        <button data-melo="toggle-lyrics" title="Lyrics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></button>
+        <button data-melo="toggle-lyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></button>
         <button data-melo="toggle-settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
       </div>
       <div class="lm-win">
@@ -452,12 +529,9 @@
     </div>
 
     <div class="lm-ui">
-      <div class="lm-title" data-melo="title" id="trackTitle">No track loaded</div>
-      <div class="lm-by">
-        <span data-melo="artist" id="trackArtist">Add music to begin</span>
-        <span data-melo="album" id="trackAlbum"></span>
-        <span class="lm-chip" data-melo="codec" id="trackCodec">—</span>
-        <span class="lm-pct" data-melo="specs" id="trackSpecs"></span>
+      <div class="lm-head">
+        <span class="lm-title" data-melo="title" id="trackTitle">No track loaded</span>
+        <span class="lm-artist" data-melo="artist" id="trackArtist">Add music to begin</span>
       </div>
 
       <div class="lm-seek">

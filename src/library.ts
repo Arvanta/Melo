@@ -1519,7 +1519,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       btn.classList.toggle("disabled", unavailable);
     });
     trackList?.setAttribute("data-lib-layout", sheetModeActive() ? "albums" : "list");
-    document.getElementById("libLayoutSwitch")?.setAttribute("title", unavailable ? "Album layout is available in Default and Tiles views" : "Track display");
+    document.getElementById("libLayoutSwitch")?.setAttribute("title", unavailable ? "Album layout is available in Card and Tiles views" : "Track display");
   }
 
   // Coalesce renders: while one async render is in flight, further
@@ -1676,6 +1676,22 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     order = order.filter(id => known.includes(id));
     for (const id of known) if (!order.includes(id)) order.push(id);
     return { order, hidden: hidden.filter(id => known.includes(id)) };
+  }
+  // How many items each Home list shows (Customize → Items shown).
+  type HomeCounts = { shelf: number; ranks: number; tracks: number; repeat: number };
+  const HOME_COUNT_LIMITS = { shelf: [4, 24, 14], ranks: [3, 20, 5], tracks: [3, 20, 5], repeat: [3, 20, 5] } as const;
+  function readHomeCounts(): HomeCounts {
+    let raw: any = null;
+    try { raw = JSON.parse(localStorage.getItem("melo-home-counts") || "null"); } catch {}
+    const pick = (k: keyof HomeCounts) => {
+      const [lo, hi, def] = HOME_COUNT_LIMITS[k];
+      const v = Math.round(Number(raw?.[k]));
+      return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
+    };
+    return { shelf: pick("shelf"), ranks: pick("ranks"), tracks: pick("tracks"), repeat: pick("repeat") };
+  }
+  function writeHomeCounts(c: HomeCounts) {
+    try { localStorage.setItem("melo-home-counts", JSON.stringify(c)); } catch {}
   }
   function writeHomeLayout(layout: HomeLayout) {
     try { localStorage.setItem("melo-home-layout", JSON.stringify(layout)); } catch {}
@@ -1953,7 +1969,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         <button type="button" class="home-cz-move" data-cz-move="${id}" data-cz-dir="-1" ${i === 0 ? "disabled" : ""} aria-label="Move ${esc(label)} up" title="Move up">↑</button>
         <button type="button" class="home-cz-move" data-cz-move="${id}" data-cz-dir="1" ${i === layout.order.length - 1 ? "disabled" : ""} aria-label="Move ${esc(label)} down" title="Move down">↓</button></div>`;
     }).join("");
+    const c = readHomeCounts();
+    const num = (k: keyof HomeCounts, label: string) => {
+      const [lo, hi] = HOME_COUNT_LIMITS[k];
+      return `<label class="home-cz-count"><span>${esc(label)}</span><input type="number" inputmode="numeric" min="${lo}" max="${hi}" step="1" value="${c[k]}" data-cz-count="${k}" aria-label="${esc(label)} (${lo}–${hi})"><em>${lo}–${hi}</em></label>`;
+    };
     return `<div class="home-cz"><div class="home-cz-title">Customize Home</div>${rows}
+      <div class="home-cz-title home-cz-sub">Items shown</div>
+      <div class="home-cz-counts">${num("shelf", "Recently played & added")}${num("ranks", "Top artists & albums")}${num("tracks", "Top tracks")}${num("repeat", "Recently on repeat")}</div>
       <div class="home-cz-foot"><button type="button" class="home-btn-ghost" data-cz-reset>Reset layout</button><button type="button" class="home-btn-ghost" data-cz-clear>Clear listening history…</button></div></div>`;
   }
 
@@ -2005,7 +2028,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const body = layout.order.filter(id => !layout.hidden.includes(id)).map(id => sections[id] || "").join("");
     trackList.innerHTML = `<div class="home">
       <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead">Pick up where you left off, or start something new.</p></div>
-        <div class="home-top-right"><div class="home-chips">${chips}</div><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">Customize</button></div></div>
+        <div class="home-top-right"><div class="home-chips">${chips}</div><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">${svgIcon('<circle cx="12" cy="12" r="3"/><path d="M4 6h4M16 6h4M4 12h2M14 12h6M4 18h8M20 18h0"/>', 13)}<span>Customize</span></button></div></div>
       ${homeCustomizing ? homeCustomizeHtml(layout) : ""}
       ${body}
     </div>`;
@@ -2017,6 +2040,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       return g ? { kind: kind === "artist" ? "artist" : "album", g } : null;
     };
     const trackLists: Record<string, HomeTrack[]> = { top: data.topTracks, repeat: data.repeatTracks };
+    trackList.onchange = event => {
+      const input = (event.target as HTMLElement).closest<HTMLInputElement>("[data-cz-count]");
+      if (!input) return;
+      const k = input.getAttribute("data-cz-count") as keyof HomeCounts;
+      const [lo, hi, def] = HOME_COUNT_LIMITS[k];
+      const v = Math.round(Number(input.value));
+      const counts = readHomeCounts();
+      counts[k] = Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
+      writeHomeCounts(counts);
+      void renderLibraryHome(false);
+    };
     trackList.onclick = event => {
       const target = event.target as HTMLElement;
       const playBtn = target.closest<HTMLElement>("[data-home-play]");
@@ -2115,7 +2149,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const keepScroll = trackList.scrollTop;
     try {
       const [data, stats] = await Promise.all([
-        invoke<HomeData>("library_home", { artistKind: savedArtistMode, limit: 12 }),
+        invoke<HomeData>("library_home", { artistKind: savedArtistMode, limit: readHomeCounts().shelf, rankLimit: readHomeCounts().ranks, topTracksLimit: readHomeCounts().tracks, repeatLimit: readHomeCounts().repeat }),
         invoke<Stats>("library_stats"),
       ]);
       if (req !== homeRequest || libTab !== "home") return;
@@ -2606,7 +2640,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // stats per row, and an A–Z jump rail. (No All/Favorites chips and no footer
   // yet — the favourites system does not exist.) Stays available while an
   // artist's tracks are open.
-  let artistSidebarOpen = localStorage.getItem("melo-lib-artistbar") === "1";
+  let artistSidebarOpen = localStorage.getItem("melo-lib-artistbar") !== "0";
   let artistSidebarCache: { kind: string; rows: GroupRow[] } | null = null;
   let sideQuickFind = "";
   function artistSidebarActive(): boolean { return libTab === "artists" || libTab === "album-artists"; }
@@ -2636,8 +2670,6 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       btn.setAttribute("aria-expanded", String(open));
       btn.setAttribute("aria-label", label);
       btn.setAttribute("title", available ? label : "Artist list is available on the Artists tab");
-      const text = document.getElementById("libSideToggleLabel");
-      if (text) text.textContent = label;
     }
     if (side) {
       side.classList.toggle("open", open);
@@ -4174,6 +4206,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       libTab = (tab.dataset.libtab || "artists") as typeof libTab;
       resetLibrarySelection();
       persistLibraryNavigation();
+      syncLibraryTabButton();
       syncArtistSidebarControls();
       if (artistSidebarOpen) void renderArtistSidebarData();
       renderLibraryVirtual(true);
@@ -4905,8 +4938,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     bar.addEventListener("pointerup", end);
     bar.addEventListener("pointercancel", end);
     bar.addEventListener("keydown", e => {
-      if (e.key === "ArrowRight" || e.key === "ArrowUp") { e.preventDefault(); onKey(1); }
-      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") { e.preventDefault(); onKey(-1); }
+      if (e.key === "ArrowRight") { e.preventDefault(); onKey(1); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); onKey(-1); }
     });
   }
   miniSlider(miniBar,
@@ -4923,11 +4956,31 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     f => { if (miniMuted) { miniMuted = false; busEmit("melo:tray-action", "mute"); } miniSendVolume(Math.round(f * 100)); },
     f => { miniSendVolume(Math.round(f * 100)); },
     dir => miniSendVolume(Math.max(0, Math.min(100, miniVol + dir * 5))));
-  // Wheel over the volume group changes volume (same 5-step feel as the player).
-  mq("libMini")?.querySelector(".lm-vol")?.addEventListener("wheel", ev => {
+  // Wheel anywhere on the mini player changes volume (5-step, like the player);
+  // over the progress bar it seeks instead (5 s per notch).
+  miniEl?.addEventListener("wheel", ev => {
     ev.preventDefault();
-    miniSendVolume(Math.max(0, Math.min(100, miniVol + ((ev as WheelEvent).deltaY < 0 ? 5 : -5))));
+    const up = (ev as WheelEvent).deltaY < 0;
+    if ((ev.target as HTMLElement | null)?.closest(".lm-scrub")) {
+      if (miniDur <= 0) return;
+      miniPos = Math.max(0, Math.min(miniDur, miniPos + (up ? 5 : -5)));
+      busEmit("melo:seek-playback", miniPos);
+      miniPaintTime(true);
+      return;
+    }
+    miniSendVolume(Math.max(0, Math.min(100, miniVol + (up ? 5 : -5))));
   }, { passive: false });
+  mq("libMiniRepeat")?.addEventListener("click", () => busEmit("melo:tray-action", "repeat"));
+  mq("libMiniShuffle")?.addEventListener("click", () => busEmit("melo:tray-action", "shuffle"));
+  busOn("melo:mode-state", (m: any) => {
+    const sh = mq("libMiniShuffle"), rp = mq("libMiniRepeat");
+    const shuffle = !!m?.shuffle;
+    const repeat = m?.repeat === "all" || m?.repeat === "one" ? m.repeat : "off";
+    sh?.classList.toggle("active", shuffle); sh?.setAttribute("aria-pressed", String(shuffle));
+    rp?.classList.toggle("active", repeat !== "off"); rp?.setAttribute("aria-pressed", String(repeat !== "off"));
+    if (rp) rp.title = repeat === "one" ? "Repeat one" : repeat === "all" ? "Repeat all" : "Repeat off";
+    if (sh) sh.title = shuffle ? "Shuffle on" : "Shuffle off";
+  });
   mq("libMiniPrev")?.addEventListener("click", () => busEmit("melo:tray-action", "prev"));
   mq("libMiniNext")?.addEventListener("click", () => busEmit("melo:tray-action", "next"));
   mq("libMiniPlay")?.addEventListener("click", () => busEmit("melo:tray-action", "play_pause"));

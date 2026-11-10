@@ -738,7 +738,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // Secondary windows can be opened at any time. Reply with the current
   // track and playback position instead of requiring them to be open when
   // the original track-changed event fires.
+  const emitModeState = () => busEmit("melo:mode-state", { shuffle: isShuffle, repeat: repeatMode });
   busOn("melo:request-playback-state", () => {
+    emitModeState();
     const track = queue[currentIndex] || null;
     busEmit("melo:playback-state", { track, currentTime: audio.currentTime || 0, paused: audio.paused });
     emitVolumeState();
@@ -958,6 +960,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
         // is on screen — playback simply continues through it sequentially.
         if (isShuffle) applyShuffleToQueue();
         toast(isShuffle ? "Shuffle on" : "Shuffle off");
+        emitModeState();
       };
     }
 
@@ -968,6 +971,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
         const labels: Record<RepeatMode, string> = { off: "Repeat off", all: "Repeat all", one: "Repeat one" };
         toast(labels[repeatMode]);
         btnRepeat.title = labels[repeatMode];
+        emitModeState();
       };
     }
 
@@ -1248,6 +1252,8 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     else if (action === "mute") {
       toggleMute();
     }
+    else if (action === "shuffle") btnShuffle?.click();
+    else if (action === "repeat") btnRepeat?.click();
   });
 
   (window as any).LumiPlayer = {

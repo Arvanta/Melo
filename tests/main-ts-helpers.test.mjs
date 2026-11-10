@@ -1572,12 +1572,12 @@ test("round 85 · feature detection uses the same hook rules as the runtime (fin
   assert.match(skin, /if \(!text\) return NO_SKIN_CAPABILITIES;[\s\S]*?skinCapabilityCache\.set/, "failed reads are not cached");
   assert.match(skin, /if \(!skinChoice \|\| skinChoice === "default"\) return DEFAULT_SKIN_CAPABILITIES;/, "Default never touches the disk");
   // Every skin the lyric text used to name must still expose the slot.
-  for (const file of ["aria.html", "halcyon.html", "haven.html", "hira.html", "koto.html", "mica.html", "mist.html", "rail.html", "silk-orbit.html"]) {
+  for (const file of ["aria.html", "halcyon.html", "haven.html", "hira.html", "koto.html", "lumen.html", "mica.html", "mist.html", "rail.html", "silk-orbit.html"]) {
     const html = readSrc(`skins/${file}`);
     assert.match(html, /data-melo="current-lyric"/, `${file} keeps its current-lyric hook (chip shows ✔)`);
   }
   // Skins without the slot are the ones the chip must mark ✘.
-  for (const file of ["lumen.html", "graphite.html", "slate.html", "microline.html", "microline-v.html"]) {
+  for (const file of ["graphite.html", "slate.html", "microline.html", "microline-v.html"]) {
     const html = readSrc(`skins/${file}`);
     assert.doesNotMatch(html, /data-melo="current-lyric"|id="skinCurrentLyric"/, `${file} has no lyric slot (chip shows ✘)`);
   }
@@ -1893,7 +1893,7 @@ test("Library views: details renamed to default, new columned details view, one-
   assert.match(lib, /saved = "default";\s*try \{ localStorage\.setItem\("melo-lib-view", "default"\); \} catch \{\}/,
     "one-time details→default migration REWRITES storage (else boot #2 flips into the new view)");
   assert.match(lib, /localStorage\.setItem\("melo-lib-view-v2", "1"\)/, "the migration marker is written");
-  assert.match(main, /data-libview="default" title="Default"/, "the renamed button ships in the markup");
+  assert.match(main, /data-libview="default" title="Card"/, "the renamed button ships in the markup");
   assert.match(main, /data-libview="details" title="Details"/, "the columned Details button ships (round 77: plain label, placed after Tiles)");
 });
 
@@ -1966,7 +1966,7 @@ test("Artist sidebar: toolbar button enabled only on the artist tabs, names only
   assert.match(lib, /artistSidebarCache = null;\n    invalidateLibraryWindow\(\);/, "library changes invalidate the sidebar cache");
   assert.match(lib, /if \(on\) b\.scrollIntoView\(\{ block: "nearest" \}\);/, "the active artist is kept in view");
   assert.doesNotMatch(main, /class="lib-view-btn lib-alone-btn" id="btn-lib-artistbar"/, "the old icon-only button is replaced by the labelled toggle");
-  assert.match(main, /class="lib-side-toggle" id="btn-lib-artistbar"/, "labelled Show artist list toggle");
+  assert.match(main, /class="lib-view-btn lib-side-toggle" id="btn-lib-artistbar"/, "labelled Show artist list toggle");
 });
 
 test("Playlist next/previous starts from the CLICKED track (queue position hint)", () => {
@@ -2560,7 +2560,7 @@ test("round 116: Library Home tab — first tab, own renderer, backend queries r
   const lib = readSrc("src/library.ts");
   assert.match(lib, /initialLibraryNavigation\?\.tab \|\| "home"/, "fresh installs open on Home; a saved tab is kept");
   assert.match(lib, /if \(libTab === "home"\) \{[\s\S]*?return renderLibraryHome\(reset\);/, "render dispatch");
-  assert.match(lib, /invoke<HomeData>\("library_home", \{ artistKind: savedArtistMode, limit: 12 \}\)/);
+  assert.match(lib, /invoke<HomeData>\("library_home", \{ artistKind: savedArtistMode, limit: readHomeCounts\(\)\.shelf/);
   assert.match(lib, /invoke<Track\[\]>\("library_mix_tracks"/);
   assert.match(lib, /if \(librarySearch && libTab === "home"\) leaveHomeForSearch\(\);/, "searching leaves Home");
   const rs = readSrc("src-tauri/src/library_db.rs");
