@@ -213,14 +213,14 @@ app.innerHTML = `
               </div>
             </div>
             <div class="lm-controls">
-              <button type="button" class="lm-btn lm-mode" id="libMiniRepeat" title="Repeat" aria-label="Repeat" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+              <button type="button" class="lm-btn lm-mode" id="libMiniShuffle" title="Shuffle" aria-label="Shuffle" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
               <button type="button" class="lm-btn" id="libMiniPrev" title="Previous" aria-label="Previous track"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><rect x="5" y="4" width="2" height="16"/></svg></button>
               <button type="button" class="lm-btn lm-play" id="libMiniPlay" title="Play / Pause" aria-label="Play / Pause">
                 <svg class="lm-i-play" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5.5 2.5 13 8 5.5 13.5z"/></svg>
                 <svg class="lm-i-pause" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="3" width="3" height="10" rx=".8"/><rect x="9" y="3" width="3" height="10" rx=".8"/></svg>
               </button>
               <button type="button" class="lm-btn" id="libMiniNext" title="Next" aria-label="Next track"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><rect x="17" y="4" width="2" height="16"/></svg></button>
-              <button type="button" class="lm-btn lm-mode" id="libMiniShuffle" title="Shuffle" aria-label="Shuffle" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+              <button type="button" class="lm-btn lm-mode" id="libMiniRepeat" title="Repeat" aria-label="Repeat" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
             </div>
             <div class="lm-scrub">
               <span class="lm-time" id="libMiniCur">0:00</span>

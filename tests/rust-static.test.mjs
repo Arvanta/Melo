@@ -645,7 +645,7 @@ test("round 116d: Home item counts, mini-player modes, artist-list icon, keys", 
   const main = readFileSync(join(here, "..", "src", "main.ts"), "utf8");
   assert.match(lib, /shelf: \[4, 24, 14\], ranks: \[3, 20, 5\], tracks: \[3, 20, 5\], repeat: \[3, 20, 5\]/);
   assert.match(db, /rank_limit: Option<i64>/);
-  assert.match(main, /id="libMiniRepeat"[\s\S]*id="libMiniPrev"[\s\S]*id="libMiniNext"[\s\S]*id="libMiniShuffle"/);
+  assert.match(main, /id="libMiniShuffle"[\s\S]*id="libMiniPrev"[\s\S]*id="libMiniNext"[\s\S]*id="libMiniRepeat"/);
   assert.match(main, /library: \[1000, 800\]/);
   assert.doesNotMatch(lib, /e\.key === "ArrowRight" \|\| e\.key === "ArrowUp"/);
   assert.match(lib, /syncLibraryTabButton\(\);\n\s+syncArtistSidebarControls\(\);/);

@@ -1633,7 +1633,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   // ───────── Home tab (round 116) ─────────
-  type HomeGroup = GroupRow & { plays: number };
+  type HomeGroup = GroupRow & { plays: number; track?: Track | null };
   type HomeTrack = { track: Track; plays: number; seconds: number };
   type NamedSeconds = { name: string; subtitle: string; seconds: number };
   type ListenStats = {
@@ -1821,6 +1821,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const h = new Date().getHours();
     return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   }
+  function homeHoursLong(seconds: number): string {
+    const h = seconds / 3600;
+    if (h < 1) { const m = Math.max(1, Math.round(seconds / 60)); return `${m} ${m === 1 ? "minute" : "minutes"}`; }
+    const r = h >= 100 ? Math.round(h) : Math.round(h * 10) / 10;
+    return `${r.toLocaleString("en-US")} ${r === 1 ? "hour" : "hours"}`;
+  }
   function homeHours(seconds: number): string {
     const h = seconds / 3600;
     return h >= 100 ? `${Math.round(h)} h` : h >= 1 ? `${h.toFixed(1).replace(/\.0$/, "")} h` : `${Math.max(1, Math.round(seconds / 60))} min`;
@@ -1844,7 +1850,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!groups.length) return "";
     const rows = groups.map((g, i) => `<div class="home-rank-row" data-home-open="${kind}" data-home-idx="${i}">
       <span class="home-rank-n">${i + 1}</span>
-      ${homeCoverHtml(g, `home-rank-cover${artistRows ? " round" : ""}`, artistRows ? esc(((g.name || "")[0] || "?").toUpperCase()) : "💿")}
+      ${homeCoverHtml(g, "home-rank-cover round", artistRows ? esc(((g.name || "")[0] || "?").toUpperCase()) : "💿")}
       <div class="home-rank-txt"><div class="home-rank-name" title="${esc(g.name)}">${esc(g.name)}</div><div class="home-rank-sub">${esc(g.subtitle)}</div></div>
       <span class="home-rank-plays">${g.plays} ${g.plays === 1 ? "play" : "plays"}</span>
       <button type="button" class="home-rank-play" data-home-play="${kind}" data-home-idx="${i}" title="Play ${esc(g.name)}" aria-label="Play ${esc(g.name)}">${iconPlay(12)}</button>
@@ -1861,7 +1867,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         : `${it.plays}× · ${homeDuration(it.seconds)}`;
       return `<div class="home-rank-row" data-home-trackrow="${kind}" data-home-idx="${i}">
         <span class="home-rank-n">${i + 1}</span>
-        ${cover ? `<div class="home-rank-cover" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(t.id)}"></div>` : `<div class="home-rank-cover" data-artwork-id="${esc(t.id)}">♪</div>`}
+        ${cover ? `<div class="home-rank-cover round" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(t.id)}"></div>` : `<div class="home-rank-cover round" data-artwork-id="${esc(t.id)}">♪</div>`}
         <div class="home-rank-txt"><div class="home-rank-name" title="${esc(t.title)}">${esc(t.title)}</div><div class="home-rank-sub">${esc(t.artist)}</div></div>
         <span class="home-rank-plays">${esc(count)}</span>
         <button type="button" class="home-rank-play" data-home-trackplay="${kind}" data-home-idx="${i}" title="Play ${esc(t.title)}" aria-label="Play ${esc(t.title)}">${iconPlay(12)}</button>
@@ -2012,8 +2018,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     out.mixes = `<section class="home-section"><h2 class="home-h2">Quick mixes</h2><div class="home-mixes">${[
       data.forgotten ? mixCard("forgotten", "Forgotten favourites", `${data.forgotten.toLocaleString()} tracks you haven't played in a while`, "tone-a") : "",
       mixCard("album", "Random album", "Surprise me", "tone-b"),
-      data.neverPlayed ? mixCard("never", "Never played", `${data.neverPlayed.toLocaleString()} tracks waiting for a first listen`, "tone-c") : "",
       data.longCount ? mixCard("long", "Long listens", `${data.longCount.toLocaleString()} tracks over 10 minutes`, "tone-e") : "",
+      data.neverPlayed ? mixCard("never", "Never played", `${data.neverPlayed.toLocaleString()} tracks waiting for a first listen`, "tone-c") : "",
       mixCard("shuffle", "Shuffle library", "Everything, in random order", "tone-d"),
     ].join("")}</div></section>`;
     void stats;
@@ -2024,11 +2030,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!trackList) return;
     const layout = readHomeLayout();
     const sections = homeSectionsHtml(data, stats);
-    const chips = `<span class="home-chip">${svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', 13)}<b>${esc(homeHours(data.totalSeconds))}</b> of music</span>`;
     const body = layout.order.filter(id => !layout.hidden.includes(id)).map(id => sections[id] || "").join("");
     trackList.innerHTML = `<div class="home">
-      <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead">Pick up where you left off, or start something new.</p></div>
-        <div class="home-top-right"><div class="home-chips">${chips}</div><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">${svgIcon('<circle cx="12" cy="12" r="3"/><path d="M4 6h4M16 6h4M4 12h2M14 12h6M4 18h8M20 18h0"/>', 13)}<span>Customize</span></button></div></div>
+      <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead">Your library: ${stats.tracks.toLocaleString("en-US")} ${stats.tracks === 1 ? "track" : "tracks"} · ${esc(homeHoursLong(data.totalSeconds))} of music</p></div>
+        <div class="home-top-right"><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">${svgIcon('<circle cx="12" cy="12" r="3"/><path d="M4 6h4M16 6h4M4 12h2M14 12h6M4 18h8M20 18h0"/>', 13)}<span>Customize</span></button></div></div>
       ${homeCustomizing ? homeCustomizeHtml(layout) : ""}
       ${body}
     </div>`;
@@ -2054,7 +2059,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     trackList.onclick = event => {
       const target = event.target as HTMLElement;
       const playBtn = target.closest<HTMLElement>("[data-home-play]");
-      if (playBtn) { event.stopPropagation(); const hit = groupOf(playBtn, "data-home-play"); if (hit) playHomeGroup(hit.kind, hit.g); return; }
+      if (playBtn) {
+        event.stopPropagation();
+        const hit = groupOf(playBtn, "data-home-play");
+        if (!hit) return;
+        const k = playBtn.getAttribute("data-home-play");
+        // Recently played / added: queue only that one track, not the whole album.
+        if ((k === "recentlyPlayed" || k === "recentlyAdded") && hit.g.track) void playHomeTrackList([hit.g.track], 0);
+        else playHomeGroup(hit.kind, hit.g);
+        return;
+      }
       const trackPlay = target.closest<HTMLElement>("[data-home-trackplay]");
       if (trackPlay) {
         const items = trackLists[trackPlay.getAttribute("data-home-trackplay") || ""] || [];

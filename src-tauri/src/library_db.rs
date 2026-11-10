@@ -1673,6 +1673,8 @@ pub struct HomeGroup {
     plays: i64,
     cover: Option<String>,
     artwork_track_id: Option<String>,
+    /// Recently played / added shelves: the one track Play should queue (not the whole album).
+    track: Option<DbTrack>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1753,7 +1755,15 @@ fn home_cover(conn: &Connection, by_artist_col: Option<&str>, album_artist: &str
 /// Album shelf: grouped like the Albums tab (album artist + album). `time_col`
 /// orders by the newest timestamp in the group; `by_plays` orders by the sum of
 /// play counts instead (and drops albums nobody played).
-fn home_albums(conn: &Connection, filter: &str, order_expr: &str, having: &str, limit: i64) -> Result<Vec<HomeGroup>, String> {
+fn home_group_track(conn: &Connection, album_artist: &str, album: &str, extra: &str, order: &str) -> Option<DbTrack> {
+    let sql = format!(
+        "SELECT {} FROM tracks t WHERE t.library_owned=1 AND t.album_artist=?1 COLLATE NOCASE AND t.album=?2 COLLATE NOCASE{} ORDER BY {},t.id LIMIT 1",
+        TRACK_COLS_T, extra, order
+    );
+    conn.query_row(&sql, params![album_artist, album], row_track).optional().ok().flatten()
+}
+
+fn home_albums(conn: &Connection, filter: &str, order_expr: &str, having: &str, limit: i64, track_order: Option<&str>) -> Result<Vec<HomeGroup>, String> {
     let sql = format!(
         "SELECT album_artist,album,COUNT(*),COALESCE(SUM(play_count),0) FROM tracks \
          WHERE library_owned=1 AND album<>''{} GROUP BY album COLLATE NOCASE, album_artist COLLATE NOCASE{} ORDER BY {} LIMIT ?1",
@@ -1768,7 +1778,8 @@ fn home_albums(conn: &Connection, filter: &str, order_expr: &str, having: &str, 
     let mut out = Vec::with_capacity(rows.len());
     for (album_artist, album, count, plays) in rows {
         let (cover, artwork_track_id) = home_cover(conn, None, &album_artist, &album);
-        out.push(HomeGroup { key: format!("{}\0{}", album_artist, album), name: album, subtitle: album_artist, count, plays, cover, artwork_track_id });
+        let track = track_order.and_then(|o| home_group_track(conn, &album_artist, &album, if o.contains("last_played_at") { " AND t.last_played_at IS NOT NULL" } else { "" }, o));
+        out.push(HomeGroup { key: format!("{}\0{}", album_artist, album), name: album, subtitle: album_artist, count, plays, cover, artwork_track_id, track });
     }
     Ok(out)
 }
@@ -1796,6 +1807,7 @@ fn home_artists(conn: &Connection, column: &str, limit: i64) -> Result<Vec<HomeG
             plays,
             cover,
             artwork_track_id,
+            track: None,
         });
     }
     Ok(out)
@@ -1813,9 +1825,10 @@ fn query_home(conn: &Connection, artist_kind: &str, limit: i64, rank_limit: i64,
         "MAX(last_played_at) DESC, album COLLATE NOCASE",
         "",
         limit,
+        Some("t.last_played_at DESC"),
     )?;
-    let recently_added = home_albums(conn, "", "MAX(added_at) DESC, album COLLATE NOCASE", "", limit)?;
-    let top_albums = home_albums(conn, "", "SUM(play_count) DESC, album COLLATE NOCASE", " HAVING SUM(play_count)>0", rank_limit)?;
+    let recently_added = home_albums(conn, "", "MAX(added_at) DESC, album COLLATE NOCASE", "", limit, Some("t.added_at DESC"))?;
+    let top_albums = home_albums(conn, "", "SUM(play_count) DESC, album COLLATE NOCASE", " HAVING SUM(play_count)>0", rank_limit, None)?;
     let top_artists = home_artists(conn, artist_col, rank_limit)?;
     let total_seconds: f64 = conn
         .query_row("SELECT COALESCE(SUM(duration),0) FROM tracks WHERE library_owned=1", [], |r| r.get(0))
