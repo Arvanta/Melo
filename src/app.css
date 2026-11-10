@@ -2855,3 +2855,12 @@ few-px band where scrolled rows peek through. */
 .home-stat-row:hover .home-rank-play, .home-stat-row:focus-within .home-rank-play { opacity: 1; }
 /* stepper: flat, full-height hover areas */
 .home-step { border-radius: 0; box-shadow: none; align-self: stretch; height: auto; min-height: 26px; flex: 0 0 28px; width: 28px; }
+
+/* Per-list ranking switch (Time | Plays) */
+.home-stat-col-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.home-stat-col-head .home-stat-col-title { margin: 0; }
+.home-seg { display: inline-flex; border: 1px solid var(--border, rgba(255,255,255,0.14)); border-radius: 999px; padding: 2px; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.home-seg-btn { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 10px; font-weight: 600; padding: 2px 9px; border-radius: 999px; cursor: pointer; }
+.home-seg-btn:hover { color: var(--text); }
+.home-seg-btn.on { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.home-stat-none { font-size: 11px; color: var(--text-muted); padding: 10px 4px; }

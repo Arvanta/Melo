@@ -674,3 +674,15 @@ test("round 116g: Listening-time top lists (size setting, covers, medals) are wi
   assert.match(db, /top_artists: Vec<HomeGroup>/);
   assert.match(css, /\.home-stat-row\.rank-1/);
 });
+
+test("round 116h: stat ranking basis switch, All range, bar tooltips, greetings", () => {
+  const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  assert.match(lib, /melo-home-stat-by/);
+  assert.match(lib, /\{ id: "all", label: "All"/);
+  assert.match(lib, /h < 5 \|\| h >= 21 \? "Good night"/);
+  assert.match(lib, /h < 17 \? "Good afternoon"/);
+  assert.match(db, /artist_by: Option<String>/);
+  assert.match(db, /strftime\('%Y-%m'/);
+  assert.match(db, /HAVING p>0/);
+});

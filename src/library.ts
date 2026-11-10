@@ -1642,6 +1642,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   type ListenStats = {
     seconds: number; sessions: number; activeDays: number; prevSeconds: number; buckets: number[];
     topArtists: HomeGroup[]; topAlbums: HomeGroup[]; topTracks: HomeTrack[]; hasAny: boolean;
+    plays: number; rangeStart: number; months: { month: string; seconds: number }[];
   };
   type HomeData = {
     recentlyPlayed: HomeGroup[]; recentlyAdded: HomeGroup[]; topArtists: HomeGroup[]; topAlbums: HomeGroup[];
@@ -1702,7 +1703,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   // Statistics ranges, in LOCAL time; weeks start on Monday (ISO 8601).
-  type HomeRangeId = "today" | "yesterday" | "week" | "lastweek" | "month" | "lastmonth" | "year" | "lastyear";
+  type HomeRangeId = "today" | "yesterday" | "week" | "lastweek" | "month" | "lastmonth" | "year" | "lastyear" | "all";
   const HOME_RANGES: { id: HomeRangeId; label: string; vs: string }[] = [
     { id: "today", label: "Today", vs: "yesterday" },
     { id: "yesterday", label: "Yesterday", vs: "the day before" },
@@ -1712,6 +1713,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     { id: "lastmonth", label: "Last month", vs: "the month before" },
     { id: "year", label: "This year", vs: "last year" },
     { id: "lastyear", label: "Last year", vs: "the year before" },
+    { id: "all", label: "All", vs: "" },
   ];
   function readHomeRange(): HomeRangeId {
     try {
@@ -1726,7 +1728,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const today = day(now);
     const monday = (d: Date) => day(d, -((d.getDay() + 6) % 7));
     let start: Date, end: Date, prevStart: Date, prevEnd: Date;
-    let unit: "hour" | "day" | "week" | "month" = "day";
+    let unit: "hour" | "day" | "week" | "month" | "all" = "day";
     switch (id) {
       case "today": start = today; end = day(today, 1); prevStart = day(today, -1); prevEnd = today; unit = "hour"; break;
       case "yesterday": start = day(today, -1); end = today; prevStart = day(today, -2); prevEnd = start; unit = "hour"; break;
@@ -1735,11 +1737,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       case "month": start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now.getFullYear(), now.getMonth() + 1, 1); prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1); prevEnd = start; unit = "day"; break;
       case "lastmonth": end = new Date(now.getFullYear(), now.getMonth(), 1); start = new Date(now.getFullYear(), now.getMonth() - 1, 1); prevStart = new Date(now.getFullYear(), now.getMonth() - 2, 1); prevEnd = start; unit = "day"; break;
       case "year": start = new Date(now.getFullYear(), 0, 1); end = new Date(now.getFullYear() + 1, 0, 1); prevStart = new Date(now.getFullYear() - 1, 0, 1); prevEnd = start; unit = "month"; break;
+      case "all": start = new Date(0); end = day(today, 1); prevStart = new Date(0); prevEnd = new Date(0); unit = "all"; break;
       default: end = new Date(now.getFullYear(), 0, 1); start = new Date(now.getFullYear() - 1, 0, 1); prevStart = new Date(now.getFullYear() - 2, 0, 1); prevEnd = start; unit = "month"; break;
     }
     return {
       start: start.getTime(), end: end.getTime(), prevStart: prevStart.getTime(), prevEnd: prevEnd.getTime(),
-      bucketMs: unit === "hour" ? 3600_000 : 86_400_000, unit, startDate: start,
+      bucketMs: unit === "all" ? 0 : unit === "hour" ? 3600_000 : 86_400_000, unit, startDate: start,
     };
   }
   function homeDuration(seconds: number): string {
@@ -1754,21 +1757,45 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function homeChart(stats: ListenStats, b: ReturnType<typeof homeRangeBounds>): string {
     let values = stats.buckets;
     let labels: string[] = [];
-    if (b.unit === "month") {
+    let names: string[] = [];
+    const en = "en-US";
+    const sd = b.startDate;
+    const dayAt = (i: number) => new Date(sd.getFullYear(), sd.getMonth(), sd.getDate() + i);
+    const monthNames = Array.from({ length: 12 }, (_, m) => new Date(2000, m, 1).toLocaleDateString(en, { month: "long" }));
+    if (b.unit === "all") {
+      // One bar per calendar month from the first listen to now.
+      const byMonth = new Map(stats.months.map(m => [m.month, m.seconds]));
+      const first = new Date(stats.rangeStart || Date.now());
+      const now = new Date();
+      values = []; labels = []; names = [];
+      const totalMonths = (now.getFullYear() - first.getFullYear()) * 12 + now.getMonth() - first.getMonth() + 1;
+      for (let y = first.getFullYear(), m = first.getMonth(); y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth());) {
+        values.push(byMonth.get(`${y}-${String(m + 1).padStart(2, "0")}`) || 0);
+        names.push(`${monthNames[m]} ${y}`);
+        labels.push(totalMonths <= 12 ? monthNames[m][0] : m === 0 ? String(y) : "");
+        if (++m > 11) { m = 0; y++; }
+      }
+    } else if (b.unit === "month") {
       const months = new Array(12).fill(0) as number[];
       values.forEach((v, i) => { months[new Date(b.start + i * 86_400_000 + 43_200_000).getMonth()] += v; });
       values = months;
       labels = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+      names = monthNames;
     } else if (b.unit === "week") {
       labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
       values = values.slice(0, 7);
+      names = values.map((_, i) => dayAt(i).toLocaleDateString(en, { weekday: "long" }));
     } else if (b.unit === "hour") {
       labels = values.map((_, i) => (i % 6 === 0 ? String(i) : ""));
+      names = values.map((_, i) => `${String(i).padStart(2, "0")}:00`);
     } else {
+      const days = Math.max(1, Math.round((b.end - b.start) / 86_400_000));
+      values = values.slice(0, days);
       labels = values.map((_, i) => ((i + 1) % 5 === 0 || i === 0 ? String(i + 1) : ""));
+      names = values.map((_, i) => { const d = dayAt(i); return `${d.getDate()} ${d.toLocaleDateString(en, { month: "short" })}`; });
     }
     const max = Math.max(1, ...values);
-    const bars = values.map((v, i) => `<div class="home-bar" title="${esc(homeDuration(v))}"><div class="home-bar-fill" style="height:${Math.max(v > 0 ? 4 : 0, Math.round((v / max) * 100))}%"></div><span class="home-bar-label">${esc(labels[i] || "")}</span></div>`).join("");
+    const bars = values.map((v, i) => `<div class="home-bar" title="${esc(`${names[i] || ""} — ${v > 0 ? homeDuration(v) : "no listening"}`)}"><div class="home-bar-fill" style="height:${Math.max(v > 0 ? 4 : 0, Math.round((v / max) * 100))}%"></div><span class="home-bar-label">${esc(labels[i] || "")}</span></div>`).join("");
     return `<div class="home-chart">${bars}</div>`;
   }
   function homeStatsBodyHtml(stats: ListenStats, rangeId: HomeRangeId): string {
@@ -1781,35 +1808,44 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       return `<div class="home-stats-empty">Nothing played in this period.</div>`;
     }
     let delta = "";
-    if (stats.prevSeconds > 0) {
+    if (stats.prevSeconds > 0 && range.vs) {
       const pct = Math.round(((stats.seconds - stats.prevSeconds) / stats.prevSeconds) * 100);
       delta = `<span class="home-delta ${pct >= 0 ? "up" : "down"}">${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct)}%</span><span class="home-delta-note">vs ${esc(range.vs)}</span>`;
     }
-    const total = Math.max(1, stats.seconds);
-    const share = (sec: number) => { const p = Math.round((sec / total) * 100); return p < 1 ? "<1%" : `${p}%`; };
+    const by = readStatBy();
     const medal = (i: number) => (i < 3 ? ` rank-${i + 1}` : "");
-    const rowHtml = (i: number, cover: string, name: string, sub: string, sec: number, kind: string) => `<div class="home-stat-row${medal(i)}" data-stat-open="${kind}" data-stat-idx="${i}">
+    const rowHtml = (i: number, cover: string, name: string, sub: string, sec: number, plays: number, kind: StatKind) => {
+      const isPlays = by[kind] === "plays";
+      const part = isPlays ? plays / Math.max(1, stats.plays) : sec / Math.max(1, stats.seconds);
+      const pct = Math.round(part * 100);
+      const value = isPlays ? `${plays} ${plays === 1 ? "play" : "plays"}` : homeDuration(sec);
+      return `<div class="home-stat-row${medal(i)}" data-stat-open="${kind}" data-stat-idx="${i}">
         <span class="home-stat-badge">${i + 1}</span>${cover}
         <div class="home-rank-txt"><div class="home-rank-name">${esc(name)}</div>${sub ? `<div class="home-rank-sub">${esc(sub)}</div>` : ""}</div>
-        <span class="home-stat-time"><b>${esc(homeDuration(sec))}</b><em>${esc(share(sec))}</em></span>
+        <span class="home-stat-time"><b>${esc(value)}</b><em>${pct < 1 ? "<1%" : pct + "%"}</em></span>
         <button type="button" class="home-rank-play" data-stat-play="${kind}" data-stat-idx="${i}" title="Play" aria-label="Play ${esc(name)}">${iconPlay(12)}</button>
       </div>`;
-    const col = (title: string, rows: string) => rows ? `<div class="home-stat-col"><div class="home-stat-col-title">${esc(title)}</div>${rows}</div>` : "";
-    const artists = stats.topArtists.map((g, i) => rowHtml(i, homeCoverHtml(g, "home-rank-cover round", esc(((g.name || "")[0] || "?").toUpperCase())), g.name, "", g.seconds || 0, "artist")).join("");
-    const albums = stats.topAlbums.map((g, i) => rowHtml(i, homeCoverHtml(g, "home-rank-cover round", "💿"), g.name, g.subtitle, g.seconds || 0, "album")).join("");
+    };
+    const col = (title: string, kind: StatKind, rows: string) => {
+      const seg = (v: StatBy, label: string, tip: string) => `<button type="button" class="home-seg-btn${by[kind] === v ? " on" : ""}" data-stat-by="${kind}" data-by="${v}" aria-pressed="${by[kind] === v}" title="${esc(tip)}">${label}</button>`;
+      return `<div class="home-stat-col"><div class="home-stat-col-head"><span class="home-stat-col-title">${esc(title)}</span>
+        <span class="home-seg" role="group" aria-label="Rank ${esc(title)} by">${seg("time", "Time", "Rank by listening time")}${seg("plays", "Plays", "Rank by number of plays (listens of 20 s or more)")}</span></div>
+        ${rows || `<div class="home-stat-none">No plays of 20 s or more in this period</div>`}</div>`;
+    };
+    const artists = stats.topArtists.map((g, i) => rowHtml(i, homeCoverHtml(g, "home-rank-cover round", esc(((g.name || "")[0] || "?").toUpperCase())), g.name, "", g.seconds || 0, g.plays || 0, "artist")).join("");
+    const albums = stats.topAlbums.map((g, i) => rowHtml(i, homeCoverHtml(g, "home-rank-cover round", "💿"), g.name, g.subtitle, g.seconds || 0, g.plays || 0, "album")).join("");
     const tracks = stats.topTracks.map((it, i) => {
       const t = normalizeTrack(it.track);
       const cv = resolvedCover(t.id, t.cover);
       const cover = cv ? `<div class="home-rank-cover round" style="background-image:url('${esc(cv)}');background-size:cover;background-position:center" data-artwork-id="${esc(t.id)}"></div>` : `<div class="home-rank-cover round" data-artwork-id="${esc(t.id)}">♪</div>`;
-      return rowHtml(i, cover, t.title, t.artist, it.seconds, "track");
+      return rowHtml(i, cover, t.title, t.artist, it.seconds, it.plays, "track");
     }).join("");
-    const facts = [col("Top artists", artists), col("Top albums", albums), col("Top tracks", tracks)];
+    const facts = [col("Top artists", "artist", artists), col("Top albums", "album", albums), col("Top tracks", "track", tracks)];
     return `<div class="home-stats-main">
       <div class="home-stats-total"><div class="home-stats-big">${esc(homeDuration(stats.seconds))}</div><div class="home-stats-sub">${delta}</div>
         <div class="home-stats-meta">${stats.sessions} ${stats.sessions === 1 ? "listen" : "listens"} · ${stats.activeDays} ${stats.activeDays === 1 ? "day" : "days"}</div></div>
       ${homeChart(stats, b)}
     </div>
-    <div class="home-stat-note">Top lists are ranked by listening time in this period</div>
     <div class="home-stat-cols">${facts.join("")}</div>`;
   }
   async function fillHomeStats() {
@@ -1820,7 +1856,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const b = homeRangeBounds(id);
     try {
       const stats = await invoke<ListenStats>("library_listen_stats", {
-        start: b.start, end: b.end, prevStart: b.prevStart, prevEnd: b.prevEnd, bucketMs: b.bucketMs, artistKind: savedArtistMode, topN: readHomeCounts().statTop,
+        start: b.start, end: b.end, prevStart: b.prevStart, prevEnd: b.prevEnd, bucketMs: b.bucketMs, artistKind: savedArtistMode, topN: readHomeCounts().statTop, artistBy: readStatBy().artist, albumBy: readStatBy().album, trackBy: readStatBy().track,
       });
       if (token !== homeStatsToken || !host.isConnected) return;
       homeStatsLast = stats;
@@ -1829,6 +1865,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     } catch {
       if (token === homeStatsToken && host.isConnected) host.innerHTML = `<div class="home-stats-empty">Statistics are unavailable right now.</div>`;
     }
+  }
+
+  // Per-list ranking basis for the Listening time card: listening time or plays.
+  type StatBy = "time" | "plays";
+  type StatKind = "artist" | "album" | "track";
+  function readStatBy(): Record<StatKind, StatBy> {
+    let raw: any = null;
+    try { raw = JSON.parse(localStorage.getItem("melo-home-stat-by") || "null"); } catch {}
+    const v = (k: StatKind): StatBy => (raw?.[k] === "plays" ? "plays" : "time");
+    return { artist: v("artist"), album: v("album"), track: v("track") };
+  }
+  function writeStatBy(k: StatKind, by: StatBy) {
+    const cur = readStatBy();
+    cur[k] = by;
+    try { localStorage.setItem("melo-home-stat-by", JSON.stringify(cur)); } catch {}
   }
 
   function leaveHomeForSearch() {
@@ -1841,7 +1892,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
   function homeGreeting(): string {
     const h = new Date().getHours();
-    return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    return h < 5 || h >= 21 ? "Good night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
   }
   function homeHoursLong(seconds: number): string {
     const h = seconds / 3600;
@@ -2080,6 +2131,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     };
     trackList.onclick = event => {
       const target = event.target as HTMLElement;
+      const statBy = target.closest<HTMLElement>("[data-stat-by]");
+      if (statBy) {
+        writeStatBy(statBy.getAttribute("data-stat-by") as StatKind, statBy.getAttribute("data-by") === "plays" ? "plays" : "time");
+        void fillHomeStats();
+        return;
+      }
       const statPlay = target.closest<HTMLElement>("[data-stat-play]");
       const statRow = statPlay || target.closest<HTMLElement>("[data-stat-open]");
       if (statRow && homeStatsLast) {
