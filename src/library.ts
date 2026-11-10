@@ -1982,7 +1982,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const c = readHomeCounts();
     const num = (k: keyof HomeCounts, label: string) => {
       const [lo, hi] = HOME_COUNT_LIMITS[k];
-      return `<label class="home-cz-count"><span>${esc(label)}</span><span class="home-stepper"><button type="button" class="home-step" data-cz-step="${k}" data-cz-dir="-1" aria-label="Decrease ${esc(label)}">−</button><input type="number" inputmode="numeric" min="${lo}" max="${hi}" step="1" value="${c[k]}" data-cz-count="${k}" aria-label="${esc(label)} (${lo}–${hi})"><button type="button" class="home-step" data-cz-step="${k}" data-cz-dir="1" aria-label="Increase ${esc(label)}">+</button></span><em>${lo}–${hi}</em></label>`;
+      return `<div class="home-cz-count"><span>${esc(label)}</span><span class="home-stepper"><button type="button" class="home-step" data-cz-step="${k}" data-cz-dir="-1" aria-label="Decrease ${esc(label)}">−</button><input type="number" inputmode="numeric" min="${lo}" max="${hi}" step="1" value="${c[k]}" data-cz-count="${k}" aria-label="${esc(label)} (${lo}–${hi})"><button type="button" class="home-step" data-cz-step="${k}" data-cz-dir="1" aria-label="Increase ${esc(label)}">+</button></span><em>${lo}–${hi}</em></div>`;
     };
     return `<div class="home-cz"><div class="home-cz-title">Customize Home</div>${rows}
       <div class="home-cz-title home-cz-sub">Items shown</div>
