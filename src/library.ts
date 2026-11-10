@@ -1280,9 +1280,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   function persistLibraryNavigation() {
+    // Only the Library window owns this key. The main window (and the Playlist
+    // window) run their own setupLibrary instance whose stale tab state would
+    // overwrite the real one on pagehide, sending the next launch back to Home.
+    if (isTauri && role !== "library") return;
     try {
       localStorage.setItem(LIBRARY_NAVIGATION_KEY, JSON.stringify({
-        tab: libTab,
+        tab: libTab === "artist-albums" ? savedArtistMode : libTab,
         artist: selectedArtist,
         album: selectedAlbum,
         genre: selectedGenre,
@@ -1678,8 +1682,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return { order, hidden: hidden.filter(id => known.includes(id)) };
   }
   // How many items each Home list shows (Customize → Items shown).
-  type HomeCounts = { shelf: number; ranks: number; tracks: number; repeat: number };
-  const HOME_COUNT_LIMITS = { shelf: [4, 24, 14], ranks: [3, 20, 5], tracks: [3, 20, 5], repeat: [3, 20, 5] } as const;
+  type HomeCounts = { shelf: number; ranks: number; tracks: number; repeat: number; fgPlays: number; fgDays: number };
+  const HOME_COUNT_LIMITS = { shelf: [4, 24, 14], ranks: [3, 20, 5], tracks: [3, 20, 5], repeat: [3, 20, 5], fgPlays: [2, 100, 10], fgDays: [7, 365, 30] } as const;
   function readHomeCounts(): HomeCounts {
     let raw: any = null;
     try { raw = JSON.parse(localStorage.getItem("melo-home-counts") || "null"); } catch {}
@@ -1688,7 +1692,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const v = Math.round(Number(raw?.[k]));
       return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
     };
-    return { shelf: pick("shelf"), ranks: pick("ranks"), tracks: pick("tracks"), repeat: pick("repeat") };
+    return { shelf: pick("shelf"), ranks: pick("ranks"), tracks: pick("tracks"), repeat: pick("repeat"), fgPlays: pick("fgPlays"), fgDays: pick("fgDays") };
   }
   function writeHomeCounts(c: HomeCounts) {
     try { localStorage.setItem("melo-home-counts", JSON.stringify(c)); } catch {}
@@ -1782,9 +1786,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       delta = `<span class="home-delta ${pct >= 0 ? "up" : "down"}">${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct)}%</span><span class="home-delta-note">vs ${esc(range.vs)}</span>`;
     }
     const facts: string[] = [];
-    if (stats.topArtist) facts.push(`<div class="home-fact"><span>Top artist</span><b title="${esc(stats.topArtist.name)}">${esc(stats.topArtist.name)}</b><em>${esc(homeDuration(stats.topArtist.seconds))}</em></div>`);
-    if (stats.topAlbum) facts.push(`<div class="home-fact"><span>Top album</span><b title="${esc(stats.topAlbum.name)}">${esc(stats.topAlbum.name)}</b><em>${esc(homeDuration(stats.topAlbum.seconds))}</em></div>`);
-    if (stats.topTrack) facts.push(`<div class="home-fact"><span>Top track</span><b title="${esc(stats.topTrack.track.title)}">${esc(stats.topTrack.track.title)}</b><em>${esc(homeDuration(stats.topTrack.seconds))}</em></div>`);
+    if (stats.topArtist) facts.push(`<div class="home-fact"><span>Top artist</span><b>${esc(stats.topArtist.name)}</b><em>${esc(homeDuration(stats.topArtist.seconds))}</em></div>`);
+    if (stats.topAlbum) facts.push(`<div class="home-fact"><span>Top album</span><b>${esc(stats.topAlbum.name)}</b><em>${esc(homeDuration(stats.topAlbum.seconds))}</em></div>`);
+    if (stats.topTrack) facts.push(`<div class="home-fact"><span>Top track</span><b>${esc(stats.topTrack.track.title)}</b><em>${esc(homeDuration(stats.topTrack.seconds))}</em></div>`);
     return `<div class="home-stats-main">
       <div class="home-stats-total"><div class="home-stats-big">${esc(homeDuration(stats.seconds))}</div><div class="home-stats-sub">${delta}</div>
         <div class="home-stats-meta">${stats.sessions} ${stats.sessions === 1 ? "listen" : "listens"} · ${stats.activeDays} ${stats.activeDays === 1 ? "day" : "days"}</div></div>
@@ -1841,7 +1845,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!groups.length) return "";
     const cards = groups.map((g, i) => `<div class="home-card" data-home-open="${kind}" data-home-idx="${i}">
       <div class="home-cover-wrap">${homeCoverHtml(g, "home-cover", "💿")}<button type="button" class="home-cover-play" data-home-play="${kind}" data-home-idx="${i}" title="Play ${esc(g.name)}" aria-label="Play ${esc(g.name)}">${iconPlay(13)}</button></div>
-      <div class="home-card-title" title="${esc(g.name)}">${esc(g.name)}</div>
+      <div class="home-card-title">${esc(g.name)}</div>
       <div class="home-card-sub">${esc(g.subtitle)}</div>
     </div>`).join("");
     return `<section class="home-section"><h2 class="home-h2">${esc(title)}</h2><div class="home-grid">${cards}</div></section>`;
@@ -1851,7 +1855,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const rows = groups.map((g, i) => `<div class="home-rank-row" data-home-open="${kind}" data-home-idx="${i}">
       <span class="home-rank-n">${i + 1}</span>
       ${homeCoverHtml(g, "home-rank-cover round", artistRows ? esc(((g.name || "")[0] || "?").toUpperCase()) : "💿")}
-      <div class="home-rank-txt"><div class="home-rank-name" title="${esc(g.name)}">${esc(g.name)}</div><div class="home-rank-sub">${esc(g.subtitle)}</div></div>
+      <div class="home-rank-txt"><div class="home-rank-name">${esc(g.name)}</div><div class="home-rank-sub">${esc(g.subtitle)}</div></div>
       <span class="home-rank-plays">${g.plays} ${g.plays === 1 ? "play" : "plays"}</span>
       <button type="button" class="home-rank-play" data-home-play="${kind}" data-home-idx="${i}" title="Play ${esc(g.name)}" aria-label="Play ${esc(g.name)}">${iconPlay(12)}</button>
     </div>`).join("");
@@ -1868,7 +1872,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       return `<div class="home-rank-row" data-home-trackrow="${kind}" data-home-idx="${i}">
         <span class="home-rank-n">${i + 1}</span>
         ${cover ? `<div class="home-rank-cover round" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(t.id)}"></div>` : `<div class="home-rank-cover round" data-artwork-id="${esc(t.id)}">♪</div>`}
-        <div class="home-rank-txt"><div class="home-rank-name" title="${esc(t.title)}">${esc(t.title)}</div><div class="home-rank-sub">${esc(t.artist)}</div></div>
+        <div class="home-rank-txt"><div class="home-rank-name">${esc(t.title)}</div><div class="home-rank-sub">${esc(t.artist)}</div></div>
         <span class="home-rank-plays">${esc(count)}</span>
         <button type="button" class="home-rank-play" data-home-trackplay="${kind}" data-home-idx="${i}" title="Play ${esc(t.title)}" aria-label="Play ${esc(t.title)}">${iconPlay(12)}</button>
       </div>`;
@@ -1879,7 +1883,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!invoke || groupPlayBusy) return;
     groupPlayBusy = true;
     try {
-      const raw = await invoke<Track[]>("library_mix_tracks", { kind, limit: kind === "shuffle" ? 2000 : 500 });
+      const raw = await invoke<Track[]>("library_mix_tracks", { kind, limit: kind === "shuffle" ? 2000 : 500, minPlays: readHomeCounts().fgPlays, days: readHomeCounts().fgDays });
       const list = (raw || []).map(normalizeTrack);
       if (!list.length) return;
       await replaceQueueWith(list);
@@ -1982,7 +1986,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     };
     return `<div class="home-cz"><div class="home-cz-title">Customize Home</div>${rows}
       <div class="home-cz-title home-cz-sub">Items shown</div>
-      <div class="home-cz-counts">${num("shelf", "Recently played & added")}${num("ranks", "Top artists & albums")}${num("tracks", "Top tracks")}${num("repeat", "Recently on repeat")}</div>
+      <div class="home-cz-counts">${num("shelf", "Recently played & added")}${num("ranks", "Top artists & albums")}${num("tracks", "Top tracks")}${num("repeat", "Recently on repeat")}${num("fgPlays", "Forgotten favourites: min. plays")}${num("fgDays", "Forgotten favourites: days unplayed")}</div>
       <div class="home-cz-foot"><button type="button" class="home-btn-ghost" data-cz-reset>Reset layout</button><button type="button" class="home-btn-ghost" data-cz-clear>Clear listening history…</button></div></div>`;
   }
 
@@ -1994,7 +1998,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         ${ltCover ? `<div class="home-resume-cover" style="background-image:url('${esc(ltCover)}');background-size:cover;background-position:center" data-artwork-id="${esc(lt.id)}"></div>` : `<div class="home-resume-cover" data-artwork-id="${esc(lt.id)}">♪</div>`}
         <div class="home-resume-txt">
           <span class="home-eyebrow">CONTINUE LISTENING</span>
-          <div class="home-resume-title" title="${esc(lt.title)}">${esc(lt.title)}</div>
+          <div class="home-resume-title">${esc(lt.title)}</div>
           <div class="home-resume-sub">${esc(lt.artist)}${lt.album ? ` · ${esc(lt.album)}` : ""}</div>
           <div class="home-resume-actions"><button type="button" class="home-btn-primary" id="homeResume">${iconPlay(12)}<span>Play</span></button>${lt.album ? `<button type="button" class="home-btn-ghost" id="homeOpenAlbum">Open album</button>` : ""}</div>
         </div></section>` : "";
@@ -2016,7 +2020,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       `<button type="button" class="home-decade" data-home-decade="${d.decade}" title="Play a shuffled mix from the ${d.decade}s"><span class="home-decade-name">${d.decade}s</span><span class="home-decade-count">${d.count.toLocaleString()} tracks</span><span class="home-decade-play">${iconPlay(11)}</span></button>`).join("")}</div></section>` : "";
     const mixCard = (id: string, title: string, sub: string, tone: string) => `<button type="button" class="home-mix ${tone}" data-home-mix="${id}"><span class="home-mix-txt"><span class="home-mix-title">${esc(title)}</span><span class="home-mix-sub">${esc(sub)}</span></span><span class="home-mix-play">${iconPlay(13)}</span></button>`;
     out.mixes = `<section class="home-section"><h2 class="home-h2">Quick mixes</h2><div class="home-mixes">${[
-      data.forgotten ? mixCard("forgotten", "Forgotten favourites", `${data.forgotten.toLocaleString()} tracks you haven't played in a while`, "tone-a") : "",
+      data.forgotten ? mixCard("forgotten", "Forgotten favourites", `${data.forgotten.toLocaleString()} tracks you loved but haven't played in ${readHomeCounts().fgDays} days`, "tone-a") : "",
       mixCard("album", "Random album", "Surprise me", "tone-b"),
       data.longCount ? mixCard("long", "Long listens", `${data.longCount.toLocaleString()} tracks over 10 minutes`, "tone-e") : "",
       data.neverPlayed ? mixCard("never", "Never played", `${data.neverPlayed.toLocaleString()} tracks waiting for a first listen`, "tone-c") : "",
@@ -2033,7 +2037,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const body = layout.order.filter(id => !layout.hidden.includes(id)).map(id => sections[id] || "").join("");
     trackList.innerHTML = `<div class="home">
       <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead">Your library: ${stats.tracks.toLocaleString("en-US")} ${stats.tracks === 1 ? "track" : "tracks"} · ${esc(homeHoursLong(data.totalSeconds))} of music</p></div>
-        <div class="home-top-right"><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">${svgIcon('<circle cx="12" cy="12" r="3"/><path d="M4 6h4M16 6h4M4 12h2M14 12h6M4 18h8M20 18h0"/>', 13)}<span>Customize</span></button></div></div>
+        <div class="home-top-right"><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">${svgIcon('<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>', 13)}<span>Customize</span></button></div></div>
       ${homeCustomizing ? homeCustomizeHtml(layout) : ""}
       ${body}
     </div>`;
@@ -2163,7 +2167,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const keepScroll = trackList.scrollTop;
     try {
       const [data, stats] = await Promise.all([
-        invoke<HomeData>("library_home", { artistKind: savedArtistMode, limit: readHomeCounts().shelf, rankLimit: readHomeCounts().ranks, topTracksLimit: readHomeCounts().tracks, repeatLimit: readHomeCounts().repeat }),
+        invoke<HomeData>("library_home", { artistKind: savedArtistMode, limit: readHomeCounts().shelf, rankLimit: readHomeCounts().ranks, topTracksLimit: readHomeCounts().tracks, repeatLimit: readHomeCounts().repeat, forgottenMinPlays: readHomeCounts().fgPlays, forgottenDays: readHomeCounts().fgDays }),
         invoke<Stats>("library_stats"),
       ]);
       if (req !== homeRequest || libTab !== "home") return;
@@ -2289,7 +2293,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
             const slotGap = card ? TILE_GAP : 8;
             const cardStyle = `${posStyle};height:${rowH - slotGap}px;margin:${slotGap / 2}px 0`;
             const meta = groupMetaHtml(group, libraryGroupKind());
-            const text = `<div class="grp-txt"><div class="grp-name" title="${esc(group.name)}">${esc(group.name)}</div><div class="grp-meta">${meta}</div></div>`;
+            const text = `<div class="grp-txt"><div class="grp-name">${esc(group.name)}</div><div class="grp-meta">${meta}</div></div>`;
             const playLabel = `Play ${group.name}`;
             return card
               ? `<div class="lib-item lib-card lib-grp lib-grp-tile virtual-row" data-group-index="${index}" style="${cardStyle}">${avatar}${text}<div class="grp-foot"><button type="button" class="grp-play grp-play-tile" data-grp-play title="${esc(playLabel)}" aria-label="${esc(playLabel)}">${iconPlay(11)}<span>Play</span></button></div></div>`
@@ -3253,7 +3257,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         return `<section class="lib-sheet" data-sheet-context="${si}">
           ${coverEl}
           <div class="lib-sheet-main">
-            <div class="lib-sheet-title" title="${esc(sheet.name)}">${esc(sheet.name)}</div>
+            <div class="lib-sheet-title">${esc(sheet.name)}</div>
             <div class="lib-sheet-meta"><span class="lib-sheet-sub">${esc(metaLeft)}</span><span class="lib-sheet-measures"><span class="lib-sheet-count">${tracksText}</span><span class="lib-sheet-mins">${minsText}</span></span></div>
             <div class="lib-sheet-tracks" style="--rows:${Math.max(1, Math.ceil(sheet.tracks.length / 2))}">${rows}</div>
           </div>

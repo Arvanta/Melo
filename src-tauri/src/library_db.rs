@@ -1724,8 +1724,7 @@ const TRACK_COLS_T: &str = "t.id,t.path,t.title,t.artist,t.album_artist,t.album,
 const HOME_LONG_SECS: f64 = 600.0;
 const HOME_REPEAT_WINDOW_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
-/// "Forgotten" = played at least once, but not within the last 30 days.
-const HOME_FORGOTTEN_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
 
 fn home_cover(conn: &Connection, by_artist_col: Option<&str>, album_artist: &str, album: &str) -> (Option<String>, Option<String>) {
     // Same row rule as query_groups: the smallest track id that has artwork.
@@ -1813,7 +1812,9 @@ fn home_artists(conn: &Connection, column: &str, limit: i64) -> Result<Vec<HomeG
     Ok(out)
 }
 
-fn query_home(conn: &Connection, artist_kind: &str, limit: i64, rank_limit: i64, top_tracks_limit: i64, repeat_limit: i64) -> Result<HomeData, String> {
+fn query_home(conn: &Connection, artist_kind: &str, limit: i64, rank_limit: i64, top_tracks_limit: i64, repeat_limit: i64, forgotten_plays: i64, forgotten_days: i64) -> Result<HomeData, String> {
+    let forgotten_plays = forgotten_plays.clamp(1, 1000);
+    let forgotten_days = forgotten_days.clamp(1, 3650);
     let limit = limit.clamp(1, 30);
     let rank_limit = rank_limit.clamp(1, 30);
     let top_tracks_limit = top_tracks_limit.clamp(1, 30);
@@ -1836,11 +1837,11 @@ fn query_home(conn: &Connection, artist_kind: &str, limit: i64, rank_limit: i64,
     let never_played: i64 = conn
         .query_row("SELECT COUNT(*) FROM tracks WHERE library_owned=1 AND play_count=0 AND last_played_at IS NULL", [], |r| r.get(0))
         .unwrap_or(0);
-    let cutoff = now_ms() - HOME_FORGOTTEN_MS;
+    let cutoff = now_ms() - forgotten_days * 24 * 60 * 60 * 1000;
     let forgotten: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM tracks WHERE library_owned=1 AND play_count>=1 AND COALESCE(last_played_at,0)<?1",
-            params![cutoff],
+            "SELECT COUNT(*) FROM tracks WHERE library_owned=1 AND play_count>=?2 AND COALESCE(last_played_at,0)<?1",
+            params![cutoff, forgotten_plays],
             |r| r.get(0),
         )
         .unwrap_or(0);
@@ -1879,7 +1880,7 @@ fn query_home(conn: &Connection, artist_kind: &str, limit: i64, rank_limit: i64,
     };
     let decades: Vec<HomeDecade> = {
         let mut stmt = conn
-            .prepare("SELECT (year/10)*10 AS d,COUNT(*) FROM tracks WHERE library_owned=1 AND year>=1900 GROUP BY d ORDER BY d DESC")
+            .prepare("SELECT (year/10)*10 AS d,COUNT(*) FROM tracks WHERE library_owned=1 AND year>=1900 AND year<=2069 GROUP BY d ORDER BY d DESC")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| Ok(HomeDecade { decade: r.get(0)?, count: r.get(1)? }))
@@ -1927,12 +1928,14 @@ pub async fn library_home(
     rank_limit: Option<i64>,
     top_tracks_limit: Option<i64>,
     repeat_limit: Option<i64>,
+    forgotten_min_plays: Option<i64>,
+    forgotten_days: Option<i64>,
     state: State<'_, LibraryState>,
 ) -> Result<HomeData, String> {
     let db_path = state.db_path.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<HomeData, String> {
         let conn = open_db(&db_path)?;
-        query_home(&conn, artist_kind.as_deref().unwrap_or("album-artists"), limit.unwrap_or(14), rank_limit.unwrap_or(5), top_tracks_limit.unwrap_or(5), repeat_limit.unwrap_or(5))
+        query_home(&conn, artist_kind.as_deref().unwrap_or("album-artists"), limit.unwrap_or(14), rank_limit.unwrap_or(5), top_tracks_limit.unwrap_or(5), repeat_limit.unwrap_or(5), forgotten_min_plays.unwrap_or(10), forgotten_days.unwrap_or(30))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1940,26 +1943,29 @@ pub async fn library_home(
 
 /// Tracks for a Home mix, in the order they should play (capped, so one IPC
 /// call stays small). `kind`: "forgotten" (played before, least recently
-/// first, older than 30 days), "never" (never played), "shuffle" (whole library,
+/// first, played at least `min_plays` times, not within `days`), "never" (never played), "shuffle" (whole library,
 /// random order). The caller replaces the queue with them and starts the first.
 #[tauri::command]
 pub async fn library_mix_tracks(
     kind: String,
     limit: Option<i64>,
+    min_plays: Option<i64>,
+    days: Option<i64>,
     state: State<'_, LibraryState>,
 ) -> Result<Vec<DbTrack>, String> {
     let db_path = state.db_path.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<DbTrack>, String> {
         let conn = open_db(&db_path)?;
         let limit = limit.unwrap_or(500).clamp(1, 5000);
-        let cutoff = now_ms() - HOME_FORGOTTEN_MS;
+        let cutoff = now_ms() - days.unwrap_or(30).clamp(1, 3650) * 24 * 60 * 60 * 1000;
+        let min_plays = min_plays.unwrap_or(10).clamp(1, 1000);
         let (where_extra, order): (String, &str) = match kind.as_str() {
-            "forgotten" => (" AND play_count>=1 AND COALESCE(last_played_at,0)<?1".to_string(), "COALESCE(last_played_at,0) ASC,id"),
+            "forgotten" => (format!(" AND play_count>={} AND COALESCE(last_played_at,0)<?1", min_plays), "play_count DESC,COALESCE(last_played_at,0) ASC,id"),
             "never" => (" AND play_count=0 AND last_played_at IS NULL".to_string(), "artist COLLATE NOCASE,album COLLATE NOCASE,title COLLATE NOCASE,id"),
             "shuffle" => (String::new(), "RANDOM()"),
             "long" => (format!(" AND duration>={}", HOME_LONG_SECS), "RANDOM()"),
             other => match other.strip_prefix("decade:").and_then(|d| d.parse::<i64>().ok()) {
-                Some(d) if (1900..2100).contains(&d) => (format!(" AND year>={} AND year<{}", d, d + 10), "RANDOM()"),
+                Some(d) if (1900..=2060).contains(&d) && d % 10 == 0 => (format!(" AND year>={} AND year<{}", d, d + 10), "RANDOM()"),
                 _ => return Err(format!("unknown mix: {}", other)),
             },
         };

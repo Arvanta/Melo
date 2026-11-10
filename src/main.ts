@@ -903,6 +903,7 @@ if (isTauri && !urlPanel) {
         // Remember which panels were open so we can restore them.
         const snapshot = Array.from(visiblePanels);
         try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(snapshot)); } catch {}
+        panelSnapshotFrozen = true;
         // Hide every panel + main.
         for (const p of snapshot) {
           try {
@@ -915,6 +916,7 @@ if (isTauri && !urlPanel) {
             setPanelVisible(p, false);
           } catch {}
         }
+        panelSnapshotFrozen = false;
         try { await mainWin.hide(); } catch {}
       } else {
         // Restore from snapshot, then show main.
@@ -1230,6 +1232,8 @@ if (isTauri && !urlPanel) {
         } catch { /* fall through to the plain hide below */ }
         try { await mainWin.hide(); return; } catch {}
       }
+      try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(Array.from(visiblePanels))); } catch {}
+      panelSnapshotFrozen = true;
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       for (const p of ["library", "playlist", "equalizer", "lyrics", "settings"]) {
         try {
@@ -1549,6 +1553,9 @@ const panelBtnMap: Record<string, string> = { library: "btnToggleLibrary", playl
 // Close-to-tray. In-memory is fine: tray-hide is session-level, and on
 // Restart visibility comes from the melo-win-* keys.
 const visiblePanels = new Set<PanelId>();
+// While the app is exiting / hiding to tray, panels close one by one; those closes
+// must not shrink the saved open-panel set, or nothing reopens on the next launch.
+let panelSnapshotFrozen = false;
 function setPanelVisible(panel: PanelId, visible: boolean) {
   const had = visiblePanels.has(panel);
   if (visible && !had) visiblePanels.add(panel);
@@ -1564,7 +1571,7 @@ function setPanelVisible(panel: PanelId, visible: boolean) {
   // Persist the OPEN-panel set after every change so a close-to-tray /
   // Relaunch cycle restores panels at their saved geometry. The tray
   // Snapshot key doubles as this set.
-  try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(Array.from(visiblePanels))); } catch {}
+  if (!panelSnapshotFrozen) { try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(Array.from(visiblePanels))); } catch {} }
 }
 
 // v1.2.0 — taskbar click brings the open panels back with the player.

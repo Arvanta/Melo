@@ -650,3 +650,16 @@ test("round 116d: Home item counts, mini-player modes, artist-list icon, keys", 
   assert.doesNotMatch(lib, /e\.key === "ArrowRight" \|\| e\.key === "ArrowUp"/);
   assert.match(lib, /syncLibraryTabButton\(\);\n\s+syncArtistSidebarControls\(\);/);
 });
+
+test("round 116f: tab restore owner, exit snapshot freeze, decade year cap, forgotten settings", () => {
+  const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  const main = readFileSync(join(here, "..", "src", "main.ts"), "utf8");
+  assert.match(lib, /if \(isTauri && role !== "library"\) return;/);
+  assert.match(lib, /fgPlays: \[2, 100, 10\], fgDays: \[7, 365, 30\]/);
+  assert.match(main, /let panelSnapshotFrozen = false;/);
+  assert.match(main, /if \(!panelSnapshotFrozen\)/);
+  assert.match(db, /year>=1900 AND year<=2069/);
+  assert.match(db, /\(1900\.\.=2060\)\.contains\(&d\)/);
+  assert.doesNotMatch(lib, /class="home-rank-name" title=/);
+});
