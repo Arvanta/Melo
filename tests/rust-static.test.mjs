@@ -658,7 +658,7 @@ test("round 116f: tab restore owner, exit snapshot freeze, decade year cap, forg
   assert.match(lib, /if \(isTauri && role !== "library"\) return;/);
   assert.match(lib, /fgPlays: \[2, 100, 10\], fgDays: \[7, 365, 30\]/);
   assert.match(main, /let panelSnapshotFrozen = false;/);
-  assert.match(main, /if \(!panelSnapshotFrozen\)/);
+  assert.match(main, /if \(!urlPanel && !panelSnapshotFrozen\)/);
   assert.match(db, /year>=1900 AND year<=2069/);
   assert.match(db, /\(1900\.\.=2060\)\.contains\(&d\)/);
   assert.doesNotMatch(lib, /class="home-rank-name" title=/);

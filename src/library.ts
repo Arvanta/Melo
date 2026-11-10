@@ -1982,7 +1982,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const c = readHomeCounts();
     const num = (k: keyof HomeCounts, label: string) => {
       const [lo, hi] = HOME_COUNT_LIMITS[k];
-      return `<label class="home-cz-count"><span>${esc(label)}</span><input type="number" inputmode="numeric" min="${lo}" max="${hi}" step="1" value="${c[k]}" data-cz-count="${k}" aria-label="${esc(label)} (${lo}–${hi})"><em>${lo}–${hi}</em></label>`;
+      return `<label class="home-cz-count"><span>${esc(label)}</span><span class="home-stepper"><button type="button" class="home-step" data-cz-step="${k}" data-cz-dir="-1" aria-label="Decrease ${esc(label)}">−</button><input type="number" inputmode="numeric" min="${lo}" max="${hi}" step="1" value="${c[k]}" data-cz-count="${k}" aria-label="${esc(label)} (${lo}–${hi})"><button type="button" class="home-step" data-cz-step="${k}" data-cz-dir="1" aria-label="Increase ${esc(label)}">+</button></span><em>${lo}–${hi}</em></label>`;
     };
     return `<div class="home-cz"><div class="home-cz-title">Customize Home</div>${rows}
       <div class="home-cz-title home-cz-sub">Items shown</div>
@@ -2105,6 +2105,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         return;
       }
       if (target.closest("#homeCustomize")) { homeCustomizing = !homeCustomizing; paintHome(data, stats); void fillHomeStats(); return; }
+      const czStep = target.closest<HTMLElement>("[data-cz-step]");
+      if (czStep) {
+        event.preventDefault();
+        const k = czStep.getAttribute("data-cz-step") as keyof HomeCounts;
+        const [lo, hi] = HOME_COUNT_LIMITS[k];
+        const counts = readHomeCounts();
+        const next = Math.max(lo, Math.min(hi, counts[k] + Number(czStep.getAttribute("data-cz-dir"))));
+        if (next !== counts[k]) { counts[k] = next; writeHomeCounts(counts); void renderLibraryHome(false); }
+        return;
+      }
       const czToggle = target.closest<HTMLInputElement>("[data-cz-toggle]");
       if (czToggle) {
         const layout = readHomeLayout();
@@ -2786,7 +2796,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const avatar = cover
         ? `<div class="las-avatar" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(g.artworkTrackId || "")}"></div>`
         : `<div class="las-avatar" style="--h:${sideHue(name)}" data-artwork-id="${esc(g.artworkTrackId || "")}">${esc(sideInitials(name))}</div>`;
-      html += `<div class="las-row${i < 24 ? " las-anim" : ""}${on ? " active" : ""}" role="option" aria-selected="${on}" tabindex="0" data-side-artist="${esc(name)}" title="${esc(name)}" style="--i:${Math.min(i, 16)}">${avatar}<div class="las-info"><div class="las-name">${esc(name)}</div><div class="las-meta">${meta}</div></div><button type="button" class="las-play" data-las-play title="${esc("Play " + name)}" aria-label="${esc("Play " + name)}">${iconPlay(11)}</button></div>`;
+      html += `<div class="las-row${i < 24 ? " las-anim" : ""}${on ? " active" : ""}" role="option" aria-selected="${on}" tabindex="0" data-side-artist="${esc(name)}" style="--i:${Math.min(i, 16)}">${avatar}<div class="las-info"><div class="las-name">${esc(name)}</div><div class="las-meta">${meta}</div></div><button type="button" class="las-play" data-las-play title="${esc("Play " + name)}" aria-label="${esc("Play " + name)}">${iconPlay(11)}</button></div>`;
     });
     if (lastLetter) html += `</section>`;
     list.innerHTML = html;

@@ -1571,7 +1571,9 @@ function setPanelVisible(panel: PanelId, visible: boolean) {
   // Persist the OPEN-panel set after every change so a close-to-tray /
   // Relaunch cycle restores panels at their saved geometry. The tray
   // Snapshot key doubles as this set.
-  if (!panelSnapshotFrozen) { try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(Array.from(visiblePanels))); } catch {} }
+  // Only the MAIN window owns the saved set: panel windows get the same bus events but
+  // hold their own (empty) visiblePanels, and would overwrite it with [] as they close.
+  if (!urlPanel && !panelSnapshotFrozen) { try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(Array.from(visiblePanels))); } catch {} }
 }
 
 // v1.2.0 — taskbar click brings the open panels back with the player.

@@ -2816,3 +2816,12 @@ few-px band where scrolled rows peek through. */
 .home-cz-count span { flex: 1; min-width: 0; }
 .home-cz-count input { width: 56px; height: 26px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.14)); background: transparent; color: var(--text); font: inherit; text-align: center; }
 .home-cz-count em { font-style: normal; font-size: 10px; color: var(--text-muted); min-width: 34px; }
+
+/* Customize: − [n] + stepper instead of the native spin buttons */
+.home-stepper { display: inline-flex; align-items: center; border: 1px solid var(--border, rgba(255,255,255,0.14)); border-radius: 8px; overflow: hidden; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.home-stepper input { width: 40px; height: 26px; border: 0; border-radius: 0; padding: 0; background: transparent; text-align: center; -moz-appearance: textfield; appearance: textfield; }
+.home-stepper input::-webkit-outer-spin-button, .home-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.home-stepper input:focus { outline: none; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.home-step { width: 26px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+.home-step:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
+.home-step:active { background: color-mix(in srgb, var(--accent) 26%, transparent); }
