@@ -6,7 +6,7 @@
 
 Built with Tauri 2 · TypeScript · Rust
 
-[![Version](https://img.shields.io/badge/version-1.2.1-5b8cff?style=for-the-badge)](https://github.com/Arvanta/Melo/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.3.0-5b8cff?style=for-the-badge)](https://github.com/Arvanta/Melo/releases/latest)
 ![License](https://img.shields.io/badge/license-GPL--3.0-b56cff?style=for-the-badge)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4?style=for-the-badge)](https://github.com/Arvanta/Melo/releases/latest)
 
@@ -125,9 +125,9 @@ npm run dev      # http://localhost:1420
 ### Publishing a new version
 
 ```bash
-node tools/version.mjs 1.2.1     # bumps every version-declaring file at once
+node tools/version.mjs 1.3.0     # bumps every version-declaring file at once
 node tools/version.mjs --check   # confirm they all agree
-git commit -am "Melo 1.2.1"
+git commit -am "Melo 1.3.0"
 git push
 ```
 

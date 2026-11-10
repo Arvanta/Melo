@@ -4,7 +4,7 @@
 // browser build the lookup fails and the compile-time fallback is used.
 // Cached for the process lifetime.
 
-const FALLBACK_VERSION = "1.2.1";
+const FALLBACK_VERSION = "1.3.0";
 
 let cachedVersion: string | null = null;
 let pending: Promise<string> | null = null;
