@@ -694,3 +694,12 @@ test("round 116i: All range shows records instead of the chart", () => {
   assert.match(lib, /Longest streak/);
   assert.match(db, /longest_day_seconds: f64/);
 });
+
+test("round 116j: Home plays use listen_log.counted (same rule as play_count)", () => {
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  assert.match(db, /ALTER TABLE listen_log ADD COLUMN counted INTEGER NOT NULL DEFAULT 0/);
+  assert.match(db, /counted: Option<bool>/);
+  assert.match(db, /SUM\(l\.counted\) AS p/);
+  assert.match(db, /COALESCE\(SUM\(counted\),0\)/);
+  assert.doesNotMatch(db, /seconds>=20/);
+});

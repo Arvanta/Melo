@@ -1833,8 +1833,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const col = (title: string, kind: StatKind, rows: string) => {
       const seg = (v: StatBy, label: string, tip: string) => `<button type="button" class="home-seg-btn${by[kind] === v ? " on" : ""}" data-stat-by="${kind}" data-by="${v}" aria-pressed="${by[kind] === v}" title="${esc(tip)}">${label}</button>`;
       return `<div class="home-stat-col"><div class="home-stat-col-head"><span class="home-stat-col-title">${esc(title)}</span>
-        <span class="home-seg" role="group" aria-label="Rank ${esc(title)} by">${seg("time", "Time", "Rank by listening time")}${seg("plays", "Plays", "Rank by number of plays (listens of 20 s or more)")}</span></div>
-        ${rows || `<div class="home-stat-none">No plays of 20 s or more in this period</div>`}</div>`;
+        <span class="home-seg" role="group" aria-label="Rank ${esc(title)} by">${seg("time", "Time", "Rank by listening time")}${seg("plays", "Plays", "Rank by number of plays (a play counts after 30 s, or half of a short track)")}</span></div>
+        ${rows || `<div class="home-stat-none">No counted plays in this period</div>`}</div>`;
     };
     const artists = stats.topArtists.map((g, i) => rowHtml(i, homeCoverHtml(g, "home-rank-cover round", esc(((g.name || "")[0] || "?").toUpperCase())), g.name, "", g.seconds || 0, g.plays || 0, "artist")).join("");
     const albums = stats.topAlbums.map((g, i) => rowHtml(i, homeCoverHtml(g, "home-rank-cover round", "💿"), g.name, g.subtitle, g.seconds || 0, g.plays || 0, "album")).join("");
@@ -4944,7 +4944,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // like play counting; failures never touch playback).
   busOn("melo:listened", (p: any) => {
     if (role !== "main" || !invoke || !p?.trackId) return;
-    void invoke("record_listen", { trackId: String(p.trackId), startedAt: Math.round(Number(p.startedAt) || Date.now()), seconds: Number(p.seconds) || 0 }).catch(() => {});
+    void invoke("record_listen", { trackId: String(p.trackId), startedAt: Math.round(Number(p.startedAt) || Date.now()), seconds: Number(p.seconds) || 0, counted: !!p.counted }).catch(() => {});
   });
   // Round 77: shuffle materialises into the real queue. The player proposes
   // the new order (track ids, duplicates consumed greedily by the backend);

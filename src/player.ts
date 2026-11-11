@@ -126,24 +126,29 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // not-yet-reported part of the meter is handed to the library at the same
   // boundaries (track change, ended, pause, pagehide) — no timer, no
   // per-timeupdate work. Segments under a second are dropped.
-  function flushListen(s: PlaySession | null) {
+  function flushListen(s: PlaySession | null, counted = false) {
     if (!s || !s.id) return;
     const deltaMs = s.listenedMs - s.loggedMs;
-    if (deltaMs < 1000) return;
+    // The row that earns the play is always written (>= 1 s) so the count is never lost.
+    if (deltaMs < 1000 && !counted) return;
     s.loggedMs = s.listenedMs;
-    busEmit("melo:listened", { trackId: s.id, startedAt: Date.now() - deltaMs, seconds: deltaMs / 1000 });
+    busEmit("melo:listened", { trackId: s.id, startedAt: Date.now() - deltaMs, seconds: Math.max(1, deltaMs / 1000), counted });
   }
   function evaluatePlaySession() {
     const s = playSession;
     if (!s) return;
     if (audio && !audio.paused) accumulateSession();
-    flushListen(s);
-    if (s.counted || !s.id) return;
-    const threshold = s.durMs > 0 ? Math.min(30000, s.durMs / 2) : 30000;
-    if (s.listenedMs >= threshold) {
-      s.counted = true;
-      busEmit("melo:play-counted", { trackId: s.id });
+    // Decide the play FIRST: the listen row written below carries the "counted" flag.
+    let justCounted = false;
+    if (!s.counted && s.id) {
+      const threshold = s.durMs > 0 ? Math.min(30000, s.durMs / 2) : 30000;
+      if (s.listenedMs >= threshold) {
+        s.counted = true;
+        justCounted = true;
+      }
     }
+    flushListen(s, justCounted);
+    if (justCounted) busEmit("melo:play-counted", { trackId: s.id });
   }
   // Quit, reload and OS-suspend all flush through pagehide, so a track
   // that had already earned its count is never lost by closing the app.
@@ -1154,7 +1159,6 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       // restore) re-shows the Play icon.
       if (el !== audio) return;
       accumulateSession(); // paused: the listen meter stops here
-      flushListen(playSession);
       // Settle NOW too (the once-flag makes re-evaluation harmless): a user
       // who listens, pauses, then closes the app must not lose the count if
       // the webview skips pagehide on shutdown.

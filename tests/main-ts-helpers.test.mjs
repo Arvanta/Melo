@@ -2030,7 +2030,9 @@ test("play counts only after a real listen (round 76 threshold), never at start"
   const lib = readSrc("src/library.ts");
   assert.match(player, /Math\.min\(30000, s\.durMs \/ 2\) : 30000/, "threshold = min(30s, half the duration), unknown → 30s");
   assert.match(player, /s\.listenedMs \+= Date\.now\(\) - s\.resumeAt;/, "wall-clock accumulation while unpaused");
-  assert.match(player, /if \(s\.counted \|\| !s\.id\) return;/, "each pass counts at most once");
+  assert.match(player, /if \(!s\.counted && s\.id\) \{/, "each pass counts at most once");
+  assert.match(player, /flushListen\(s, justCounted\);/, "the listen row that earns the play carries counted=1 (Home Plays = play_count rule)");
+  assert.match(lib, /counted: !!p\.counted/, "record_listen receives the counted flag");
   assert.match(player, /busEmit\("melo:play-counted", \{ trackId: s\.id \}\);/, "count travels over the bus, DB stays out of the player");
   assert.match(player, /beginPlaySession\(t\); \/\/ settles the outgoing track's count, too/, "switching tracks settles the previous one");
   assert.match(player, /window\.addEventListener\("pagehide", \(\) => evaluatePlaySession\(\)\);/, "quit/reload flushes an earned count");

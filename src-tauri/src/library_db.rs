@@ -294,7 +294,8 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           track_id TEXT NOT NULL,
           started_at INTEGER NOT NULL,
-          seconds REAL NOT NULL
+          seconds REAL NOT NULL,
+          counted INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_listen_started ON listen_log(started_at);
         CREATE INDEX IF NOT EXISTS idx_listen_track ON listen_log(track_id);
@@ -361,6 +362,15 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         || !table_has_column(conn, "playlists", "source_path")?
     {
         return Err("Library database schema is obsolete. Remove library.db (and its -wal/-shm files) before using this clean-reset build.".into());
+    }
+    // listen_log.counted (1.3.0): 1 on the row in which a play was earned, using the same rule as
+    // play_count (min(30 s, half the track), unpaused). Older rows are approximated by >= 30 s.
+    if !table_has_column(conn, "listen_log", "counted")? {
+        conn.execute_batch(
+            "ALTER TABLE listen_log ADD COLUMN counted INTEGER NOT NULL DEFAULT 0;
+             UPDATE listen_log SET counted=1 WHERE seconds>=30;",
+        )
+        .map_err(|e| e.to_string())?;
     }
     conn.execute_batch(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlist_position ON playlist_tracks(playlist_id, position);
@@ -1865,11 +1875,11 @@ fn query_home(conn: &Connection, artist_kind: &str, limit: i64, rank_limit: i64,
             .map_err(|e| e.to_string())?;
         rows.filter_map(log_skipped).collect()
     };
-    // "Recently on repeat": tracks listened to at least 2 times (20s+ each) in the last 30 days.
+    // "Recently on repeat": tracks listened to at least 2 times (a counted play each) in the last 30 days.
     let repeat_tracks: Vec<HomeTrack> = {
         let sql = format!(
             "SELECT {},COUNT(*) AS c,SUM(l.seconds) FROM listen_log l JOIN tracks t ON t.id=l.track_id \
-             WHERE l.started_at>=?1 AND l.seconds>=20 AND t.library_owned=1 GROUP BY t.id HAVING c>=2 \
+             WHERE l.started_at>=?1 AND l.counted=1 AND t.library_owned=1 GROUP BY t.id HAVING c>=2 \
              ORDER BY c DESC,MAX(l.started_at) DESC LIMIT {}",
             TRACK_COLS_T, repeat_limit
         );
@@ -1988,14 +1998,14 @@ pub async fn library_mix_tracks(
 /// The player reports one listening segment (wall-clock seconds spent
 /// unpaused on a track) at track boundaries. Tiny insert, never blocks playback.
 #[tauri::command]
-pub async fn record_listen(track_id: String, started_at: i64, seconds: f64, state: State<'_, LibraryState>) -> Result<(), String> {
+pub async fn record_listen(track_id: String, started_at: i64, seconds: f64, counted: Option<bool>, state: State<'_, LibraryState>) -> Result<(), String> {
     if track_id.is_empty() || !(1.0..=6.0 * 3600.0).contains(&seconds) {
         return Ok(());
     }
     let conn = locked_db(&state)?;
     conn.execute(
-        "INSERT INTO listen_log(track_id,started_at,seconds) VALUES(?1,?2,?3)",
-        params![track_id, started_at, seconds],
+        "INSERT INTO listen_log(track_id,started_at,seconds,counted) VALUES(?1,?2,?3,?4)",
+        params![track_id, started_at, seconds, counted.unwrap_or(false) as i64],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -2020,7 +2030,7 @@ pub struct MonthSeconds {
 pub struct ListenStats {
     seconds: f64,
     sessions: i64,
-    /// Listens of 20 s or more: what "plays" means for the Plays ranking.
+    /// Counted plays (same rule as play_count): what "plays" means for the Plays ranking.
     plays: i64,
     /// First day of the range (differs from the request only for "All").
     range_start: i64,
@@ -2070,7 +2080,7 @@ pub async fn library_listen_stats(
         };
         let (seconds, sessions, active_days, plays): (f64, i64, i64, i64) = conn
             .query_row(
-                "SELECT COALESCE(SUM(seconds),0),COUNT(*),COUNT(DISTINCT date(started_at/1000,'unixepoch','localtime')),COALESCE(SUM(seconds>=20),0) FROM listen_log WHERE started_at>=?1 AND started_at<?2",
+                "SELECT COALESCE(SUM(seconds),0),COUNT(*),COUNT(DISTINCT date(started_at/1000,'unixepoch','localtime')),COALESCE(SUM(counted),0) FROM listen_log WHERE started_at>=?1 AND started_at<?2",
                 params![start, end],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
@@ -2128,7 +2138,7 @@ pub async fn library_listen_stats(
             }
         }
         let top_n = top_n.unwrap_or(3).clamp(1, 10);
-        // Each ranking is by listening time OR by plays (listens of 20 s+), chosen per list.
+        // Each ranking is by listening time OR by plays (counted plays), chosen per list.
         let by_plays = |v: &Option<String>| v.as_deref() == Some("plays");
         let (artist_plays, album_plays, track_plays) = (by_plays(&artist_by), by_plays(&album_by), by_plays(&track_by));
         let rank = |plays: bool| if plays { ("HAVING p>0", "p DESC,s DESC") } else { ("", "s DESC") };
@@ -2136,7 +2146,7 @@ pub async fn library_listen_stats(
         {
             let mut stmt = conn
                 .prepare(&format!(
-                    "SELECT t.{c},SUM(l.seconds) AS s,SUM(l.seconds>=20) AS p FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+                    "SELECT t.{c},SUM(l.seconds) AS s,SUM(l.counted) AS p FROM listen_log l JOIN tracks t ON t.id=l.track_id \
                      WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.{c}<>'' GROUP BY t.{c} COLLATE NOCASE {h} ORDER BY {o} LIMIT ?3",
                     c = artist_col, h = rank(artist_plays).0, o = rank(artist_plays).1
                 ))
@@ -2155,7 +2165,7 @@ pub async fn library_listen_stats(
         {
             let mut stmt = conn
                 .prepare(&format!(
-                    "SELECT t.album,t.album_artist,SUM(l.seconds) AS s,SUM(l.seconds>=20) AS p FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+                    "SELECT t.album,t.album_artist,SUM(l.seconds) AS s,SUM(l.counted) AS p FROM listen_log l JOIN tracks t ON t.id=l.track_id \
                      WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 AND t.album<>'' \
                      GROUP BY t.album COLLATE NOCASE,t.album_artist COLLATE NOCASE {} ORDER BY {} LIMIT ?3",
                     rank(album_plays).0, rank(album_plays).1
@@ -2175,7 +2185,7 @@ pub async fn library_listen_stats(
         {
             let mut stmt = conn
                 .prepare(&format!(
-                    "SELECT {},SUM(l.seconds>=20) AS p,SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
+                    "SELECT {},SUM(l.counted) AS p,SUM(l.seconds) AS s FROM listen_log l JOIN tracks t ON t.id=l.track_id \
                      WHERE l.started_at>=?1 AND l.started_at<?2 AND t.library_owned=1 GROUP BY t.id {} ORDER BY {} LIMIT ?3",
                     TRACK_COLS_T, rank(track_plays).0, rank(track_plays).1
                 ))
