@@ -724,3 +724,15 @@ test("round 116k: library backup/restore (single file, atomic restore, remap, co
   assert.match(lib, /manageEscHandler/, "Manage closes on Escape");
   assert.match(lib, /role="alertdialog"[\s\S]{0,0}|confirm-overlay inside-manage" : "confirm-overlay"/, "alerts opened from Manage stack above it");
 });
+
+test("round 116l: restore shows a blocking progress overlay; artist list refreshes on library changes", () => {
+  const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  const css = readFileSync(join(here, "..", "src", "app.css"), "utf8");
+  assert.match(lib, /data-manage-busy/);
+  assert.match(lib, /Restoring your library…/);
+  assert.match(lib, /function requestCloseManage\(\) \{ if \(!backupBusy\)/, "Manage cannot be closed under a running backup/restore");
+  assert.match(css, /\.lm-busy \{/);
+  assert.match(lib, /function invalidateArtistSidebar\(\)/);
+  assert.equal((lib.match(/invalidateArtistSidebar\(\);/g) || []).length >= 3, true, "library-changed, scan finish and restore all drop the cached artist list");
+  assert.match(lib, /gen !== artistSidebarGen/, "a fetch that raced a change refetches");
+});

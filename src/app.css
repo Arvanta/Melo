@@ -1761,6 +1761,7 @@ without animating the scroll. */
 }
 .library-manage-dialog {
   width: min(500px, 100%); max-height: min(660px, calc(100vh - 28px));
+  position: relative;
   display: flex; flex-direction: column; gap: 10px; padding: 15px 0 0;
   box-sizing: border-box; overflow: hidden; border-radius: 14px;
   border: 1px solid var(--card-border); background: var(--card); color: var(--text);
@@ -2896,3 +2897,19 @@ few-px band where scrolled rows peek through. */
 .home-record { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 10px; border-radius: 9px; background: color-mix(in srgb, var(--text) 5%, transparent); }
 .home-record span { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
 .home-record b { font-size: 12px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Backup / restore in progress: covers the whole Manage dialog so it cannot be missed. */
+.lm-busy {
+  position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center;
+  background: color-mix(in srgb, var(--card) 92%, transparent); backdrop-filter: blur(2px);
+}
+.lm-busy[hidden] { display: none; }
+.lm-spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--card-border); border-top-color: var(--accent); animation: lm-spin .8s linear infinite; }
+.lm-busy-title { font-size: 15px; font-weight: 750; }
+.lm-busy-sub { font-size: 11.5px; color: var(--text-soft); }
+.lm-busy-bar { width: min(260px, 70%); height: 4px; border-radius: 2px; overflow: hidden; background: var(--card-border); }
+.lm-busy-bar i { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--accent); animation: lm-slide 1.2s ease-in-out infinite; }
+@keyframes lm-spin { to { transform: rotate(360deg); } }
+@keyframes lm-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .lm-spinner { animation-duration: 2.4s; } .lm-busy-bar i { animation-duration: 3s; } }

@@ -975,6 +975,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       });
     }
     if (statusEl) statusEl.textContent = scanStatusText();
+    const busyEl = manageOverlay.querySelector<HTMLElement>("[data-manage-busy]");
+    if (busyEl) {
+      busyEl.hidden = !backupBusy;
+      const titleEl = busyEl.querySelector<HTMLElement>("[data-busy-title]");
+      if (titleEl) titleEl.textContent = backupStatus;
+    }
+    manageOverlay.querySelector<HTMLButtonElement>("[data-manage-close]")?.toggleAttribute("disabled", backupBusy);
     const backupEl = manageOverlay.querySelector<HTMLButtonElement>("[data-manage-backup]");
     const restoreEl = manageOverlay.querySelector<HTMLButtonElement>("[data-manage-restore]");
     const backupNoteEl = manageOverlay.querySelector<HTMLElement>("[data-manage-backup-note]");
@@ -1013,6 +1020,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   let manageEscHandler: ((event: KeyboardEvent) => void) | null = null;
+  // Backup / restore must stay visible until they finish, so Manage will not close under them.
+  function requestCloseManage() { if (!backupBusy) closeManageDialog(); }
   function closeManageDialog() {
     manageOverlay?.remove(); manageOverlay = null;
     if (manageEscHandler) { document.removeEventListener("keydown", manageEscHandler); manageEscHandler = null; }
@@ -1036,13 +1045,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       dest = await save({ title: "Save Melo backup", defaultPath: `Melo-backup-${new Date().toISOString().slice(0, 10)}.melobackup`, filters: BACKUP_FILTERS });
     } catch (e) { toast("Couldn't open the save dialog — " + String(e)); return; }
     if (!dest) return;
-    backupBusy = true; backupStatus = "Creating backup…"; refreshManageDialog();
+    backupBusy = true; backupStatus = "Creating your backup…"; setManageLabel("Backing up…"); refreshManageDialog();
     try {
       const header = await invoke<BackupHeader>("create_library_backup", { dest, settings: collectBackupSettings() });
       try { localStorage.setItem(LAST_BACKUP_KEY, String(header.createdAt || Date.now())); } catch {}
       toast(`Backup saved — ${header.tracks} tracks, ${header.playlists} playlists`);
     } catch (e) { toast("Couldn't create the backup — " + String(e)); }
-    finally { backupBusy = false; backupStatus = ""; refreshManageDialog(); }
+    finally { backupBusy = false; backupStatus = ""; setManageLabel(); refreshManageDialog(); }
   }
 
   // Review step: summary of the file + where each music folder lives on THIS computer.
@@ -1113,11 +1122,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     catch (e) { await showAlertDialog("This backup can't be used", String(e)); return; }
     const choice = await confirmRestore(header);
     if (!choice) return;
-    backupBusy = true; backupStatus = "Restoring…"; refreshManageDialog();
+    backupBusy = true; backupStatus = "Restoring your library…"; setManageLabel("Restoring…"); refreshManageDialog();
     let report: RestoreReport | null = null;
     try { report = await invoke<RestoreReport>("restore_library_backup", { path, remaps: choice.remaps }); }
     catch (e) { await showAlertDialog("Restore failed", String(e) + "\nNothing was changed."); }
-    backupBusy = false; backupStatus = "";
+    backupBusy = false; backupStatus = ""; setManageLabel();
     if (!report) { refreshManageDialog(); return; }
     if (choice.settings) {
       for (const [key, value] of Object.entries(report.settings || {})) {
@@ -1133,7 +1142,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       text: `Restored ${report.tracks} tracks, ${report.playlists} playlists and ${report.listens} listening records.${missingText}${choice.settings ? " View settings apply after Melo restarts." : ""}`,
     };
     refreshManageDialog();
+    toast(`Library restored — ${report.tracks} tracks`);
     invalidateGroupsTotalCache();
+    invalidateArtistSidebar();
     await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true), renderPlaylistVirtual(true)]);
     busEmit("melo:library-roots-changed", {});
     busEmit("melo:library-changed", { restored: true });
@@ -1177,17 +1188,23 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <div class="lm-row"><div class="lm-row-text"><b>Clear Library</b><span>Removes all tracks from Library browsing. Playlists and listening history are kept.</span></div><button type="button" class="btn small danger-confirm" data-manage-clear>Clear Library</button></div>
         </section>
       </div>
+      <div class="lm-busy" data-manage-busy hidden role="status" aria-live="assertive">
+        <div class="lm-spinner" aria-hidden="true"></div>
+        <div class="lm-busy-title" data-busy-title></div>
+        <div class="lm-busy-sub">Please keep Melo open until this finishes.</div>
+        <div class="lm-busy-bar" aria-hidden="true"><i></i></div>
+      </div>
     </section>`;
     document.body.appendChild(manageOverlay);
-    manageOverlay.querySelector<HTMLElement>("[data-manage-close]")!.onclick = closeManageDialog;
+    manageOverlay.querySelector<HTMLElement>("[data-manage-close]")!.onclick = requestCloseManage;
     // Close on a click that STARTS and ends on the backdrop (a text selection dragged out of the dialog must not close it).
     let downOnBackdrop = false;
     manageOverlay.onmousedown = event => { downOnBackdrop = event.target === manageOverlay; };
-    manageOverlay.onclick = event => { if (event.target === manageOverlay && downOnBackdrop) closeManageDialog(); };
+    manageOverlay.onclick = event => { if (event.target === manageOverlay && downOnBackdrop) requestCloseManage(); };
     manageEscHandler = event => {
       if (event.key !== "Escape" || !manageOverlay) return;
       if (document.querySelector(".confirm-overlay")) return; // a sub-dialog handles its own Escape
-      closeManageDialog();
+      requestCloseManage();
     };
     document.addEventListener("keydown", manageEscHandler);
     manageOverlay.querySelector<HTMLButtonElement>("[data-manage-add]")!.onclick = addLibraryFolders;
@@ -2956,6 +2973,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // artist's tracks are open.
   let artistSidebarOpen = localStorage.getItem("melo-lib-artistbar") !== "0";
   let artistSidebarCache: { kind: string; rows: GroupRow[] } | null = null;
+  let artistSidebarGen = 0; // bumped whenever the library changed under a running/finished fetch
   let sideQuickFind = "";
   function artistSidebarActive(): boolean { return libTab === "artists" || libTab === "album-artists"; }
   const sideLetterOf = (name: string) => {
@@ -3121,6 +3139,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     bindLazyArtwork(list);
     sideSpy();
   }
+  // The artist list is cached per tab kind; any library change (scan, clear, restore, folder removal,
+  // imports, deletions) must drop it and refetch while the panel is showing.
+  function invalidateArtistSidebar() {
+    artistSidebarGen++;
+    artistSidebarCache = null;
+    if (artistSidebarActive() && artistSidebarOpen) void renderArtistSidebarData();
+  }
   async function renderArtistSidebarData() {
     const list = document.getElementById("libArtistSidebarList") as HTMLElement | null;
     if (!list || !invoke) return;
@@ -3128,6 +3153,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (list.dataset.busy === "1") return;
     list.dataset.busy = "1";
     const kind = libraryGroupKind();
+    const gen = artistSidebarGen;
     try {
       // v1.2.0: paged — the backend clamps every request to 5000 rows, so one shot
       // silently dropped artist #5001+ in big libraries. Pull 2000 at a time until
@@ -3148,6 +3174,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     } finally {
       delete list.dataset.busy;
     }
+    // The library changed while this fetch was running: its rows are already stale, fetch again.
+    if (gen !== artistSidebarGen) { artistSidebarCache = null; void renderArtistSidebarData(); return; }
     paintArtistSidebar();
   }
   // A–Z jump rail (built once) + quick-find wiring.
@@ -5072,6 +5100,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     activeScanId = null; ownedScanId = null; scanProgress = null;
     if (manageButton) { setManageLabel(); manageButton.classList.remove("scanning"); manageButton.style.setProperty("--scan-progress", "0%"); }
     refreshManageDialog();
+    invalidateArtistSidebar();
     await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(), renderPlaylistVirtual()]);
   });
   busOn("melo:library-roots-changed", () => { refreshLibraryRoots(); });
@@ -5083,6 +5112,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       // Library contents changed — the per-view group totals must be
       // Re-counted on the next render.
       invalidateGroupsTotalCache();
+      invalidateArtistSidebar();
       refreshStats();
       // Library deletions cascade into playlist membership, so the selector's
       // Per-playlist counters refresh on the same debounced pass.
