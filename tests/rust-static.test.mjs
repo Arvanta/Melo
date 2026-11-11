@@ -703,3 +703,24 @@ test("round 116j: Home plays use listen_log.counted (same rule as play_count)", 
   assert.match(db, /COALESCE\(SUM\(counted\),0\)/);
   assert.doesNotMatch(db, /seconds>=20/);
 });
+
+test("round 116k: library backup/restore (single file, atomic restore, remap, cover rebuild)", () => {
+  const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  const main = readFileSync(join(here, "..", "src-tauri", "src", "main.rs"), "utf8");
+  const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
+  assert.match(db, /b"MELOBK01"/);
+  assert.match(db, /VACUUM INTO \?1/, "consistent snapshot, not a raw file copy");
+  assert.match(db, /db_sha256 != |!= header\.db_sha256/, "integrity check before touching the live DB");
+  assert.match(db, /BEGIN IMMEDIATE/, "restore is one transaction");
+  assert.match(db, /Restore needs an empty library/);
+  assert.match(db, /fn remap_one\(/);
+  assert.match(db, /pub async fn rebuild_library_artwork/);
+  for (const cmd of ["create_library_backup", "inspect_library_backup", "restore_library_backup", "rebuild_library_artwork"]) {
+    assert.match(main, new RegExp(`library_db::${cmd},`), `${cmd} registered`);
+  }
+  assert.match(lib, /invoke<RestoreReport>\("restore_library_backup"/);
+  assert.match(lib, /data-manage-backup/);
+  assert.match(lib, /data-manage-restore/);
+  assert.match(lib, /manageEscHandler/, "Manage closes on Escape");
+  assert.match(lib, /role="alertdialog"[\s\S]{0,0}|confirm-overlay inside-manage" : "confirm-overlay"/, "alerts opened from Manage stack above it");
+});

@@ -8,6 +8,20 @@ type GroupRow = { key: string; name: string; subtitle: string; count: number; co
 type PlaylistRow = { id: string; name: string; createdAt: number; trackCount: number; kind: "manual" | "auto" };
 type LibraryRoot = { path: string; addedAt: number };
 type Stats = { tracks: number; artists: number; albums: number; genres: number };
+type BackupHeader = {
+  format: number; appVersion: string; createdAt: number; tracks: number; playlists: number; listens: number;
+  roots: { path: string; tracks: number; exists: boolean }[]; settings: Record<string, string>;
+};
+type RestoreReport = {
+  tracks: number; playlists: number; listens: number; missing: number; missingSamples: string[]; remapped: number;
+  settings: Record<string, string>;
+};
+// Library preferences saved inside a backup (window layout / tray state are deliberately not).
+const BACKUP_SETTING_KEYS = [
+  "melo-home-layout", "melo-home-range", "melo-home-counts", "melo-home-stat-by",
+  "melo-lib-view", "melo-lib-layout", "melo-lib-cols-off", "melo-lib-cols-order", "melo-lib-artistbar", "melo-lib-mini", "melo-playlist-view",
+];
+const LAST_BACKUP_KEY = "melo-last-backup";
 
 const esc = (value: unknown) => String(value ?? "")
   .replace(/&/g, "&amp;")
@@ -92,6 +106,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let cleanupRunning = false;
   let libraryRoots: LibraryRoot[] = [];
   let manageOverlay: HTMLElement | null = null;
+  let backupBusy = false;
+  let backupStatus = "";
+  let libraryTrackTotal = 0; // from library_stats; Restore needs an empty Library
   let scanProgress: { done: number; total: number; errors: number; removed?: number; phase?: string } | null = null;
   // The backend reports the FAILED PATHS with each progress tick; Manage
   // Shows the latest ones and the final toast names the first few.
@@ -791,7 +808,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function showAlertDialog(title: string, message: string, okLabel = "OK"): Promise<void> {
     return new Promise(resolve => {
       const overlay = document.createElement("div");
-      overlay.className = "confirm-overlay";
+      overlay.className = manageOverlay ? "confirm-overlay inside-manage" : "confirm-overlay";
       overlay.innerHTML = `<div class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="alertDialogTitle">
         <div id="alertDialogTitle" class="confirm-title">${esc(title)}</div>
         <div class="confirm-message">${esc(message)}</div>
@@ -901,7 +918,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const addEl = manageOverlay.querySelector<HTMLButtonElement>("[data-manage-add]");
     const clearEl = manageOverlay.querySelector<HTMLButtonElement>("[data-manage-clear]");
     const cleanupEl = manageOverlay.querySelector<HTMLButtonElement>("[data-manage-cleanup]");
-    const busy = !!activeScanId || cleanupRunning;
+    const busy = !!activeScanId || cleanupRunning || backupBusy;
     // Show WHICH files failed during the scan, right in Manage.
     const errorsEl = manageOverlay.querySelector<HTMLElement>("[data-manage-errors]");
     if (errorsEl) {
@@ -958,6 +975,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       });
     }
     if (statusEl) statusEl.textContent = scanStatusText();
+    const backupEl = manageOverlay.querySelector<HTMLButtonElement>("[data-manage-backup]");
+    const restoreEl = manageOverlay.querySelector<HTMLButtonElement>("[data-manage-restore]");
+    const backupNoteEl = manageOverlay.querySelector<HTMLElement>("[data-manage-backup-note]");
+    if (backupEl) backupEl.disabled = busy;
+    if (restoreEl) {
+      restoreEl.disabled = busy || libraryTrackTotal > 0;
+      restoreEl.title = libraryTrackTotal > 0 ? "Restore needs an empty Library. Use Clear Library first." : "Restore the Library data from a backup file";
+    }
+    if (backupNoteEl) {
+      let last = "";
+      try { const t = Number(localStorage.getItem(LAST_BACKUP_KEY)); if (t > 0) last = new Date(t).toLocaleString(); } catch {}
+      backupNoteEl.textContent = backupStatus
+        || (libraryTrackTotal > 0 ? "Restore is available when the Library is empty (use Clear Library first)." : "")
+        || (last ? `Last backup on this computer: ${last}` : "No backup has been made on this computer yet.");
+    }
     if (scanEl) { scanEl.disabled = !busy && !libraryRoots.length; scanEl.textContent = busy ? "Cancel Scan" : "Scan Folders"; }
     if (addEl) addEl.disabled = busy;
     if (clearEl) clearEl.disabled = busy;
@@ -980,27 +1012,184 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
 
-  function closeManageDialog() { manageOverlay?.remove(); manageOverlay = null; }
+  let manageEscHandler: ((event: KeyboardEvent) => void) | null = null;
+  function closeManageDialog() {
+    manageOverlay?.remove(); manageOverlay = null;
+    if (manageEscHandler) { document.removeEventListener("keydown", manageEscHandler); manageEscHandler = null; }
+  }
+
+  function collectBackupSettings(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const key of BACKUP_SETTING_KEYS) {
+      try { const v = localStorage.getItem(key); if (v !== null) out[key] = v; } catch {}
+    }
+    return out;
+  }
+
+  const BACKUP_FILTERS = [{ name: "Melo backup", extensions: ["melobackup"] }];
+
+  async function createBackup() {
+    if (!invoke || backupBusy || activeScanId) return;
+    let dest: string | null = null;
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      dest = await save({ title: "Save Melo backup", defaultPath: `Melo-backup-${new Date().toISOString().slice(0, 10)}.melobackup`, filters: BACKUP_FILTERS });
+    } catch (e) { toast("Couldn't open the save dialog — " + String(e)); return; }
+    if (!dest) return;
+    backupBusy = true; backupStatus = "Creating backup…"; refreshManageDialog();
+    try {
+      const header = await invoke<BackupHeader>("create_library_backup", { dest, settings: collectBackupSettings() });
+      try { localStorage.setItem(LAST_BACKUP_KEY, String(header.createdAt || Date.now())); } catch {}
+      toast(`Backup saved — ${header.tracks} tracks, ${header.playlists} playlists`);
+    } catch (e) { toast("Couldn't create the backup — " + String(e)); }
+    finally { backupBusy = false; backupStatus = ""; refreshManageDialog(); }
+  }
+
+  // Review step: summary of the file + where each music folder lives on THIS computer.
+  function confirmRestore(header: BackupHeader): Promise<{ remaps: { from: string; to: string }[]; settings: boolean } | null> {
+    return new Promise(resolve => {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay inside-manage";
+      const when = header.createdAt ? new Date(header.createdAt).toLocaleString() : "unknown date";
+      const roots = header.roots || [];
+      const rootRows = roots.map((r, i) => `<div class="restore-root" data-root="${i}">
+          <div class="restore-root-from" title="${esc(displayPath(r.path))}">${esc(displayPath(r.path))}</div>
+          <div class="restore-root-to"><input class="confirm-input" type="text" readonly value="${esc(displayPath(r.path))}" aria-label="Location on this computer" /><button type="button" class="btn small" data-browse="${i}">Browse…</button></div>
+          <div class="restore-root-state ${r.exists ? "ok" : "warn"}" data-state="${i}">${r.exists ? "Found on this computer" : "Not found — choose its new location"}</div>
+        </div>`).join("");
+      const hasSettings = Object.keys(header.settings || {}).length > 0;
+      overlay.innerHTML = `<div class="confirm-dialog restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restoreTitle">
+        <div id="restoreTitle" class="confirm-title">Restore from backup?</div>
+        <div class="confirm-message">Backup from ${esc(when)} (Melo ${esc(header.appVersion)}): ${esc(header.tracks)} tracks, ${esc(header.playlists)} playlists, ${esc(header.listens)} listening records.</div>
+        ${roots.length ? `<div class="restore-section">Where are your music folders now?</div><div class="restore-roots">${rootRows}</div>` : ""}
+        ${hasSettings ? `<label class="restore-check"><input type="checkbox" data-restore-settings checked /> Also restore Home and Library view settings</label>` : ""}
+        <div class="confirm-message restore-warn">Play counts, listening history, playlists and folders on this computer will be replaced. Your music files are not touched.</div>
+        <div class="confirm-actions"><button class="btn small" data-confirm="cancel">Cancel</button><button class="btn small primary" data-confirm="ok">Restore</button></div>
+      </div>`;
+      document.body.appendChild(overlay);
+      const targets = roots.map(r => r.path);
+      overlay.querySelectorAll<HTMLButtonElement>("[data-browse]").forEach(btn => {
+        btn.onclick = async () => {
+          const i = Number(btn.dataset.browse);
+          try {
+            const { open } = await import("@tauri-apps/plugin-dialog");
+            const picked = await open({ directory: true, multiple: false, title: "Where is this folder now?" });
+            const dir = Array.isArray(picked) ? picked[0] : picked;
+            if (!dir) return;
+            targets[i] = dir;
+            overlay.querySelector<HTMLInputElement>(`[data-root="${i}"] input`)!.value = displayPath(dir);
+            const st = overlay.querySelector<HTMLElement>(`[data-state="${i}"]`)!;
+            st.textContent = "New location selected"; st.className = "restore-root-state ok";
+          } catch (e) { toast("Couldn't choose the folder — " + String(e)); }
+        };
+      });
+      const finish = (answer: { remaps: { from: string; to: string }[]; settings: boolean } | null) => {
+        document.removeEventListener("keydown", onKey); overlay.remove(); resolve(answer);
+      };
+      overlay.querySelector<HTMLElement>("[data-confirm='cancel']")!.onclick = () => finish(null);
+      overlay.querySelector<HTMLElement>("[data-confirm='ok']")!.onclick = () => finish({
+        remaps: roots.map((r, i) => ({ from: r.path, to: targets[i] })).filter(m => m.to && m.to !== m.from),
+        settings: !!overlay.querySelector<HTMLInputElement>("[data-restore-settings]")?.checked,
+      });
+      overlay.onclick = event => { if (event.target === overlay) finish(null); };
+      const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") finish(null); };
+      document.addEventListener("keydown", onKey);
+      overlay.querySelector<HTMLElement>("[data-confirm='cancel']")!.focus();
+    });
+  }
+
+  async function restoreBackup() {
+    if (!invoke || backupBusy || activeScanId) return;
+    if (libraryTrackTotal > 0) { await showAlertDialog("The Library isn't empty", "Restore needs an empty Library. Use Clear Library first, then restore the backup."); return; }
+    let path = "";
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ title: "Choose a Melo backup", multiple: false, directory: false, filters: BACKUP_FILTERS });
+      path = (Array.isArray(picked) ? picked[0] : picked) || "";
+    } catch (e) { toast("Couldn't open the file dialog — " + String(e)); return; }
+    if (!path) return;
+    let header: BackupHeader;
+    try { header = await invoke<BackupHeader>("inspect_library_backup", { path }); }
+    catch (e) { await showAlertDialog("This backup can't be used", String(e)); return; }
+    const choice = await confirmRestore(header);
+    if (!choice) return;
+    backupBusy = true; backupStatus = "Restoring…"; refreshManageDialog();
+    let report: RestoreReport | null = null;
+    try { report = await invoke<RestoreReport>("restore_library_backup", { path, remaps: choice.remaps }); }
+    catch (e) { await showAlertDialog("Restore failed", String(e) + "\nNothing was changed."); }
+    backupBusy = false; backupStatus = "";
+    if (!report) { refreshManageDialog(); return; }
+    if (choice.settings) {
+      for (const [key, value] of Object.entries(report.settings || {})) {
+        if (BACKUP_SETTING_KEYS.includes(key)) { try { localStorage.setItem(key, value); } catch {} }
+      }
+    }
+    try { libraryRoots = await invoke<LibraryRoot[]>("list_library_roots"); } catch {}
+    const missingText = report.missing
+      ? ` ${report.missing} file${report.missing === 1 ? " was" : "s were"} not found on this computer. Check the folder locations before running Scan Folders: a scan removes tracks whose files are missing.`
+      : "";
+    scanResultSummary = {
+      ok: !report.missing,
+      text: `Restored ${report.tracks} tracks, ${report.playlists} playlists and ${report.listens} listening records.${missingText}${choice.settings ? " View settings apply after Melo restarts." : ""}`,
+    };
+    refreshManageDialog();
+    invalidateGroupsTotalCache();
+    await Promise.all([refreshStats(), refreshPlaylists(), renderLibraryVirtual(true), renderPlaylistVirtual(true)]);
+    busEmit("melo:library-roots-changed", {});
+    busEmit("melo:library-changed", { restored: true });
+    // Covers are not part of a backup: rebuild one per album in the background.
+    invoke<number>("rebuild_library_artwork")
+      .then(() => { invalidateGroupsTotalCache(); void renderLibraryVirtual(true); busEmit("melo:library-changed", { artwork: true }); })
+      .catch(() => {});
+  }
 
   function openManageDialog() {
     if (manageOverlay) { refreshManageDialog(); return; }
     manageOverlay = document.createElement("div");
     manageOverlay.className = "library-manage-overlay";
     manageOverlay.innerHTML = `<section class="library-manage-dialog" role="dialog" aria-modal="true" aria-labelledby="libraryManageTitle">
-      <div class="library-manage-head"><div><div id="libraryManageTitle" class="confirm-title">Manage Library</div><div class="library-manage-note">Add the music folders Melo may scan. Folders are read in order with one bounded scan job; drag-and-drop never imports into the Library.</div>
-        <div class="library-scan-errors" data-manage-errors style="display:none; max-height:110px; overflow:auto;"></div></div><button class="btn small ghost" type="button" data-manage-close aria-label="Close">×</button></div>
-      <div class="library-roots-list" data-manage-roots></div>
-      <div class="library-manage-status" data-manage-scan-status></div>
-      <div class="library-manage-actions"><button type="button" class="btn small" data-manage-add>Add Folder</button><button type="button" class="btn small primary" data-manage-scan>Scan Folders</button><span></span><button type="button" class="btn small ghost" data-manage-cleanup title="Remove unreferenced imported tracks and orphaned artwork cache files">Clean Up Data</button><button type="button" class="btn small danger-confirm" data-manage-clear>Clear Library</button></div>
-          <!-- completed-scan banner: stays at the bottom until confirmed. -->
+      <header class="library-manage-head">
+        <div><div id="libraryManageTitle" class="confirm-title">Manage Library</div>
+        <div class="library-manage-note">Choose the folders Melo scans for music. Files dropped onto the player are played but never added to the Library.</div></div>
+        <button class="btn small ghost" type="button" data-manage-close aria-label="Close">×</button>
+      </header>
+      <div class="library-manage-body">
+        <section class="lm-section" aria-labelledby="lmFolders">
+          <div class="lm-section-head"><h3 id="lmFolders">Music folders</h3>
+            <div class="lm-section-actions"><button type="button" class="btn small" data-manage-add>Add Folder</button><button type="button" class="btn small primary" data-manage-scan>Scan Folders</button></div></div>
+          <div class="library-roots-list" data-manage-roots></div>
+          <div class="library-manage-status" data-manage-scan-status role="status" aria-live="polite"></div>
+          <div class="library-scan-errors" data-manage-errors style="display:none"></div>
           <div class="library-scan-result" data-manage-scan-result hidden>
             <span class="library-scan-result-text" data-manage-scan-result-text></span>
             <button type="button" class="btn small" data-manage-scan-dismiss>OK</button>
           </div>
+        </section>
+        <section class="lm-section" aria-labelledby="lmBackup">
+          <div class="lm-section-head"><h3 id="lmBackup">Backup</h3>
+            <div class="lm-section-actions"><button type="button" class="btn small" data-manage-backup>Create Backup…</button><button type="button" class="btn small" data-manage-restore>Restore…</button></div></div>
+          <div class="lm-hint">Saves play counts, listening history, playlists and Home settings in one small file. Music files and covers are not included.</div>
+          <div class="lm-hint lm-hint-state" data-manage-backup-note role="status" aria-live="polite"></div>
+        </section>
+        <section class="lm-section" aria-labelledby="lmMaint">
+          <div class="lm-section-head"><h3 id="lmMaint">Maintenance</h3></div>
+          <div class="lm-row"><div class="lm-row-text"><b>Clean Up Data</b><span>Removes unused track records and orphaned cover files.</span></div><button type="button" class="btn small ghost" data-manage-cleanup>Clean Up</button></div>
+          <div class="lm-row"><div class="lm-row-text"><b>Clear Library</b><span>Removes all tracks from Library browsing. Playlists and listening history are kept.</span></div><button type="button" class="btn small danger-confirm" data-manage-clear>Clear Library</button></div>
+        </section>
+      </div>
     </section>`;
     document.body.appendChild(manageOverlay);
     manageOverlay.querySelector<HTMLElement>("[data-manage-close]")!.onclick = closeManageDialog;
-    manageOverlay.onclick = event => { if (event.target === manageOverlay) closeManageDialog(); };
+    // Close on a click that STARTS and ends on the backdrop (a text selection dragged out of the dialog must not close it).
+    let downOnBackdrop = false;
+    manageOverlay.onmousedown = event => { downOnBackdrop = event.target === manageOverlay; };
+    manageOverlay.onclick = event => { if (event.target === manageOverlay && downOnBackdrop) closeManageDialog(); };
+    manageEscHandler = event => {
+      if (event.key !== "Escape" || !manageOverlay) return;
+      if (document.querySelector(".confirm-overlay")) return; // a sub-dialog handles its own Escape
+      closeManageDialog();
+    };
+    document.addEventListener("keydown", manageEscHandler);
     manageOverlay.querySelector<HTMLButtonElement>("[data-manage-add]")!.onclick = addLibraryFolders;
     manageOverlay.querySelector<HTMLButtonElement>("[data-manage-scan]")!.onclick = async () => {
       if (!invoke) return;
@@ -1008,7 +1197,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       await startManagedScan();
     };
     manageOverlay.querySelector<HTMLButtonElement>("[data-manage-clear]")!.onclick = clearLibrary;
+    manageOverlay.querySelector<HTMLButtonElement>("[data-manage-backup]")!.onclick = () => { void createBackup(); };
+    manageOverlay.querySelector<HTMLButtonElement>("[data-manage-restore]")!.onclick = () => { void restoreBackup(); };
     refreshManageDialog();
+    void refreshStats(); // makes the Restore button reflect the real library size
   }
 
   function updateSearchClear() {
@@ -1273,6 +1465,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!invoke || !libraryStats) return;
     try {
       const stats = await invoke<Stats>("library_stats");
+      libraryTrackTotal = Number(stats.tracks) || 0;
+      refreshManageDialog();
       // Each total leads with its own glyph (note / person / disc).
       const stat = (icon: string, n: number, label: string) => `<span class="lib-stat">${icon}${esc(n)} ${label}</span>`;
       libraryStats.innerHTML = `${stat(iconNote(12), stats.tracks, "tracks")}<span class="lib-stat-sep">•</span>${stat(iconUser(12), stats.artists, "artists")}<span class="lib-stat-sep">•</span>${stat(iconDisc(12), stats.albums, "albums")}`;

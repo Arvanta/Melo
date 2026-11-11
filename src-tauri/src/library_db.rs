@@ -2828,6 +2828,496 @@ pub async fn clear_library_database(state:State<'_,LibraryState>)->Result<(),Str
     }).await.map_err(|e|e.to_string())?
 }
 
+// ---------------------------------------------------------------------------
+// Library backup / restore (1.3.0)
+//
+// A backup is ONE file: magic + header (JSON) + a consistent copy of library.db
+// (made with VACUUM INTO). Audio files and artwork are never stored. Restore
+// copies the tables into the live database inside ONE transaction (all or
+// nothing), remaps folder roots when the music lives somewhere else now, and
+// leaves covers to be rebuilt from the audio files.
+// ---------------------------------------------------------------------------
+const BACKUP_MAGIC: &[u8; 8] = b"MELOBK01";
+const BACKUP_FORMAT: i64 = 1;
+const BACKUP_HEADER_MAX: u64 = 4 * 1024 * 1024;
+const BS: char = '\u{5c}';
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupRootInfo {
+    pub path: String,
+    #[serde(default)]
+    pub tracks: i64,
+    #[serde(default)]
+    pub exists: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupHeader {
+    pub format: i64,
+    pub app_version: String,
+    pub created_at: i64,
+    pub db_bytes: u64,
+    pub db_sha256: String,
+    pub tracks: i64,
+    pub playlists: i64,
+    pub listens: i64,
+    pub roots: Vec<BackupRootInfo>,
+    #[serde(default)]
+    pub settings: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RootRemap {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreReport {
+    pub tracks: i64,
+    pub playlists: i64,
+    pub listens: i64,
+    pub missing: i64,
+    pub missing_samples: Vec<String>,
+    pub remapped: i64,
+    pub settings: HashMap<String, String>,
+}
+
+fn hex_sha256_of_file(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn count_one(conn: &Connection, sql: &str) -> i64 {
+    conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0)
+}
+
+fn write_backup(db_path: &Path, dest: &Path, settings: HashMap<String, String>, version: &str) -> Result<BackupHeader, String> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let dir = db_path.parent().ok_or_else(|| "Library folder is unavailable".to_string())?;
+    let snap = dir.join("library-backup-snapshot.db");
+    let part = PathBuf::from(format!("{}.part", dest.display()));
+    let _ = std::fs::remove_file(&snap);
+    let _ = std::fs::remove_file(&part);
+    let result = (|| -> Result<BackupHeader, String> {
+        {
+            let live = open_db(db_path)?;
+            live.execute("VACUUM INTO ?1", params![snap.to_string_lossy().to_string()])
+                .map_err(|e| format!("Couldn't snapshot the library: {e}"))?;
+        }
+        let snap_conn = Connection::open(&snap).map_err(|e| e.to_string())?;
+        let mut roots: Vec<BackupRootInfo> = Vec::new();
+        {
+            let mut stmt = snap_conn.prepare("SELECT path FROM library_roots ORDER BY path").map_err(|e| e.to_string())?;
+            let paths: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?.filter_map(log_skipped).collect();
+            for path in paths {
+                let mut prefix = path.clone();
+                while prefix.ends_with(std::path::MAIN_SEPARATOR) { prefix.pop(); }
+                prefix.push(std::path::MAIN_SEPARATOR);
+                let pattern = format!("{}%", like_escape(&prefix));
+                let tracks = snap_conn
+                    .query_row("SELECT COUNT(*) FROM tracks WHERE library_owned=1 AND path LIKE ?1 ESCAPE '$'", params![pattern], |r| r.get::<_, i64>(0))
+                    .unwrap_or(0);
+                roots.push(BackupRootInfo { path, tracks, exists: true });
+            }
+        }
+        let tracks = count_one(&snap_conn, "SELECT COUNT(*) FROM tracks WHERE library_owned=1");
+        let playlists = count_one(&snap_conn, "SELECT COUNT(*) FROM playlists");
+        let listens = count_one(&snap_conn, "SELECT COUNT(*) FROM listen_log");
+        drop(snap_conn);
+        let db_bytes = std::fs::metadata(&snap).map_err(|e| e.to_string())?.len();
+        let header = BackupHeader {
+            format: BACKUP_FORMAT,
+            app_version: version.to_string(),
+            created_at: now_ms(),
+            db_bytes,
+            db_sha256: hex_sha256_of_file(&snap)?,
+            tracks,
+            playlists,
+            listens,
+            roots,
+            settings,
+        };
+        let header_json = serde_json::to_vec(&header).map_err(|e| e.to_string())?;
+        let mut out = std::fs::File::create(&part).map_err(|e| format!("Couldn't write the backup file: {e}"))?;
+        out.write_all(BACKUP_MAGIC).map_err(|e| e.to_string())?;
+        out.write_all(&(header_json.len() as u32).to_le_bytes()).map_err(|e| e.to_string())?;
+        out.write_all(&header_json).map_err(|e| e.to_string())?;
+        let mut input = std::fs::File::open(&snap).map_err(|e| e.to_string())?;
+        input.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        let mut buf = vec![0u8; 1 << 20];
+        loop {
+            let n = input.read(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 { break; }
+            out.write_all(&buf[..n]).map_err(|e| format!("Couldn't write the backup file: {e}"))?;
+        }
+        out.flush().map_err(|e| e.to_string())?;
+        out.sync_all().map_err(|e| e.to_string())?;
+        drop(out);
+        std::fs::rename(&part, dest).map_err(|e| format!("Couldn't save the backup file: {e}"))?;
+        Ok(header)
+    })();
+    let _ = std::fs::remove_file(&snap);
+    if result.is_err() { let _ = std::fs::remove_file(&part); }
+    result
+}
+
+/// Reads and validates the header. Returns it with the byte offset of the database.
+fn read_backup_header(path: &Path) -> Result<(BackupHeader, u64), String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("Couldn't open the backup file: {e}"))?;
+    let total = file.metadata().map_err(|e| e.to_string())?.len();
+    let mut magic = [0u8; 8];
+    if file.read_exact(&mut magic).is_err() || &magic != BACKUP_MAGIC {
+        return Err("This is not a Melo backup file.".to_string());
+    }
+    let mut len_bytes = [0u8; 4];
+    file.read_exact(&mut len_bytes).map_err(|_| "The backup file is damaged.".to_string())?;
+    let header_len = u32::from_le_bytes(len_bytes) as u64;
+    if header_len == 0 || header_len > BACKUP_HEADER_MAX {
+        return Err("The backup file is damaged.".to_string());
+    }
+    let mut header_bytes = vec![0u8; header_len as usize];
+    file.read_exact(&mut header_bytes).map_err(|_| "The backup file is damaged.".to_string())?;
+    let header: BackupHeader = serde_json::from_slice(&header_bytes).map_err(|_| "The backup file is damaged.".to_string())?;
+    if header.format > BACKUP_FORMAT {
+        return Err("This backup was made by a newer version of Melo. Update Melo to restore it.".to_string());
+    }
+    let offset = 8 + 4 + header_len;
+    if total != offset + header.db_bytes {
+        return Err("The backup file is incomplete or damaged.".to_string());
+    }
+    Ok((header, offset))
+}
+
+#[tauri::command]
+pub async fn create_library_backup(dest: String, settings: HashMap<String, String>, app: AppHandle, state: State<'_, LibraryState>) -> Result<BackupHeader, String> {
+    let db_path = state.db_path.clone();
+    let version = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || write_backup(&db_path, Path::new(&dest), settings, &version))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn inspect_library_backup(path: String) -> Result<BackupHeader, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (mut header, _) = read_backup_header(Path::new(&path))?;
+        for root in header.roots.iter_mut() {
+            root.exists = Path::new(&root.path).is_dir();
+        }
+        Ok(header)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Case-insensitive, separator-insensitive, extended-prefix-insensitive form of a path.
+fn logical_path(s: &str) -> String {
+    let ext = format!("{b}{b}?{b}", b = BS);
+    let unc = format!("{b}{b}?{b}UNC{b}", b = BS);
+    if let Some(rest) = s.strip_prefix(unc.as_str()) {
+        return format!("{b}{b}{rest}", b = BS);
+    }
+    if let Some(rest) = s.strip_prefix(ext.as_str()) {
+        return rest.to_string();
+    }
+    s.to_string()
+}
+
+fn fold_char(c: char) -> char {
+    if c == '/' { BS } else { c.to_lowercase().next().unwrap_or(c) }
+}
+
+fn trim_end_separators(s: &str) -> String {
+    let mut out = s.to_string();
+    while out.len() > 1 && (out.ends_with(BS) || out.ends_with('/')) { out.pop(); }
+    out
+}
+
+fn remap_one(path: &str, maps: &[(Vec<char>, String)]) -> Option<String> {
+    let logical = logical_path(path);
+    let folded: Vec<char> = logical.chars().map(fold_char).collect();
+    for (from, to) in maps {
+        if folded.len() >= from.len() && folded[..from.len()] == from[..] && (folded.len() == from.len() || folded[from.len()] == BS) {
+            let rest: String = logical.chars().skip(from.len()).collect();
+            return Some(format!("{}{}", to, rest));
+        }
+    }
+    None
+}
+
+fn table_columns(conn: &Connection, schema: &str, table: &str) -> Result<Vec<String>, String> {
+    let mut stmt = conn.prepare(&format!("PRAGMA {schema}.table_info({table})")).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(1)).map_err(|e| e.to_string())?;
+    Ok(rows.filter_map(log_skipped).collect())
+}
+
+fn bk_has_table(conn: &Connection, table: &str) -> bool {
+    conn.query_row("SELECT COUNT(*) FROM bk.sqlite_master WHERE type='table' AND name=?1", params![table], |r| r.get::<_, i64>(0))
+        .map(|n| n > 0)
+        .unwrap_or(false)
+}
+
+/// Copies the columns both schemas share, so backups from older or newer
+/// versions still restore (missing columns fall back to their defaults).
+fn copy_table(conn: &Connection, table: &str, filter: &str) -> Result<(), String> {
+    if !bk_has_table(conn, table) { return Ok(()); }
+    let main_cols = table_columns(conn, "main", table)?;
+    let bk_cols = table_columns(conn, "bk", table)?;
+    let common: Vec<String> = main_cols.into_iter().filter(|c| bk_cols.contains(c)).map(|c| format!("\"{c}\"")).collect();
+    if common.is_empty() { return Ok(()); }
+    let list = common.join(",");
+    conn.execute_batch(&format!("INSERT OR IGNORE INTO main.\"{table}\"({list}) SELECT {list} FROM bk.\"{table}\" {filter}"))
+        .map_err(|e| format!("Couldn't restore {table}: {e}"))
+}
+
+fn restore_into_live(conn: &Connection, remaps: &[RootRemap]) -> Result<i64, String> {
+    if !bk_has_table(conn, "tracks") {
+        return Err("This backup contains no library data.".to_string());
+    }
+    let owned = count_one(conn, "SELECT COUNT(*) FROM main.tracks WHERE library_owned=1");
+    if owned > 0 {
+        return Err("Restore needs an empty library. Use Clear Library first.".to_string());
+    }
+    // Normalised remap table, longest source first.
+    let mut maps: Vec<(Vec<char>, String)> = Vec::new();
+    for r in remaps {
+        let from = trim_end_separators(&logical_path(r.from.trim()));
+        let to_raw = r.to.trim();
+        if from.is_empty() || to_raw.is_empty() { continue; }
+        let to = match std::fs::canonicalize(to_raw) {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => to_raw.to_string(),
+        };
+        let to = trim_end_separators(&to);
+        let from_folded: Vec<char> = from.chars().map(fold_char).collect();
+        let to_folded: Vec<char> = logical_path(&to).chars().map(fold_char).collect();
+        if from_folded == to_folded { continue; }
+        maps.push((from_folded, to));
+    }
+    maps.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    conn.execute_batch(
+        "DELETE FROM main.queue;
+         DELETE FROM main.playlist_tracks;
+         DELETE FROM main.playlists;
+         DELETE FROM main.listen_log;
+         DELETE FROM main.tracks;
+         DELETE FROM main.library_roots;
+         DELETE FROM main.allowed_dirs;",
+    )
+    .map_err(|e| e.to_string())?;
+    copy_table(conn, "tracks", "")?;
+    copy_table(conn, "playlists", "")?;
+    copy_table(conn, "playlist_tracks", "WHERE playlist_id IN (SELECT id FROM main.playlists) AND track_id IN (SELECT id FROM main.tracks)")?;
+    copy_table(conn, "listen_log", "WHERE track_id IN (SELECT id FROM main.tracks)")?;
+    copy_table(conn, "library_roots", "")?;
+    copy_table(conn, "allowed_dirs", "")?;
+    // Backups made before listen_log.counted existed: same approximation as the schema migration.
+    if bk_has_table(conn, "listen_log") && !table_columns(conn, "bk", "listen_log")?.iter().any(|c| c == "counted") {
+        conn.execute_batch("UPDATE main.listen_log SET counted=1 WHERE seconds>=30").map_err(|e| e.to_string())?;
+    }
+
+    let mut remapped: i64 = 0;
+    if !maps.is_empty() {
+        let tracks: Vec<(String, String)> = {
+            let mut stmt = conn.prepare("SELECT id,path FROM main.tracks").map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map_err(|e| e.to_string())?;
+            rows.filter_map(log_skipped).collect()
+        };
+        for (id, path) in tracks {
+            if let Some(new_path) = remap_one(&path, &maps) {
+                conn.execute("UPDATE OR IGNORE main.tracks SET path=?2 WHERE id=?1", params![id, new_path]).map_err(|e| e.to_string())?;
+                remapped += 1;
+            }
+        }
+        for table in ["library_roots", "allowed_dirs"] {
+            let rows: Vec<String> = {
+                let mut stmt = conn.prepare(&format!("SELECT path FROM main.{table}")).map_err(|e| e.to_string())?;
+                let found = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+                found.filter_map(log_skipped).collect()
+            };
+            for path in rows {
+                if let Some(new_path) = remap_one(&path, &maps) {
+                    conn.execute(&format!("UPDATE OR IGNORE main.{table} SET path=?2 WHERE path=?1"), params![path, new_path]).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        let playlists: Vec<(String, String)> = {
+            let mut stmt = conn.prepare("SELECT id,source_path FROM main.playlists WHERE source_path IS NOT NULL").map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map_err(|e| e.to_string())?;
+            rows.filter_map(log_skipped).collect()
+        };
+        for (id, path) in playlists {
+            if let Some(new_path) = remap_one(&path, &maps) {
+                conn.execute("UPDATE OR IGNORE main.playlists SET source_path=?2 WHERE id=?1", params![id, new_path]).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(remapped)
+}
+
+#[tauri::command]
+pub async fn restore_library_backup(path: String, remaps: Vec<RootRemap>, app: AppHandle, state: State<'_, LibraryState>) -> Result<RestoreReport, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<RestoreReport, String> {
+        use std::io::{Read, Seek, SeekFrom, Write};
+        if state.jobs.lock().map(|j| !j.is_empty()).unwrap_or(true) {
+            return Err("A library scan is running. Wait for it to finish or cancel it first.".to_string());
+        }
+        let backup_path = PathBuf::from(&path);
+        let (header, offset) = read_backup_header(&backup_path)?;
+        let dir = state.db_path.parent().ok_or_else(|| "Library folder is unavailable".to_string())?.to_path_buf();
+        let staging = dir.join("library-restore-staging.db");
+        let _ = std::fs::remove_file(&staging);
+        // Extract + verify the embedded database before touching the live one.
+        let extracted = (|| -> Result<(), String> {
+            let mut input = std::fs::File::open(&backup_path).map_err(|e| e.to_string())?;
+            input.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+            let mut out = std::fs::File::create(&staging).map_err(|e| e.to_string())?;
+            let mut hasher = Sha256::new();
+            let mut remaining = header.db_bytes;
+            let mut buf = vec![0u8; 1 << 20];
+            while remaining > 0 {
+                let want = std::cmp::min(remaining, buf.len() as u64) as usize;
+                let n = input.read(&mut buf[..want]).map_err(|e| e.to_string())?;
+                if n == 0 { return Err("The backup file is incomplete or damaged.".to_string()); }
+                hasher.update(&buf[..n]);
+                out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+                remaining -= n as u64;
+            }
+            out.flush().map_err(|e| e.to_string())?;
+            drop(out);
+            if format!("{:x}", hasher.finalize()) != header.db_sha256 {
+                return Err("The backup file failed its integrity check and was not restored.".to_string());
+            }
+            let probe = Connection::open(&staging).map_err(|e| e.to_string())?;
+            let verdict: String = probe.query_row("PRAGMA quick_check", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+            if verdict != "ok" {
+                return Err("The backup database is damaged and was not restored.".to_string());
+            }
+            Ok(())
+        })();
+        if let Err(e) = extracted {
+            let _ = std::fs::remove_file(&staging);
+            return Err(e);
+        }
+
+        let report = (|| -> Result<RestoreReport, String> {
+            let conn = locked_db(&state)?;
+            conn.execute("ATTACH DATABASE ?1 AS bk", params![staging.to_string_lossy().to_string()])
+                .map_err(|e| format!("Couldn't open the backup: {e}"))?;
+            let outcome = (|| -> Result<i64, String> {
+                conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+                let r = restore_into_live(&conn, &remaps);
+                match r {
+                    Ok(n) => { conn.execute_batch("COMMIT").map_err(|e| e.to_string())?; Ok(n) }
+                    Err(e) => { let _ = conn.execute_batch("ROLLBACK"); Err(e) }
+                }
+            })();
+            let _ = conn.execute_batch("DETACH DATABASE bk");
+            let remapped = outcome?;
+
+            // Covers: drop paths to cache files that do not exist on this computer.
+            let artwork: Vec<String> = {
+                let mut stmt = conn.prepare("SELECT DISTINCT artwork_path FROM tracks WHERE artwork_path IS NOT NULL").map_err(|e| e.to_string())?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+                rows.filter_map(log_skipped).collect()
+            };
+            for p in artwork {
+                if !Path::new(&p).exists() {
+                    let _ = conn.execute("UPDATE tracks SET artwork_path=NULL WHERE artwork_path=?1", params![p]);
+                }
+            }
+            // Playback permission for the (possibly remapped) folders.
+            for root in read_library_roots(&conn)? {
+                let _ = app.asset_protocol_scope().allow_directory(Path::new(&root.path), true);
+            }
+            for dir in read_allowed_dirs(&conn)? {
+                let _ = app.asset_protocol_scope().allow_directory(Path::new(&dir), false);
+            }
+            // Which restored files are not on disk right now.
+            let paths: Vec<String> = {
+                let mut stmt = conn.prepare("SELECT path FROM tracks WHERE library_owned=1").map_err(|e| e.to_string())?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+                rows.filter_map(log_skipped).collect()
+            };
+            let mut missing: i64 = 0;
+            let mut missing_samples: Vec<String> = Vec::new();
+            for p in paths {
+                if !Path::new(&p).exists() {
+                    missing += 1;
+                    if missing_samples.len() < 5 { missing_samples.push(p); }
+                }
+            }
+            Ok(RestoreReport {
+                tracks: count_one(&conn, "SELECT COUNT(*) FROM tracks WHERE library_owned=1"),
+                playlists: count_one(&conn, "SELECT COUNT(*) FROM playlists"),
+                listens: count_one(&conn, "SELECT COUNT(*) FROM listen_log"),
+                missing,
+                missing_samples,
+                remapped,
+                settings: header.settings.clone(),
+            })
+        })();
+        let _ = std::fs::remove_file(&staging);
+        report
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// After a restore the cover cache is empty: rebuild one cover per album
+/// straight from the audio files (everything else fills in lazily when shown).
+#[tauri::command]
+pub async fn rebuild_library_artwork(state: State<'_, LibraryState>) -> Result<i64, String> {
+    let db_path = state.db_path.clone();
+    let artwork_dir = state.artwork_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = open_db(&db_path)?;
+        let rows: Vec<(String, String, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT id,album_artist,album FROM tracks WHERE library_owned=1 AND artwork_path IS NULL ORDER BY album_artist COLLATE NOCASE, album COLLATE NOCASE, id")
+                .map_err(|e| e.to_string())?;
+            let found = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))).map_err(|e| e.to_string())?;
+            found.filter_map(log_skipped).collect()
+        };
+        let mut built: i64 = 0;
+        let mut last_key: Option<(String, String)> = None;
+        let mut group_done = false;
+        let mut attempts = 0;
+        for (id, artist, album) in rows {
+            let key = (artist.to_lowercase(), album.to_lowercase());
+            if last_key.as_ref() != Some(&key) {
+                last_key = Some(key);
+                group_done = false;
+                attempts = 0;
+            }
+            if group_done || attempts >= 4 { continue; }
+            attempts += 1;
+            if let Ok(Some(_)) = ensure_track_artwork_sync(&conn, &id, &artwork_dir) {
+                group_done = true;
+                built += 1;
+            }
+        }
+        Ok(built)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Imports audio files (Add Files / Open With routes). Strictly APPEND-only
 /// when a playlist id is given — "replace" semantics target the play
 /// queue, never a stored playlist. Dropped directories expand to their
