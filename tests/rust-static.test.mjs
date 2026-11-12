@@ -736,3 +736,10 @@ test("round 116l: restore shows a blocking progress overlay; artist list refresh
   assert.equal((lib.match(/invalidateArtistSidebar\(\);/g) || []).length >= 3, true, "library-changed, scan finish and restore all drop the cached artist list");
   assert.match(lib, /gen !== artistSidebarGen/, "a fetch that raced a change refetches");
 });
+
+test("round 116m: Customize steppers keep their natural width (no stretched empty space after +)", () => {
+  const css = readFileSync(join(here, "..", "src", "app.css"), "utf8");
+  assert.match(css, /\.home-cz-count > span:first-child \{ flex: 1; min-width: 0; \}/);
+  assert.match(css, /\.home-cz-count \.home-stepper \{ flex: 0 0 auto; \}/);
+  assert.doesNotMatch(css, /^\.home-cz-count span \{ flex: 1/m, "the old rule also stretched the stepper");
+});

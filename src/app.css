@@ -2840,7 +2840,8 @@ few-px band where scrolled rows peek through. */
 .home-cz-sub { margin-top: 10px; }
 .home-cz-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 16px; }
 .home-cz-count { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.home-cz-count span { flex: 1; min-width: 0; }
+.home-cz-count > span:first-child { flex: 1; min-width: 0; }
+.home-cz-count .home-stepper { flex: 0 0 auto; }
 .home-cz-count input { width: 56px; height: 26px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.14)); background: transparent; color: var(--text); font: inherit; text-align: center; }
 .home-cz-count em { font-style: normal; font-size: 10px; color: var(--text-muted); min-width: 34px; }
 
