@@ -2914,3 +2914,44 @@ few-px band where scrolled rows peek through. */
 @keyframes lm-spin { to { transform: rotate(360deg); } }
 @keyframes lm-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
 @media (prefers-reduced-motion: reduce) { .lm-spinner { animation-duration: 2.4s; } .lm-busy-bar i { animation-duration: 3s; } }
+
+/* Home: Best of an artist */
+.home-best-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.home-best-pick {
+  display: inline-flex; align-items: center; gap: 6px; max-width: min(320px, 60vw); padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--border, rgba(255,255,255,0.14)); background: color-mix(in srgb, var(--text) 4%, transparent);
+  color: var(--accent); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.home-best-pick > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-best-pick:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.home-best-picker { margin-bottom: 10px; max-width: 360px; display: flex; flex-direction: column; gap: 6px; }
+.home-best-picker[hidden] { display: none; }
+.home-best-picker input {
+  width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: 8px; font: inherit; font-size: 12px;
+  border: 1px solid var(--border, rgba(255,255,255,0.14)); background: color-mix(in srgb, var(--text) 4%, transparent); color: var(--text);
+}
+.home-best-results { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; border-radius: 8px; }
+.home-best-opt {
+  text-align: left; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px;
+  padding: 6px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.home-best-opt:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.home-h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+
+/* Previous / next line buttons over the skin's current-lyric slot (src/lyric-line.ts).
+   Skins may set --melo-lyric-nav-size / -bg / -bg-hover / -inset on the slot, or
+   opt out with data-melo-lyric-nav="off". */
+.melo-lyric-nav { position: fixed; z-index: 2147483000; pointer-events: none; opacity: 0; transition: opacity .14s ease; }
+.melo-lyric-nav.on { opacity: 1; }
+.melo-lyric-nav-btn {
+  position: absolute; top: 50%; transform: translateY(-50%); pointer-events: auto; cursor: pointer;
+  width: var(--melo-lyric-nav-size, 18px); height: var(--melo-lyric-nav-size, 18px); padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; color: inherit;
+  background: var(--melo-lyric-nav-bg, color-mix(in srgb, currentColor 16%, transparent));
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.melo-lyric-nav-btn[data-dir="-1"] { left: var(--melo-lyric-nav-inset, 0px); }
+.melo-lyric-nav-btn[data-dir="1"] { right: var(--melo-lyric-nav-inset, 0px); }
+.melo-lyric-nav-btn:hover:not(:disabled) { background: var(--melo-lyric-nav-bg-hover, color-mix(in srgb, currentColor 30%, transparent)); }
+.melo-lyric-nav-btn:disabled { opacity: .3; cursor: default; }
+.melo-lyric-nav-btn svg { width: 62%; height: 62%; }

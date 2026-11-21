@@ -462,6 +462,10 @@ app.innerHTML = `
             <div><div class="label">${t("settings.general.lyricsSkinLine.label")}</div><div class="desc">${t("settings.general.lyricsSkinLine.desc")}</div><div id="lyricsSkinLineNote" class="skin-feature-note"></div></div>
             <div class="switch" id="swLyricsSkinLine" data-key="lyricsSkinLine"></div>
           </div>
+          <div class="settings-row" id="lyricsSkinNavRow">
+            <div><div class="label">${t("settings.general.lyricsSkinNav.label")}</div><div class="desc">${t("settings.general.lyricsSkinNav.desc")}</div></div>
+            <div class="switch" id="swLyricsSkinNav" data-key="lyricsSkinNav"></div>
+          </div>
         </div>
 
         <!-- PLAYBACK TAB -->
@@ -2641,6 +2645,7 @@ function setupSettings(toast: ToastFn) {
     // Lyric switch: greyed out (not hidden) when the active skin has no slot.
     const ok = caps.currentLyric;
     document.getElementById("lyricsSkinLineRow")?.classList.toggle("skin-feature-unavailable", !ok);
+    document.getElementById("lyricsSkinNavRow")?.classList.toggle("skin-feature-unavailable", !ok);
     const note = document.getElementById("lyricsSkinLineNote");
     if (note) note.textContent = ok ? "" : t("settings.general.lyricsSkinLine.unsupported");
     // Waveform switch: same treatment.

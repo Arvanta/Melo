@@ -941,6 +941,8 @@ fn main() {
             library_db::library_stats,
             library_db::library_groups,
             library_db::library_home,
+            library_db::library_home_live,
+            library_db::library_artist_best,
             library_db::library_mix_tracks,
             library_db::library_listen_stats,
             library_db::record_listen,

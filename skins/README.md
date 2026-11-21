@@ -314,6 +314,32 @@ whole regions in CSS:
 html:not(.melo-lyric-skin-on) .lyric-stack { display: none; }
 ```
 
+#### Previous / next line buttons (automatic)
+
+While the pointer is over the `current-lyric` slot, Melo shows two small round
+arrow buttons at the slot's left and right edges. They jump playback to the
+previous / next synced line; the playback progress bar and the line's own
+progress underline follow the seek. **No skin changes are needed** — the buttons
+are one overlay owned by the engine (`.melo-lyric-nav`, appended to `<body>`),
+shown only for synced lyrics, only when the slot is at least 64px wide, and
+turned off globally by **Settings → General → "Previous / next line buttons on
+the lyric line"** (`melo-pref-lyricsSkinNav`, default **on**).
+
+Styling (all optional, set on the `current-lyric` element or any ancestor):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `color` of the slot | – | Arrow colour (the overlay copies the slot's computed `color`). |
+| `--melo-lyric-nav-size` | `18px` | Button diameter. |
+| `--melo-lyric-nav-bg` | 16% of `currentColor` | Button background. |
+| `--melo-lyric-nav-bg-hover` | 30% of `currentColor` | Hover background. |
+| `--melo-lyric-nav-inset` | `0px` | Distance from the slot's left / right edge. |
+
+For full control a skin can also style `.melo-lyric-nav-btn` directly.
+
+**Opt out:** put `data-melo-lyric-nav="off"` on the `current-lyric` element (or
+any ancestor) and the buttons never appear for that skin.
+
 ### 5.7b Optional: waveform seek bar
 
 Add one empty container and Melo can show the track's waveform there instead of the plain progress bar (Settings → Appearance & Skin → *Waveform seek bar*, off by default):

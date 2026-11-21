@@ -37,6 +37,7 @@ export const SETTINGS: SettingDef[] = [
   { name: "lyricsOnline",   storage: "melo-pref-lyricsOnline",   type: "bool", def: false },
   { name: "lyricsSaveMode", storage: "melo-pref-lyricsSaveMode", type: "string", def: "cache" },
   { name: "lyricsSkinLine", storage: "melo-pref-lyricsSkinLine", type: "bool", def: false },
+  { name: "lyricsSkinNav",  storage: "melo-pref-lyricsSkinNav",  type: "bool", def: true },
   { name: "waveformSeek",  storage: "melo-pref-waveformSeek",  type: "bool", def: false },
   { name: "waveformHover", storage: "melo-pref-waveformHover", type: "bool", def: true },
   { name: "waveformBar",   storage: "melo-pref-waveformBar",   type: "string", def: "normal" },

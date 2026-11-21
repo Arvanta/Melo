@@ -1857,7 +1857,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     longestDay: string; longestDaySeconds: number; streak: number;
   };
   type HomeData = {
-    recentlyPlayed: HomeGroup[]; recentlyAdded: HomeGroup[]; topArtists: HomeGroup[]; topAlbums: HomeGroup[];
+    recentlyPlayedTracks: HomeTrack[]; recentlyAdded: HomeGroup[]; topArtists: HomeGroup[]; topAlbums: HomeGroup[];
     totalSeconds: number; neverPlayed: number; forgotten: number; lastTrack: Track | null;
     topTracks: HomeTrack[]; repeatTracks: HomeTrack[]; decades: { decade: number; count: number }[];
     longCount: number; onThisDay: { year: number; seconds: number; track: Track | null }[];
@@ -1867,6 +1867,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let homeStatsToken = 0;
   let homeStatsLast: ListenStats | null = null;
   let homeCustomizing = false;
+  let homePaintStats: Stats | null = null;
+  let homeLiveDirty = false;
+  type BestOfArtist = { tracks: HomeTrack[]; albums: HomeGroup[] };
+  let homeBestLast: BestOfArtist | null = null;
+  let homeBestToken = 0;
+  let homeBestPickerOpen = false;
 
   // Section order / visibility (Customize panel). New sections are appended.
   const HOME_SECTIONS: { id: string; label: string }[] = [
@@ -1875,6 +1881,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     { id: "recentlyPlayed", label: "Recently played" },
     { id: "recentlyAdded", label: "Recently added" },
     { id: "ranks", label: "Top artists & albums" },
+    { id: "bestArtist", label: "Best of an artist" },
     { id: "tracks", label: "Top tracks & on repeat" },
     { id: "onThisDay", label: "On this day" },
     { id: "decades", label: "Decades" },
@@ -1895,8 +1902,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return { order, hidden: hidden.filter(id => known.includes(id)) };
   }
   // How many items each Home list shows (Customize → Items shown).
-  type HomeCounts = { shelf: number; ranks: number; tracks: number; repeat: number; fgPlays: number; fgDays: number; statTop: number };
-  const HOME_COUNT_LIMITS = { shelf: [4, 24, 14], ranks: [3, 20, 5], tracks: [3, 20, 5], repeat: [3, 20, 5], fgPlays: [2, 100, 10], fgDays: [7, 365, 30], statTop: [1, 10, 3] } as const;
+  type HomeCounts = { shelf: number; ranks: number; tracks: number; repeat: number; fgPlays: number; fgDays: number; statTop: number; best: number };
+  const HOME_COUNT_LIMITS = { shelf: [4, 24, 14], ranks: [3, 20, 5], tracks: [3, 20, 5], repeat: [3, 20, 5], fgPlays: [2, 100, 10], fgDays: [7, 365, 30], statTop: [1, 10, 3], best: [3, 20, 5] } as const;
   function readHomeCounts(): HomeCounts {
     let raw: any = null;
     try { raw = JSON.parse(localStorage.getItem("melo-home-counts") || "null"); } catch {}
@@ -1905,7 +1912,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const v = Math.round(Number(raw?.[k]));
       return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
     };
-    return { shelf: pick("shelf"), ranks: pick("ranks"), tracks: pick("tracks"), repeat: pick("repeat"), fgPlays: pick("fgPlays"), fgDays: pick("fgDays"), statTop: pick("statTop") };
+    return { shelf: pick("shelf"), ranks: pick("ranks"), tracks: pick("tracks"), repeat: pick("repeat"), fgPlays: pick("fgPlays"), fgDays: pick("fgDays"), statTop: pick("statTop"), best: pick("best") };
   }
   function writeHomeCounts(c: HomeCounts) {
     try { localStorage.setItem("melo-home-counts", JSON.stringify(c)); } catch {}
@@ -2134,6 +2141,140 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     </div>`).join("");
     return `<section class="home-section"><h2 class="home-h2">${esc(title)}</h2><div class="home-grid">${cards}</div></section>`;
   }
+  /** Recently played: one card per TRACK (title + artist). Play queues only that track; the card opens its album. */
+  function homeRecentShelfHtml(items: HomeTrack[]): string {
+    if (!items.length) return "";
+    const cards = items.map((it, i) => {
+      const t = normalizeTrack(it.track);
+      const cv = resolvedCover(t.id, t.cover);
+      const cover = cv
+        ? `<div class="home-cover" style="background-image:url('${esc(cv)}');background-size:cover;background-position:center" data-artwork-id="${esc(t.id)}"></div>`
+        : `<div class="home-cover" data-artwork-id="${esc(t.id)}">♪</div>`;
+      return `<div class="home-card" data-home-recent-open="${i}">
+      <div class="home-cover-wrap">${cover}<button type="button" class="home-cover-play" data-home-recent-play="${i}" title="Play ${esc(t.title)}" aria-label="Play ${esc(t.title)}">${iconPlay(13)}</button></div>
+      <div class="home-card-title">${esc(t.title)}</div>
+      <div class="home-card-sub">${esc(t.artist)}</div>
+    </div>`;
+    }).join("");
+    return `<section class="home-section"><h2 class="home-h2">Recently played</h2><div class="home-grid">${cards}</div></section>`;
+  }
+
+  // "Best of an artist": the chosen artist is remembered per Artist / Album Artist mode.
+  function readBestArtist(): string {
+    try {
+      const raw = JSON.parse(localStorage.getItem("melo-home-best-artist") || "null");
+      const v = raw?.[savedArtistMode];
+      if (typeof v === "string" && v) return v;
+    } catch {}
+    return "";
+  }
+  function writeBestArtist(name: string) {
+    let raw: Record<string, string> = {};
+    try { raw = JSON.parse(localStorage.getItem("melo-home-best-artist") || "{}") || {}; } catch {}
+    raw[savedArtistMode] = name;
+    try { localStorage.setItem("melo-home-best-artist", JSON.stringify(raw)); } catch {}
+  }
+  function readBestBy(): StatBy {
+    try { return localStorage.getItem("melo-home-best-by") === "time" ? "time" : "plays"; } catch { return "plays"; }
+  }
+  /** The artist shown: the saved choice, else the library's most played artist. */
+  function bestArtistName(data: HomeData | null): string {
+    return readBestArtist() || data?.topArtists?.[0]?.name || "";
+  }
+  function homeBestHtml(data: HomeData): string {
+    const name = bestArtistName(data);
+    const by = readBestBy();
+    const seg = (v: StatBy, label: string, tip: string) => `<button type="button" class="home-seg-btn${by === v ? " on" : ""}" data-best-by="${v}" aria-pressed="${by === v}" title="${esc(tip)}">${label}</button>`;
+    return `<section class="home-section"><div class="home-best-head"><h2 class="home-h2">Best of</h2>
+      <button type="button" class="home-best-pick" id="homeBestPick" aria-expanded="${homeBestPickerOpen}" title="Choose an artist"><span>${esc(name || "Choose an artist")}</span>${svgIcon('<path d="m6 9 6 6 6-6"/>', 12)}</button>
+      <span class="home-seg" role="group" aria-label="Rank by">${seg("time", "Time", "Rank by listening time")}${seg("plays", "Plays", "Rank by number of plays")}</span></div>
+      <div class="home-best-picker" id="homeBestPicker" ${homeBestPickerOpen ? "" : "hidden"}><input type="text" id="homeBestSearch" placeholder="Search artists…" autocomplete="off" spellcheck="false"><div class="home-best-results" id="homeBestResults"></div></div>
+      <div class="home-ranks" id="homeBestBody"><div class="home-stats-empty">${name ? "Loading…" : "Pick an artist to see their best tracks and albums."}</div></div></section>`;
+  }
+  function homeBestBodyHtml(best: BestOfArtist): string {
+    const by = readBestBy();
+    const value = (plays: number, seconds: number) => (by === "plays" ? `${plays} ${plays === 1 ? "play" : "plays"}` : homeDuration(seconds));
+    const tracks = best.tracks.map((it, i) => {
+      const t = normalizeTrack(it.track);
+      const cv = resolvedCover(t.id, t.cover);
+      const cover = cv ? `<div class="home-rank-cover round" style="background-image:url('${esc(cv)}');background-size:cover;background-position:center" data-artwork-id="${esc(t.id)}"></div>` : `<div class="home-rank-cover round" data-artwork-id="${esc(t.id)}">♪</div>`;
+      return `<div class="home-rank-row" data-home-trackrow="best" data-home-idx="${i}"><span class="home-rank-n">${i + 1}</span>${cover}
+        <div class="home-rank-txt"><div class="home-rank-name">${esc(t.title)}</div><div class="home-rank-sub">${esc(t.album || t.artist)}</div></div>
+        <span class="home-rank-plays">${esc(value(it.plays, it.seconds))}</span>
+        <button type="button" class="home-rank-play" data-home-trackplay="best" data-home-idx="${i}" title="Play ${esc(t.title)}" aria-label="Play ${esc(t.title)}">${iconPlay(12)}</button></div>`;
+    }).join("");
+    const albums = best.albums.map((g, i) => `<div class="home-rank-row" data-home-open="bestAlbum" data-home-idx="${i}"><span class="home-rank-n">${i + 1}</span>${homeCoverHtml(g, "home-rank-cover round", "💿")}
+        <div class="home-rank-txt"><div class="home-rank-name">${esc(g.name)}</div><div class="home-rank-sub">${esc(g.subtitle)}</div></div>
+        <span class="home-rank-plays">${esc(value(g.plays, g.seconds || 0))}</span>
+        <button type="button" class="home-rank-play" data-home-play="bestAlbum" data-home-idx="${i}" title="Play ${esc(g.name)}" aria-label="Play ${esc(g.name)}">${iconPlay(12)}</button></div>`).join("");
+    if (!tracks && !albums) return `<div class="home-stats-empty">${by === "plays" ? "No plays recorded for this artist yet." : "No listening time recorded for this artist yet."}</div>`;
+    const col = (title: string, rows: string) => rows ? `<div class="home-rank"><div class="home-rank-head"><h3 class="home-h3">${title}</h3></div>${rows}</div>` : "";
+    return col("Top tracks", tracks) + col("Top albums", albums);
+  }
+  async function fillHomeBest() {
+    const host = trackList?.querySelector<HTMLElement>("#homeBestBody");
+    if (!host || !invoke) return;
+    const name = bestArtistName(homeCache);
+    if (!name) { homeBestLast = null; return; }
+    const token = ++homeBestToken;
+    try {
+      const best = await invoke<BestOfArtist>("library_artist_best", { artist: name, artistKind: savedArtistMode, by: readBestBy(), limit: readHomeCounts().best });
+      if (token !== homeBestToken || !host.isConnected) return;
+      homeBestLast = best;
+      host.innerHTML = homeBestBodyHtml(best);
+      bindLazyArtwork(host);
+    } catch {
+      if (token === homeBestToken && host.isConnected) host.innerHTML = `<div class="home-stats-empty">This list is unavailable right now.</div>`;
+    }
+  }
+  let homeBestSearchTimer: number | undefined;
+  async function fillHomeBestResults(query: string) {
+    const host = trackList?.querySelector<HTMLElement>("#homeBestResults");
+    if (!host || !invoke) return;
+    let names: string[] = [];
+    try {
+      if (!query.trim()) names = (homeCache?.topArtists || []).map(g => g.name);
+      else {
+        const page = await invoke<Page<GroupRow>>("library_groups", { kind: savedArtistMode, search: query.trim(), artist: null, limit: 8, offset: 0, includeTotal: false });
+        names = (page.items || []).map(g => g.name);
+      }
+    } catch {}
+    if (!host.isConnected) return;
+    host.innerHTML = names.length
+      ? names.map(n => `<button type="button" class="home-best-opt" data-best-pick="${esc(n)}">${esc(n)}</button>`).join("")
+      : `<div class="home-stats-empty">No artists found</div>`;
+  }
+  /** Marks a Home section's root element so a live refresh can swap just that section. */
+  function tagHomeSection(id: string, html: string): string {
+    return html ? html.replace(/^<(section|div)/, `<$1 data-home-sec="${id}"`) : html;
+  }
+  /** Re-reads only the live sections (Continue listening / Recently played) and swaps them in place. */
+  async function refreshHomeLive(ids: ("resume" | "recentlyPlayed")[]) {
+    if (!invoke || libTab !== "home" || !homeCache || !homePaintStats || !trackList?.hasAttribute("data-home")) return;
+    if (document.hidden) { homeLiveDirty = true; return; }
+    homeLiveDirty = false;
+    const req = homeRequest;
+    try {
+      const live = await invoke<{ lastTrack: Track | null; recentlyPlayedTracks: HomeTrack[] }>("library_home_live", { limit: readHomeCounts().shelf });
+      if (req !== homeRequest || libTab !== "home" || !homeCache || !homePaintStats || !trackList) return;
+      if (ids.includes("resume")) homeCache.lastTrack = live.lastTrack;
+      if (ids.includes("recentlyPlayed")) homeCache.recentlyPlayedTracks = live.recentlyPlayedTracks;
+      const sections = homeSectionsHtml(homeCache, homePaintStats);
+      const hidden = readHomeLayout().hidden;
+      for (const id of ids) {
+        if (hidden.includes(id)) continue;
+        const html = tagHomeSection(id, sections[id] || "");
+        const el = trackList.querySelector<HTMLElement>(`[data-home-sec="${id}"]`);
+        if (el && html) el.outerHTML = html;
+        else if (el) el.remove();
+        else if (html) { paintHome(homeCache, homePaintStats); void fillHomeStats(); void fillHomeBest(); return; }
+      }
+      bindLazyArtwork(trackList);
+    } catch {
+      // A statistics refresh must never disturb the UI.
+    }
+  }
+
   function homeRankHtml(title: string, groups: HomeGroup[], kind: string, artistRows: boolean): string {
     if (!groups.length) return "";
     const rows = groups.map((g, i) => `<div class="home-rank-row" data-home-open="${kind}" data-home-idx="${i}">
@@ -2270,7 +2411,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     };
     return `<div class="home-cz"><div class="home-cz-title">Customize Home</div>${rows}
       <div class="home-cz-title home-cz-sub">Items shown</div>
-      <div class="home-cz-counts">${num("statTop", "Listening time: top list size")}${num("shelf", "Recently played & added")}${num("ranks", "Top artists & albums")}${num("tracks", "Top tracks")}${num("repeat", "Recently on repeat")}${num("fgPlays", "Forgotten favourites: min. plays")}${num("fgDays", "Forgotten favourites: days unplayed")}</div>
+      <div class="home-cz-counts">${num("statTop", "Listening time: top list size")}${num("shelf", "Recently played & added")}${num("ranks", "Top artists & albums")}${num("tracks", "Top tracks")}${num("repeat", "Recently on repeat")}${num("best", "Best of an artist")}${num("fgPlays", "Forgotten favourites: min. plays")}${num("fgDays", "Forgotten favourites: days unplayed")}</div>
       <div class="home-cz-foot"><button type="button" class="home-btn-ghost" data-cz-reset>Reset layout</button><button type="button" class="home-btn-ghost" data-cz-clear>Clear listening history…</button></div></div>`;
   }
 
@@ -2290,11 +2431,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     out.stats = `<section class="home-section"><div class="home-stats-head"><h2 class="home-h2">Listening time</h2>
         <div class="home-ranges" role="tablist" aria-label="Period">${HOME_RANGES.map(r => `<button type="button" class="home-range${r.id === range ? " active" : ""}" data-home-range="${r.id}" role="tab" aria-selected="${r.id === range}">${esc(r.label)}</button>`).join("")}</div></div>
         <div class="home-stats-card" id="homeStatsBody"><div class="home-stats-empty">Loading…</div></div></section>`;
-    out.recentlyPlayed = homeShelfHtml("Recently played", data.recentlyPlayed, "recentlyPlayed");
+    out.recentlyPlayed = homeRecentShelfHtml(data.recentlyPlayedTracks);
     out.recentlyAdded = homeShelfHtml("Recently added", data.recentlyAdded, "recentlyAdded");
     out.ranks = (data.topArtists.length || data.topAlbums.length)
       ? `<div class="home-ranks">${homeRankHtml("Top artists", data.topArtists, "artist", true)}${homeRankHtml("Top albums", data.topAlbums, "topAlbums", false)}</div>` : "";
     const tracksHtml = homeTrackRankHtml("Top tracks", "by plays", data.topTracks, "top") + homeTrackRankHtml("Recently on repeat", "last 30 days", data.repeatTracks, "repeat");
+    out.bestArtist = homeBestHtml(data);
     out.tracks = tracksHtml ? `<div class="home-ranks">${tracksHtml}</div>` : "";
     out.onThisDay = data.onThisDay.length ? `<section class="home-section"><h2 class="home-h2">On this day</h2><div class="home-otd">${data.onThisDay.map((d, i) => {
       const t = d.track ? normalizeTrack(d.track) : null;
@@ -2318,21 +2460,22 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!trackList) return;
     const layout = readHomeLayout();
     const sections = homeSectionsHtml(data, stats);
-    const body = layout.order.filter(id => !layout.hidden.includes(id)).map(id => sections[id] || "").join("");
+    homePaintStats = stats;
+    const body = layout.order.filter(id => !layout.hidden.includes(id)).map(id => tagHomeSection(id, sections[id] || "")).join("");
     trackList.innerHTML = `<div class="home">
       <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead">Your library: ${stats.tracks.toLocaleString("en-US")} ${stats.tracks === 1 ? "track" : "tracks"} · ${esc(homeHoursLong(data.totalSeconds))} of music</p></div>
         <div class="home-top-right"><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">${svgIcon('<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>', 13)}<span>Customize</span></button></div></div>
       ${homeCustomizing ? homeCustomizeHtml(layout) : ""}
       ${body}
     </div>`;
-    const lt = data.lastTrack ? normalizeTrack(data.lastTrack) : null;
-    const lists: Record<string, HomeGroup[]> = { recentlyPlayed: data.recentlyPlayed, recentlyAdded: data.recentlyAdded, topAlbums: data.topAlbums, artist: data.topArtists };
+    const curLt = () => (data.lastTrack ? normalizeTrack(data.lastTrack) : null);
+    const lists: Record<string, HomeGroup[]> = { recentlyAdded: data.recentlyAdded, topAlbums: data.topAlbums, artist: data.topArtists, get bestAlbum() { return homeBestLast?.albums || []; } };
     const groupOf = (el: HTMLElement | null, attr: string): { kind: string; g: HomeGroup } | null => {
       const kind = el?.getAttribute(attr) || "";
       const g = lists[kind]?.[Number(el?.getAttribute("data-home-idx"))];
       return g ? { kind: kind === "artist" ? "artist" : "album", g } : null;
     };
-    const trackLists: Record<string, HomeTrack[]> = { top: data.topTracks, repeat: data.repeatTracks };
+    const trackLists: Record<string, HomeTrack[]> = { top: data.topTracks, repeat: data.repeatTracks, get best() { return homeBestLast?.tracks || []; } };
     trackList.onchange = event => {
       const input = (event.target as HTMLElement).closest<HTMLInputElement>("[data-cz-count]");
       if (!input) return;
@@ -2343,6 +2486,12 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       counts[k] = Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
       writeHomeCounts(counts);
       void renderLibraryHome(false);
+    };
+    trackList.oninput = event => {
+      const input = (event.target as HTMLElement).closest<HTMLInputElement>("#homeBestSearch");
+      if (!input) return;
+      window.clearTimeout(homeBestSearchTimer);
+      homeBestSearchTimer = window.setTimeout(() => void fillHomeBestResults(input.value), 150);
     };
     trackList.onclick = event => {
       const target = event.target as HTMLElement;
@@ -2365,6 +2514,50 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         }
         return;
       }
+      const recentPlay = target.closest<HTMLElement>("[data-home-recent-play]");
+      if (recentPlay) {
+        event.stopPropagation();
+        const it = data.recentlyPlayedTracks[Number(recentPlay.getAttribute("data-home-recent-play"))];
+        if (it) void playHomeTrackList([it.track], 0);
+        return;
+      }
+      const recentOpen = target.closest<HTMLElement>("[data-home-recent-open]");
+      if (recentOpen) {
+        const it = data.recentlyPlayedTracks[Number(recentOpen.getAttribute("data-home-recent-open"))];
+        if (!it) return;
+        const t = normalizeTrack(it.track);
+        if (t.album) openHomeGroup("album", { key: `${t.albumArtist || t.artist}\0${t.album}`, name: t.album, subtitle: t.albumArtist || t.artist, count: 0, plays: 0 });
+        else void playHomeTrackList([it.track], 0);
+        return;
+      }
+      const bestBy = target.closest<HTMLElement>("[data-best-by]");
+      if (bestBy) {
+        try { localStorage.setItem("melo-home-best-by", bestBy.getAttribute("data-best-by") === "time" ? "time" : "plays"); } catch {}
+        const cur = readBestBy();
+        trackList?.querySelectorAll<HTMLElement>("[data-best-by]").forEach(b => { const on = b.getAttribute("data-best-by") === cur; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
+        void fillHomeBest();
+        return;
+      }
+      if (target.closest("#homeBestPick")) {
+        homeBestPickerOpen = !homeBestPickerOpen;
+        const panel = trackList?.querySelector<HTMLElement>("#homeBestPicker");
+        if (panel) panel.hidden = !homeBestPickerOpen;
+        trackList?.querySelector("#homeBestPick")?.setAttribute("aria-expanded", String(homeBestPickerOpen));
+        if (homeBestPickerOpen) { const inp = trackList?.querySelector<HTMLInputElement>("#homeBestSearch"); if (inp) { inp.value = ""; inp.focus(); } void fillHomeBestResults(""); }
+        return;
+      }
+      const bestPick = target.closest<HTMLElement>("[data-best-pick]");
+      if (bestPick) {
+        writeBestArtist(bestPick.getAttribute("data-best-pick") || "");
+        homeBestPickerOpen = false;
+        const panel = trackList?.querySelector<HTMLElement>("#homeBestPicker");
+        if (panel) panel.hidden = true;
+        const label = trackList?.querySelector<HTMLElement>("#homeBestPick > span");
+        if (label) label.textContent = bestArtistName(homeCache);
+        trackList?.querySelector("#homeBestPick")?.setAttribute("aria-expanded", "false");
+        void fillHomeBest();
+        return;
+      }
       const playBtn = target.closest<HTMLElement>("[data-home-play]");
       if (playBtn) {
         event.stopPropagation();
@@ -2372,7 +2565,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (!hit) return;
         const k = playBtn.getAttribute("data-home-play");
         // Recently played / added: queue only that one track, not the whole album.
-        if ((k === "recentlyPlayed" || k === "recentlyAdded") && hit.g.track) void playHomeTrackList([hit.g.track], 0);
+        if (k === "recentlyAdded" && hit.g.track) void playHomeTrackList([hit.g.track], 0);
         else playHomeGroup(hit.kind, hit.g);
         return;
       }
@@ -2407,7 +2600,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         void fillHomeStats();
         return;
       }
-      if (target.closest("#homeCustomize")) { homeCustomizing = !homeCustomizing; paintHome(data, stats); void fillHomeStats(); return; }
+      if (target.closest("#homeCustomize")) { homeCustomizing = !homeCustomizing; paintHome(data, stats); void fillHomeStats(); void fillHomeBest(); return; }
       const czStep = target.closest<HTMLElement>("[data-cz-step]");
       if (czStep) {
         event.preventDefault();
@@ -2424,7 +2617,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         const id = czToggle.getAttribute("data-cz-toggle") || "";
         layout.hidden = czToggle.checked ? layout.hidden.filter(x => x !== id) : [...layout.hidden, id];
         writeHomeLayout(layout);
-        paintHome(data, stats); void fillHomeStats();
+        paintHome(data, stats); void fillHomeStats(); void fillHomeBest();
         return;
       }
       const czMove = target.closest<HTMLElement>("[data-cz-move]");
@@ -2437,11 +2630,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (i >= 0 && j >= 0 && j < layout.order.length) {
           [layout.order[i], layout.order[j]] = [layout.order[j], layout.order[i]];
           writeHomeLayout(layout);
-          paintHome(data, stats); void fillHomeStats();
+          paintHome(data, stats); void fillHomeStats(); void fillHomeBest();
         }
         return;
       }
-      if (target.closest("[data-cz-reset]")) { writeHomeLayout({ order: HOME_SECTIONS.map(s => s.id), hidden: [] }); paintHome(data, stats); void fillHomeStats(); return; }
+      if (target.closest("[data-cz-reset]")) { writeHomeLayout({ order: HOME_SECTIONS.map(s => s.id), hidden: [] }); paintHome(data, stats); void fillHomeStats(); void fillHomeBest(); return; }
       if (target.closest("[data-cz-clear]")) {
         void (async () => {
           if (!invoke) return;
@@ -2458,6 +2651,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         else if (id) void playHomeMix(id);
         return;
       }
+      const lt = curLt();
       if (target.closest("#homeResume") && lt) { void playHomeLastTrack(lt); return; }
       if (target.closest("#homeOpenAlbum") && lt) {
         openHomeGroup("album", { key: `${lt.albumArtist || lt.artist}\0${lt.album}`, name: lt.album, subtitle: lt.albumArtist || lt.artist, count: 0, plays: 0 });
@@ -2491,7 +2685,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         return;
       }
       paintHome(data, stats);
-      void fillHomeStats();
+      void fillHomeStats(); void fillHomeBest();
       trackList.scrollTop = reset ? 0 : keepScroll;
     } catch (error) {
       if (req === homeRequest) trackList.innerHTML = `<div class="library-playlists-empty">Could not read the Library database.</div>`;
@@ -5159,6 +5353,25 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       embeddedPlaylistContainer.querySelector<HTMLElement>(".embedded-playlist-row.active")
         ?.scrollIntoView({ block: "nearest" });
     }
+  });
+  // Home: Continue listening follows the player. A track must stay current for
+  // 3 s before the card swaps (rapid skipping never flickers it); a counted
+  // listen refreshes Recently played shortly after it is logged. Only the two
+  // sections are re-read (library_home_live), never the whole Home.
+  let homeLiveTrackTimer: number | undefined;
+  let homeLiveListenTimer: number | undefined;
+  busOn("melo:track-changed", (t: any) => {
+    window.clearTimeout(homeLiveTrackTimer);
+    if (!t?.id) return;
+    homeLiveTrackTimer = window.setTimeout(() => void refreshHomeLive(["resume"]), 3000);
+  });
+  busOn("melo:listened", (p: any) => {
+    if (!p?.counted) return;
+    window.clearTimeout(homeLiveListenTimer);
+    homeLiveListenTimer = window.setTimeout(() => void refreshHomeLive(["recentlyPlayed"]), 800);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && homeLiveDirty) void refreshHomeLive(["resume", "recentlyPlayed"]);
   });
   // The player only counts LISTENS (threshold met) — see player.ts.
   busOn("melo:play-counted", (p: any) => {

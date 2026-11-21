@@ -39,12 +39,19 @@ import type { Track } from "./types";
 
 const PREF_KEY = "melo-pref-lyricsSkinLine";
 
+const NAV_KEY = "melo-pref-lyricsSkinNav";
+
+export function isSkinLyricNavEnabled(): boolean {
+  try { return localStorage.getItem(NAV_KEY) !== "0"; } catch { return true; }
+}
+
 export function isSkinLyricLineEnabled(): boolean {
   return localStorage.getItem(PREF_KEY) === "1";
 }
 
 export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string) => void) {
   let enabled = isSkinLyricLineEnabled();
+  let navEnabled = isSkinLyricNavEnabled();
 
   // Playback / lyrics state
   let track: Track | null = null;
@@ -74,7 +81,10 @@ export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string)
     resolvedOnce = true;
     // Clicking the line seeks to its start (same action as clicking a line
     // in the Lyrics window).
-    if (currentEl) currentEl.onclick = seekToActiveLine;
+    if (currentEl) {
+      currentEl.onclick = seekToActiveLine;
+      bindNavHover(currentEl);
+    }
     if (nextEl) nextEl.onclick = seekToActiveLine;
   }
 
@@ -83,16 +93,147 @@ export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string)
     return lines[activeIdx].time;
   }
 
-  function seekToActiveLine() {
-    const t = activeLineTime();
-    if (t < 0) return;
+  // After a seek the player may still deliver one or two positions from before
+  // it; for a moment those are ignored so the line does not flick back.
+  let seekHoldUntil = 0;
+  let seekHoldTarget = 0;
+  function holdingSeek(seconds: number): boolean {
+    return performance.now() < seekHoldUntil && Math.abs(seconds - seekHoldTarget) > 1.5;
+  }
+
+  function seekTo(t: number) {
     busEmit("melo:seek-playback", t);
     // Browser/demo mode shares the actual audio element.
     if (!isTauri) {
       audio.currentTime = t;
       audio.play().catch(() => {});
     }
+    // Optimistic: the line (and its progress underline) jump now instead of
+    // waiting for the next position event. The playback progress bar follows
+    // the real seek.
+    busTime = t;
+    busTimeAt = performance.now();
+    seekHoldTarget = t;
+    seekHoldUntil = performance.now() + 400;
+    lastProgress = -1;
+    update(true);
   }
+
+  function seekToActiveLine() {
+    const t = activeLineTime();
+    if (t < 0) return;
+    seekTo(t);
+  }
+
+  // ---- previous / next line buttons (shown while hovering the current line) ----
+  //
+  // One overlay owned by the engine, positioned over the `current-lyric` slot —
+  // skins need no markup. Colours come from the slot (`currentColor`) and can
+  // be overridden with --melo-lyric-nav-* on the slot or an ancestor; a skin
+  // opts out with data-melo-lyric-nav="off" on the slot (or any ancestor).
+  const NAV_VARS = ["--melo-lyric-nav-size", "--melo-lyric-nav-bg", "--melo-lyric-nav-bg-hover", "--melo-lyric-nav-inset"];
+  let navRoot: HTMLDivElement | null = null;
+  let navPrev: HTMLButtonElement | null = null;
+  let navNext: HTMLButtonElement | null = null;
+  let navHideTimer = 0;
+  let navShown = false;
+  let navBoundEl: HTMLElement | null = null;
+
+  function navAllowed(): boolean {
+    return !!(
+      enabled && navEnabled && synced && lines.length > 1 &&
+      currentEl && currentEl.isConnected &&
+      currentEl.dataset.meloLyricHidden !== "1" &&
+      !currentEl.closest('[data-melo-lyric-nav="off"]')
+    );
+  }
+
+  function navTarget(dir: -1 | 1): number {
+    const target = activeIdx < 0 ? (dir > 0 ? 0 : -1) : activeIdx + dir;
+    return target >= 0 && target < lines.length ? target : -1;
+  }
+
+  function ensureNav() {
+    if (navRoot) return;
+    const root = document.createElement("div");
+    root.className = "melo-lyric-nav";
+    root.setAttribute("aria-hidden", "true");
+    const mk = (dir: -1 | 1) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "melo-lyric-nav-btn";
+      b.dataset.dir = String(dir);
+      b.tabIndex = -1;
+      b.title = dir < 0 ? "Previous line" : "Next line";
+      b.innerHTML = dir < 0
+        ? '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 2.5 4 6l3.5 3.5"/></svg>'
+        : '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5 8 6 4.5 9.5"/></svg>';
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const i = navTarget(dir);
+        if (i >= 0) seekTo(lines[i].time);
+      });
+      b.addEventListener("pointerenter", () => window.clearTimeout(navHideTimer));
+      b.addEventListener("pointerleave", hideNavSoon);
+      return b;
+    };
+    navPrev = mk(-1);
+    navNext = mk(1);
+    root.append(navPrev, navNext);
+    document.body.appendChild(root);
+    navRoot = root;
+  }
+
+  function positionNav() {
+    if (!navRoot || !currentEl) return;
+    const r = currentEl.getBoundingClientRect();
+    if (r.width < 64 || r.height < 8) { hideNav(); return; }
+    const cs = getComputedStyle(currentEl);
+    navRoot.style.left = r.left + "px";
+    navRoot.style.top = r.top + "px";
+    navRoot.style.width = r.width + "px";
+    navRoot.style.height = r.height + "px";
+    navRoot.style.color = cs.color;
+    for (const v of NAV_VARS) {
+      const val = cs.getPropertyValue(v).trim();
+      if (val) navRoot.style.setProperty(v, val); else navRoot.style.removeProperty(v);
+    }
+    if (navPrev) navPrev.disabled = navTarget(-1) < 0;
+    if (navNext) navNext.disabled = navTarget(1) < 0;
+  }
+
+  function showNav() {
+    window.clearTimeout(navHideTimer);
+    if (!navAllowed()) { hideNav(); return; }
+    ensureNav();
+    positionNav();
+    if (!navRoot) return;
+    navShown = true;
+    navRoot.classList.add("on");
+    navRoot.setAttribute("aria-hidden", "false");
+  }
+
+  function hideNav() {
+    window.clearTimeout(navHideTimer);
+    navShown = false;
+    if (!navRoot) return;
+    navRoot.classList.remove("on");
+    navRoot.setAttribute("aria-hidden", "true");
+  }
+
+  function hideNavSoon() {
+    window.clearTimeout(navHideTimer);
+    navHideTimer = window.setTimeout(hideNav, 140);
+  }
+
+  function bindNavHover(el: HTMLElement) {
+    if (navBoundEl === el) return;
+    navBoundEl = el;
+    el.addEventListener("pointerenter", showNav);
+    el.addEventListener("pointerleave", hideNavSoon);
+  }
+  window.addEventListener("resize", hideNav);
 
   function currentTime(): number {
     // Clock-source races are bounded, not eliminated.
@@ -228,6 +369,7 @@ export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string)
     setSlot(nextEl, nextLine ? nextLine.text || "♪" : null, nextLine ? nextLine.time : -1);
     document.documentElement.classList.toggle("melo-has-synced-lyrics", !!synced && lines.length > 0);
     updateProgress(t);
+    if (navShown) { if (navAllowed()) positionNav(); else hideNav(); }
 
     if (lineChanged || force) {
       busEmit("melo:lyric-line", {
@@ -306,20 +448,29 @@ export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string)
   busOn("melo:track-changed", (t: any) => loadTrack(t || null));
   busOn("melo:playback-state", (state: any) => {
     if (!state) return;
-    busTime = Number(state.currentTime) || 0;
-    busTimeAt = performance.now();
+    const st = Number(state.currentTime) || 0;
+    if (!holdingSeek(st)) {
+      busTime = st;
+      busTimeAt = performance.now();
+    }
     if (state.track && state.track.id !== (track?.id ?? null)) loadTrack(state.track);
     else update();
   });
   busOn("melo:playback-position", (seconds: any) => {
-    busTime = Number(seconds) || 0;
+    const pos = Number(seconds) || 0;
+    if (holdingSeek(pos)) return;
+    busTime = pos;
     busTimeAt = performance.now();
     update();
   });
   busOn("melo:pref-changed", (p: any) => {
     if (!p) return;
-    if (p.key === "lyricsSkinLine") {
+    if (p.key === "lyricsSkinNav") {
+      navEnabled = !!p.value;
+      if (!navEnabled) hideNav();
+    } else if (p.key === "lyricsSkinLine") {
       enabled = !!p.value;
+      if (!enabled) hideNav();
       lastProgress = -1;
       if (!enabled) {
         lines = [];

@@ -2590,3 +2590,35 @@ test("round 116b: Years tab, tab icons, last tab survives a restart", () => {
   assert.match(rs, /strip_prefix\("\\u\{1\}year="\)/);
   assert.match(rs, /order_by = if kind == "years" \{ "year DESC" \}/);
 });
+
+
+// ---- round 117: Home live refresh, Recently played by track, Best of an artist, lyric nav ----
+{
+  const lib = fs.readFileSync(path.join(here, "..", "src", "library.ts"), "utf8");
+  const rs = fs.readFileSync(path.join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
+  const mainRs = fs.readFileSync(path.join(here, "..", "src-tauri", "src", "main.rs"), "utf8");
+  const ll = fs.readFileSync(path.join(here, "..", "src", "lyric-line.ts"), "utf8");
+  const st = fs.readFileSync(path.join(here, "..", "src", "settings.ts"), "utf8");
+  test("round 117: Recently played is one row per track from counted listens", () => {
+    assert.match(rs, /fn home_recent_tracks\(/);
+    assert.match(rs, /WHERE l\.counted=1 AND t\.library_owned=1 GROUP BY t\.id ORDER BY MAX\(l\.started_at\) DESC/);
+    assert.match(lib, /recentlyPlayedTracks: HomeTrack\[\]/);
+    assert.match(lib, /data-home-recent-play/);
+  });
+  test("round 117: Continue listening refreshes 3 s after a track change, live command registered", () => {
+    assert.match(lib, /setTimeout\(\(\) => void refreshHomeLive\(\["resume"\]\), 3000\)/);
+    assert.match(rs, /pub async fn library_home_live\(/);
+    assert.match(mainRs, /library_db::library_home_live,/);
+  });
+  test("round 117: Best of an artist follows Artist / Album Artist mode and the Time/Plays switch", () => {
+    assert.match(rs, /pub async fn library_artist_best\(/);
+    assert.match(mainRs, /library_db::library_artist_best,/);
+    assert.match(lib, /invoke<BestOfArtist>\("library_artist_best", \{ artist: name, artistKind: savedArtistMode, by: readBestBy\(\)/);
+    assert.match(lib, /\{ id: "bestArtist", label: "Best of an artist" \}/);
+  });
+  test("round 117: lyric prev/next buttons are an engine overlay with a setting and a skin opt-out", () => {
+    assert.match(ll, /melo-lyric-nav/);
+    assert.match(ll, /data-melo-lyric-nav="off"/);
+    assert.match(st, /name: "lyricsSkinNav".*def: true/);
+  });
+}

@@ -28,6 +28,8 @@
   "settings.playback.crossfadeDuration.desc": "How long the crossfade lasts (1–12 seconds). 0 = Gapless: no fade and no gap between tracks",
   "settings.general.lyricsSkinLine.label": "Show current lyric line in skins",
   "settings.general.lyricsSkinLine.desc": "Shows the active synced lyric line in skins that have a current-lyric slot. Skins without one are unaffected. The features of the selected skin are listed under Settings → Appearance & Skin.",
+  "settings.general.lyricsSkinNav.label": "Previous / next line buttons on the lyric line",
+  "settings.general.lyricsSkinNav.desc": "Hovering the current lyric line in a skin shows two small arrows that jump playback to the previous or next line (the progress bar follows). Skins can opt out. Needs \"Show current lyric line in skins\".",
   "settings.general.lyricsSkinLine.unsupported": "The selected skin does not support this feature.",
   "settings.appearance.embeddedPlaylist.label": "Embedded Playlist (skins)",
   "settings.appearance.embeddedPlaylist.desc": "If the active skin includes a playlist slot, these control how it looks. Skins without this slot are unaffected.",
