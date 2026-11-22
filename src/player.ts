@@ -1075,6 +1075,17 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // Let the embedded playlist / lyrics panel scroll instead of changing volume.
     if (target.closest(".embedded-playlist, .embedded-lyrics, [data-melo=\"embedded-playlist\"], [data-melo=\"embedded-lyrics\"], .player-stage-panel")) return;
     event.preventDefault();
+    // Over the seek bar (or its waveform) the wheel scrubs time instead:
+    // ~5 s per mouse notch (proportional, so a trackpad is smooth); up = forward.
+    if (target.closest('#seekBar, [data-melo="seek"], [data-melo="waveform"], .seek-wrap')) {
+      const dur = audio.duration;
+      if (!Number.isFinite(dur) || dur <= 0) return;
+      const delta = Math.max(-15, Math.min(15, -event.deltaY / 20));
+      cancelCrossfade();
+      const to = Math.max(0, Math.min(dur - 0.25, (audio.currentTime || 0) + delta));
+      try { audio.currentTime = to; } catch {}
+      return;
+    }
     const step = event.deltaY < 0 ? 5 : -5;
     volBar.value = String(Math.max(0, Math.min(100, Number(volBar.value) + step)));
     volBar.dispatchEvent(new Event("input"));
@@ -1402,7 +1413,9 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     queue = p.tracks;
     (window as any).__LUMI_SET_QUEUE__(queue);
     const idx = Math.max(0, Math.min(p.index || 0, queue.length - 1));
-    loadTrack(idx, true);
+    // `startAt` (seconds): Home's Continue listening resumes where playback stopped.
+    const startAt = Number(p.startAt);
+    loadTrack(idx, true, Number.isFinite(startAt) && startAt > 0 ? startAt : undefined);
     // A fromQueue click carries only the ONE clicked record (instant
     // start); grow the runtime queue to the full DB queue in place.
     if (p.fromQueue) hydrateFullQueue(gen, p.tracks[0], p.queueHint);

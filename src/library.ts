@@ -56,7 +56,6 @@ function fmtDur(seconds: number) {
 
 export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) => void) {
   const trackList = document.getElementById("trackList") as HTMLElement | null;
-  const libraryStats = document.getElementById("libraryStats") as HTMLElement | null;
   const searchInput = document.getElementById("searchInput") as HTMLInputElement | null;
   const librarySearchFieldSelect = document.getElementById("librarySearchField") as HTMLSelectElement | null;
   const searchClear = document.getElementById("searchClear") as HTMLButtonElement | null;
@@ -1479,14 +1478,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   }
 
   async function refreshStats() {
-    if (!invoke || !libraryStats) return;
+    if (!invoke) return;
     try {
+      // The track / artist / album totals now live on the Home tab; this keeps
+      // the Manage dialog's track count current.
       const stats = await invoke<Stats>("library_stats");
       libraryTrackTotal = Number(stats.tracks) || 0;
       refreshManageDialog();
-      // Each total leads with its own glyph (note / person / disc).
-      const stat = (icon: string, n: number, label: string) => `<span class="lib-stat">${icon}${esc(n)} ${label}</span>`;
-      libraryStats.innerHTML = `${stat(iconNote(12), stats.tracks, "tracks")}<span class="lib-stat-sep">•</span>${stat(iconUser(12), stats.artists, "artists")}<span class="lib-stat-sep">•</span>${stat(iconDisc(12), stats.albums, "albums")}`;
     } catch {}
   }
 
@@ -1881,9 +1879,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     { id: "recentlyPlayed", label: "Recently played" },
     { id: "recentlyAdded", label: "Recently added" },
     { id: "ranks", label: "Top artists & albums" },
-    { id: "bestArtist", label: "Best of an artist" },
     { id: "tracks", label: "Top tracks & on repeat" },
     { id: "onThisDay", label: "On this day" },
+    { id: "bestArtist", label: "Best of an artist" },
     { id: "decades", label: "Decades" },
     { id: "mixes", label: "Quick mixes" },
   ];
@@ -1898,12 +1896,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     } catch {}
     const known = HOME_SECTIONS.map(s => s.id);
     order = order.filter(id => known.includes(id));
-    for (const id of known) if (!order.includes(id)) order.push(id);
+    // A section the saved order has never seen lands at its default spot (before
+    // the next default section that is present), not at the very end.
+    known.forEach((id, i) => {
+      if (order.includes(id)) return;
+      const next = known.slice(i + 1).find(k => order.includes(k));
+      if (next) order.splice(order.indexOf(next), 0, id); else order.push(id);
+    });
     return { order, hidden: hidden.filter(id => known.includes(id)) };
   }
   // How many items each Home list shows (Customize → Items shown).
-  type HomeCounts = { shelf: number; ranks: number; tracks: number; repeat: number; fgPlays: number; fgDays: number; statTop: number; best: number };
-  const HOME_COUNT_LIMITS = { shelf: [4, 24, 14], ranks: [3, 20, 5], tracks: [3, 20, 5], repeat: [3, 20, 5], fgPlays: [2, 100, 10], fgDays: [7, 365, 30], statTop: [1, 10, 3], best: [3, 20, 5] } as const;
+  type HomeCounts = { shelf: number; ranks: number; tracks: number; fgPlays: number; fgDays: number; statTop: number; best: number };
+  const HOME_COUNT_LIMITS = { shelf: [4, 24, 14], ranks: [3, 20, 5], tracks: [3, 20, 5], fgPlays: [2, 100, 10], fgDays: [7, 365, 30], statTop: [1, 10, 3], best: [3, 20, 5] } as const;
   function readHomeCounts(): HomeCounts {
     let raw: any = null;
     try { raw = JSON.parse(localStorage.getItem("melo-home-counts") || "null"); } catch {}
@@ -1912,7 +1916,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const v = Math.round(Number(raw?.[k]));
       return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : def;
     };
-    return { shelf: pick("shelf"), ranks: pick("ranks"), tracks: pick("tracks"), repeat: pick("repeat"), fgPlays: pick("fgPlays"), fgDays: pick("fgDays"), statTop: pick("statTop"), best: pick("best") };
+    return { shelf: pick("shelf"), ranks: pick("ranks"), tracks: pick("tracks"), fgPlays: pick("fgPlays"), fgDays: pick("fgDays"), statTop: pick("statTop"), best: pick("best") };
   }
   function writeHomeCounts(c: HomeCounts) {
     try { localStorage.setItem("melo-home-counts", JSON.stringify(c)); } catch {}
@@ -2115,6 +2119,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function homeGreeting(): string {
     const h = new Date().getHours();
     return h < 5 || h >= 21 ? "Good night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  }
+  /** Library totals for the Home header: tracks · artists · albums · total length, each with its own glyph. */
+  function homeLibraryStatsHtml(stats: Stats, totalSeconds: number): string {
+    const stat = (icon: string, n: number, one: string, many: string) => `<span class="lib-stat">${icon}${esc(n.toLocaleString("en-US"))} ${n === 1 ? one : many}</span>`;
+    const sep = `<span class="lib-stat-sep">•</span>`;
+    const clock = svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', 13);
+    return `${stat(iconNote(13), stats.tracks, "track", "tracks")}${sep}${stat(iconUser(13), stats.artists, "artist", "artists")}${sep}${stat(iconDisc(13), stats.albums, "album", "albums")}${sep}<span class="lib-stat">${clock}${esc(homeHoursLong(totalSeconds))}</span>`;
   }
   function homeHoursLong(seconds: number): string {
     const h = seconds / 3600;
@@ -2374,9 +2385,22 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (kind === "artist") void playGroupScope(savedArtistMode === "artists" ? { artist: g.name } : { albumArtist: g.name });
     else void playGroupScope({ albumArtist: parts[0] || undefined, album: parts[1] || g.name });
   }
+  /** Where the player last stopped on this track (the player's own resume state), else 0. */
+  function savedResumePosition(track: Track): number {
+    try {
+      const st = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
+      if (st && String(st.trackId) === String(track.id)) {
+        const pos = Number(st.position);
+        const dur = Number(track.duration) || 0;
+        if (pos >= 1 && (!dur || pos < dur - 2)) return pos;
+      }
+    } catch {}
+    return 0;
+  }
   async function playHomeLastTrack(track: Track) {
     if (!invoke || groupPlayBusy) return;
     groupPlayBusy = true;
+    const startAt = savedResumePosition(track);
     try {
       if (track.album) {
         const args = { artist: null, albumArtist: track.albumArtist || null, album: track.album, genre: null };
@@ -2384,11 +2408,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (count) {
           const page = await invoke<Page<Track>>("library_tracks", { search: null, field: null, ...args, sort: "title-asc", limit: 5000, offset: 0 });
           const idx = page.items.findIndex(t => t.id === track.id);
-          if (idx >= 0) { await playFromDbQueue(normalizeTrack(page.items[idx]), true, idx); return; }
+          if (idx >= 0) { await playFromDbQueue(normalizeTrack(page.items[idx]), true, idx, startAt); return; }
         }
       }
       await replaceQueueWith([track]);
-      await playFromDbQueue(track, true, 0);
+      await playFromDbQueue(track, true, 0, startAt);
     } catch (e) {
       toast("Couldn't play this track: " + String(e));
     } finally {
@@ -2411,7 +2435,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     };
     return `<div class="home-cz"><div class="home-cz-title">Customize Home</div>${rows}
       <div class="home-cz-title home-cz-sub">Items shown</div>
-      <div class="home-cz-counts">${num("statTop", "Listening time: top list size")}${num("shelf", "Recently played & added")}${num("ranks", "Top artists & albums")}${num("tracks", "Top tracks")}${num("repeat", "Recently on repeat")}${num("best", "Best of an artist")}${num("fgPlays", "Forgotten favourites: min. plays")}${num("fgDays", "Forgotten favourites: days unplayed")}</div>
+      <div class="home-cz-counts">${num("statTop", "Listening time: top list size")}${num("shelf", "Recently played & added")}${num("ranks", "Top artists & albums")}${num("tracks", "Top tracks & on repeat")}${num("best", "Best of an artist")}${num("fgPlays", "Forgotten favourites: min. plays")}${num("fgDays", "Forgotten favourites: days unplayed")}</div>
       <div class="home-cz-foot"><button type="button" class="home-btn-ghost" data-cz-reset>Reset layout</button><button type="button" class="home-btn-ghost" data-cz-clear>Clear listening history…</button></div></div>`;
   }
 
@@ -2446,11 +2470,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       `<button type="button" class="home-decade" data-home-decade="${d.decade}" title="Play a shuffled mix from the ${d.decade}s"><span class="home-decade-name">${d.decade}s</span><span class="home-decade-count">${d.count.toLocaleString()} tracks</span><span class="home-decade-play">${iconPlay(11)}</span></button>`).join("")}</div></section>` : "";
     const mixCard = (id: string, title: string, sub: string, tone: string) => `<button type="button" class="home-mix ${tone}" data-home-mix="${id}"><span class="home-mix-txt"><span class="home-mix-title">${esc(title)}</span><span class="home-mix-sub">${esc(sub)}</span></span><span class="home-mix-play">${iconPlay(13)}</span></button>`;
     out.mixes = `<section class="home-section"><h2 class="home-h2">Quick mixes</h2><div class="home-mixes">${[
-      data.forgotten ? mixCard("forgotten", "Forgotten favourites", `${data.forgotten.toLocaleString()} tracks you loved but haven't played in ${readHomeCounts().fgDays} days`, "tone-a") : "",
       mixCard("album", "Random album", "Surprise me", "tone-b"),
       data.longCount ? mixCard("long", "Long listens", `${data.longCount.toLocaleString()} tracks over 10 minutes`, "tone-e") : "",
       data.neverPlayed ? mixCard("never", "Never played", `${data.neverPlayed.toLocaleString()} tracks waiting for a first listen`, "tone-c") : "",
       mixCard("shuffle", "Shuffle library", "Everything, in random order", "tone-d"),
+      data.forgotten ? mixCard("forgotten", "Forgotten favourites", `${data.forgotten.toLocaleString()} tracks you loved but haven't played in ${readHomeCounts().fgDays} days`, "tone-a") : "",
     ].join("")}</div></section>`;
     void stats;
     return out;
@@ -2463,7 +2487,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     homePaintStats = stats;
     const body = layout.order.filter(id => !layout.hidden.includes(id)).map(id => tagHomeSection(id, sections[id] || "")).join("");
     trackList.innerHTML = `<div class="home">
-      <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead">Your library: ${stats.tracks.toLocaleString("en-US")} ${stats.tracks === 1 ? "track" : "tracks"} · ${esc(homeHoursLong(data.totalSeconds))} of music</p></div>
+      <div class="home-top"><div><h1 class="home-h1">${homeGreeting()}</h1><p class="home-lead lib-stats-line">${homeLibraryStatsHtml(stats, data.totalSeconds)}</p></div>
         <div class="home-top-right"><button type="button" class="home-btn-ghost home-customize-btn" id="homeCustomize" aria-expanded="${homeCustomizing}">${svgIcon('<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>', 13)}<span>Customize</span></button></div></div>
       ${homeCustomizing ? homeCustomizeHtml(layout) : ""}
       ${body}
@@ -2674,7 +2698,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const keepScroll = trackList.scrollTop;
     try {
       const [data, stats] = await Promise.all([
-        invoke<HomeData>("library_home", { artistKind: savedArtistMode, limit: readHomeCounts().shelf, rankLimit: readHomeCounts().ranks, topTracksLimit: readHomeCounts().tracks, repeatLimit: readHomeCounts().repeat, forgottenMinPlays: readHomeCounts().fgPlays, forgottenDays: readHomeCounts().fgDays }),
+        invoke<HomeData>("library_home", { artistKind: savedArtistMode, limit: readHomeCounts().shelf, rankLimit: readHomeCounts().ranks, topTracksLimit: readHomeCounts().tracks, repeatLimit: readHomeCounts().tracks, forgottenMinPlays: readHomeCounts().fgPlays, forgottenDays: readHomeCounts().fgDays }),
         invoke<Stats>("library_stats"),
       ]);
       if (req !== homeRequest || libTab !== "home") return;
@@ -3169,9 +3193,37 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   let artistSidebarCache: { kind: string; rows: GroupRow[] } | null = null;
   let artistSidebarGen = 0; // bumped whenever the library changed under a running/finished fetch
   let sideQuickFind = "";
-  function artistSidebarActive(): boolean { return libTab === "artists" || libTab === "album-artists"; }
+  // The panel serves three kinds of list: artists (Artists / Album Artist tabs),
+  // albums (Albums tab) and genres (Genres tab). Same behaviour in each: click a
+  // row = open it on the right, Play = play it.
+  type SideMode = "artists" | "albums" | "genres";
+  function sideMode(): SideMode { return libTab === "albums" ? "albums" : libTab === "genres" ? "genres" : "artists"; }
+  const SIDE_WORDS: Record<SideMode, { one: string; many: string; title: string }> = {
+    artists: { one: "artist", many: "artists", title: "Artist" },
+    albums: { one: "album", many: "albums", title: "Album" },
+    genres: { one: "genre", many: "genres", title: "Genre" },
+  };
+  function artistSidebarActive(): boolean { return libTab === "artists" || libTab === "album-artists" || libTab === "albums" || libTab === "genres"; }
+  /** Row identity: artist / genre name, or "albumArtist\0album" for albums. */
+  function sideRowKey(g: GroupRow): string { return sideMode() === "albums" ? String(g.key || g.name || "") : String(g.name || ""); }
+  /** What is currently open on the right, in the same identity as sideRowKey. */
+  function sideSelectionKey(): string {
+    const mode = sideMode();
+    if (mode === "albums") return selectedAlbum ? `${selectedArtist || ""}\0${selectedAlbum}` : "";
+    if (mode === "genres") return selectedGenre || "";
+    return selectedArtist || "";
+  }
+  /** Wording that follows the tab: placeholder, aria labels, rail. */
+  function syncSideLabels() {
+    const w = SIDE_WORDS[sideMode()];
+    const input = document.getElementById("libSideSearch") as HTMLInputElement | null;
+    if (input) { input.placeholder = `Quick find ${w.one}…`; input.setAttribute("aria-label", `Quick find ${w.one}`); }
+    document.getElementById("libArtistSidebar")?.setAttribute("aria-label", `${w.title} list`);
+    document.getElementById("libArtistSidebarList")?.setAttribute("aria-label", `${w.title} list`);
+    document.querySelectorAll<HTMLElement>("#libSideRail button[data-letter]").forEach(b => b.setAttribute("aria-label", `Jump to ${w.many} starting with ${b.dataset.letter}`));
+  }
   const sideLetterOf = (name: string) => {
-    const ch = (name || "").trim().charAt(0).toUpperCase();
+    const ch = (name || "").trim().normalize("NFD").charAt(0).toUpperCase();
     return /[A-Z]/.test(ch) ? ch : "#";
   };
   const sideInitials = (name: string) => {
@@ -3189,13 +3241,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const side = document.getElementById("libArtistSidebar");
     const available = artistSidebarActive();
     const open = available && artistSidebarOpen;
-    const label = open ? "Hide artist list" : "Show artist list";
+    const label = open ? "Hide list" : "Show list";
     if (btn) {
       btn.disabled = !available;
       btn.classList.toggle("active", open);
       btn.setAttribute("aria-expanded", String(open));
       btn.setAttribute("aria-label", label);
-      btn.setAttribute("title", available ? label : "Artist list is available on the Artists tab");
+      btn.setAttribute("title", available ? label : "The list is available on the Artists, Albums and Genres tabs");
     }
     if (side) {
       side.classList.toggle("open", open);
@@ -3208,15 +3260,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // O(1) while nothing moved (scroll renders!), so the sidebar only rewalks
     // its rows when the selection actually changed (drill-in from the right
     // pane, Back, search clicks all now resync the highlight).
-    const sel = selectedArtist || "";
+    const sel = sideSelectionKey();
     if (sideSyncedArtist === sel) return;
     sideSyncedArtist = sel;
     const list = document.getElementById("libArtistSidebarList");
     if (!list) return;
     const side = document.getElementById("libArtistSidebar");
     if (!side?.classList.contains("open")) return;
-    list.querySelectorAll<HTMLElement>("[data-side-artist]").forEach(b => {
-      const on = (b.dataset.sideArtist || "") === (selectedArtist || "");
+    list.querySelectorAll<HTMLElement>("[data-side-key]").forEach(b => {
+      const on = (b.dataset.sideKey || "") === sel;
       b.classList.toggle("active", on);
       b.setAttribute("aria-selected", String(on));
       if (on) b.scrollIntoView({ block: "nearest" });
@@ -3244,12 +3296,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!list) return;
     if (!artistSidebarActive() || !artistSidebarOpen) return;
     if (!artistSidebarCache || artistSidebarCache.kind !== libraryGroupKind()) { void renderArtistSidebarData(); return; }
+    const mode = sideMode();
+    const word = SIDE_WORDS[mode];
+    syncSideLabels();
     const q = (librarySearch || "").trim().toLowerCase();
     const qf = sideQuickFind.trim().toLowerCase();
     const rows = artistSidebarCache.rows.filter(g => {
       const name = String(g.name || "").toLowerCase();
       return (!q || name.includes(q)) && (!qf || name.includes(qf));
     });
+    // Albums / genres come back grouped by artist or count; the A–Z rail needs name order.
+    if (mode !== "artists") rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true }));
     const empty = document.getElementById("libSideEmpty");
     const rail = document.getElementById("libSideRail") as HTMLElement | null;
     const clear = document.getElementById("libSideSearchClear");
@@ -3260,11 +3317,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const desc = empty.querySelector(".las-empty-desc");
       const clr = empty.querySelector<HTMLElement>(".las-empty-clear");
       if (artistSidebarCache.rows.length === 0) {
-        if (title) title.textContent = "No artists yet";
+        if (title) title.textContent = `No ${word.many} yet`;
         if (desc) desc.textContent = "Add a music folder to fill your Library.";
         if (clr) clr.hidden = true;
       } else {
-        if (title) title.textContent = "No artists found";
+        if (title) title.textContent = `No ${word.many} found`;
         if (desc) desc.textContent = "Nothing matches your search.";
         if (clr) clr.hidden = !qf;
       }
@@ -3289,12 +3346,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const cover = resolvedCover(g.artworkTrackId, artworkUrl(g.cover));
       const c = parseGroupCounts(g);
       const stat = (icon: string, n: number, word: string) => `<span class="las-stat" title="${esc(plural(n, word))}">${icon}${esc(fmtCount(n))}</span>`;
-      const meta = (c.albums !== null ? stat(iconDisc(10), c.albums, "album") : "") + stat(iconNote(10), c.tracks, "track");
-      const on = name === selectedArtist;
+      const meta = mode === "albums"
+        ? (g.subtitle ? `<span class="las-stat las-stat-name" title="${esc(g.subtitle)}">${iconUser(10)}<span>${esc(g.subtitle)}</span></span>` : "") + stat(iconNote(10), g.count, "track")
+        : (c.albums !== null ? stat(iconDisc(10), c.albums, "album") : "") + stat(iconNote(10), c.tracks, "track");
+      const rowKey = sideRowKey(g);
+      const on = rowKey === sideSelectionKey();
       const avatar = cover
         ? `<div class="las-avatar" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(g.artworkTrackId || "")}"></div>`
         : `<div class="las-avatar" style="--h:${sideHue(name)}" data-artwork-id="${esc(g.artworkTrackId || "")}">${esc(sideInitials(name))}</div>`;
-      html += `<div class="las-row${i < 24 ? " las-anim" : ""}${on ? " active" : ""}" role="option" aria-selected="${on}" tabindex="0" data-side-artist="${esc(name)}" style="--i:${Math.min(i, 16)}">${avatar}<div class="las-info"><div class="las-name">${esc(name)}</div><div class="las-meta">${meta}</div></div><button type="button" class="las-play" data-las-play title="${esc("Play " + name)}" aria-label="${esc("Play " + name)}">${iconPlay(11)}</button></div>`;
+      html += `<div class="las-row${i < 24 ? " las-anim" : ""}${on ? " active" : ""}" role="option" aria-selected="${on}" tabindex="0" data-side-key="${esc(rowKey)}" style="--i:${Math.min(i, 16)}">${avatar}<div class="las-info"><div class="las-name">${esc(name)}</div><div class="las-meta">${meta}</div></div><button type="button" class="las-play" data-las-play title="${esc("Play " + name)}" aria-label="${esc("Play " + name)}">${iconPlay(11)}</button></div>`;
     });
     if (lastLetter) html += `</section>`;
     list.innerHTML = html;
@@ -3307,17 +3367,28 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     list.classList.add("entering");
     window.setTimeout(() => list.classList.remove("entering"), 700);
     const select = (row: HTMLElement) => {
-      const name = row.dataset.sideArtist || "";
-      selectedArtist = name;
-      selectedAlbum = null;
-      selectedGenre = null;
+      const key = row.dataset.sideKey || "";
+      if (mode === "albums") {
+        const parts = key.split("\0");
+        selectedArtist = parts[0] || null;
+        selectedAlbum = parts[1] || key;
+        selectedGenre = null;
+      } else if (mode === "genres") {
+        selectedArtist = null;
+        selectedAlbum = null;
+        selectedGenre = key;
+      } else {
+        selectedArtist = key;
+        selectedAlbum = null;
+        selectedGenre = null;
+      }
       savedGroupsScrollTop = 0;
       clearLibrarySelection();
       persistLibraryNavigation();
       syncArtistSidebarActive();
       renderLibraryVirtual(true);
     };
-    list.querySelectorAll<HTMLElement>("[data-side-artist]").forEach(b => {
+    list.querySelectorAll<HTMLElement>("[data-side-key]").forEach(b => {
       b.onclick = () => select(b);
       b.onkeydown = e => {
         if (e.target !== b) return; // Enter/Space on the inner Play button is its own click
@@ -3325,9 +3396,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
       b.querySelector<HTMLElement>("[data-las-play]")?.addEventListener("click", e => {
         e.preventDefault();
-        e.stopPropagation(); // play, don't open the artist
-        const name = b.dataset.sideArtist || "";
-        void playGroupScope(libTab === "album-artists" ? { albumArtist: name } : { artist: name });
+        e.stopPropagation(); // play, don't open the row
+        const key = b.dataset.sideKey || "";
+        if (mode === "albums") {
+          const parts = key.split("\0");
+          void playGroupScope({ albumArtist: parts[0] || undefined, album: parts[1] || key });
+        } else if (mode === "genres") {
+          void playGroupScope({ genre: key });
+        } else {
+          void playGroupScope(libTab === "album-artists" ? { albumArtist: key } : { artist: key });
+        }
       });
     });
     bindLazyArtwork(list);
@@ -3377,7 +3455,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const rail = document.getElementById("libSideRail");
     const list = document.getElementById("libArtistSidebarList");
     if (rail && !rail.childElementCount) {
-      rail.innerHTML = [..."#ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map(l => `<button type="button" tabindex="-1" data-letter="${l}" aria-label="Jump to artists starting with ${l}">${l}</button>`).join("");
+      rail.innerHTML = [..."#ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map(l => `<button type="button" tabindex="-1" data-letter="${l}" aria-label="Jump to entries starting with ${l}">${l}</button>`).join("");
       rail.addEventListener("click", event => {
         const b = (event.target as HTMLElement).closest<HTMLElement>("button[data-letter]");
         if (!b || !list) return;
@@ -4134,7 +4212,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Message so playback starts INSTANTLY; the player then silently grows
   // Its runtime queue to the full DB list (paged). `announce` emits
   // Queue-changed for flows that just rewrote the queue.
-  async function playFromDbQueue(focus: Track, announce = true, queueHint?: number) {
+  async function playFromDbQueue(focus: Track, announce = true, queueHint?: number, startAt?: number) {
     if (!invoke) return;
     // queueHint (round 75): the clicked row's index in the SAME order the
     // DB queue was just rebuilt with (same search/sort). The player locates
@@ -4143,7 +4221,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // lookup missed and Next/Previous started from position 0 ("select
     // track 8, press next → track 2"). The hint (validated against the
     // track id before use) makes the index exact.
-    busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true, queueHint: Number.isInteger(queueHint) ? queueHint : undefined });
+    busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true, queueHint: Number.isInteger(queueHint) ? queueHint : undefined, startAt: startAt && startAt > 0 ? startAt : undefined });
     if (announce) busEmit("melo:queue-changed", {});
   }
 
@@ -4719,6 +4797,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   syncLibViewButtons();
   function syncLibraryTabButton() {
     tabs?.classList.toggle("is-home", libTab === "home");
+    document.getElementById("libToolbarRow")?.classList.toggle("is-home", libTab === "home");
     tabs?.querySelectorAll<HTMLElement>("button[data-libtab]").forEach(button => {
       button.classList.toggle("active", button.dataset.libtab === libTab);
     });

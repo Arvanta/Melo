@@ -185,7 +185,34 @@ export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string)
     navRoot = root;
   }
 
+  // The slot's per-line animation (`melo-lyric-tick`) usually moves or scales
+  // it for a few hundred ms; reading its rect meanwhile makes the buttons
+  // jump. While a finite animation runs the buttons keep their last geometry
+  // and are placed once it has finished (the very first placement is immediate).
+  let navPositioned = false;
+  let navPosToken = 0;
   function positionNav() {
+    if (!navRoot || !currentEl) return;
+    const el = currentEl;
+    let running: Animation[] = [];
+    try {
+      running = (typeof el.getAnimations === "function" ? el.getAnimations() : []).filter((a) => {
+        if (a.playState !== "running") return false;
+        const end = a.effect?.getComputedTiming().endTime;
+        return typeof end === "number" && isFinite(end);
+      });
+    } catch { running = []; }
+    const token = ++navPosToken;
+    if (running.length) {
+      Promise.allSettled(running.map((a) => a.finished)).then(() => {
+        if (token === navPosToken && navShown && currentEl === el) placeNav();
+      });
+      if (navPositioned) return;
+    }
+    placeNav();
+  }
+
+  function placeNav() {
     if (!navRoot || !currentEl) return;
     const r = currentEl.getBoundingClientRect();
     if (r.width < 64 || r.height < 8) { hideNav(); return; }
@@ -201,6 +228,7 @@ export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string)
     }
     if (navPrev) navPrev.disabled = navTarget(-1) < 0;
     if (navNext) navNext.disabled = navTarget(1) < 0;
+    navPositioned = true;
   }
 
   function showNav() {
@@ -217,6 +245,8 @@ export function setupSkinLyricLine(audio: HTMLAudioElement, _toast?: (m: string)
   function hideNav() {
     window.clearTimeout(navHideTimer);
     navShown = false;
+    navPositioned = false;
+    navPosToken++;
     if (!navRoot) return;
     navRoot.classList.remove("on");
     navRoot.setAttribute("aria-hidden", "true");

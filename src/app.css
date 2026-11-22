@@ -2666,9 +2666,9 @@ few-px band where scrolled rows peek through. */
 .lib-mini.is-empty .lm-controls, .lib-mini.is-empty .lm-scrub { opacity: .45; pointer-events: none; }
 
 /* ───────── Library Home tab (round 116) ───────── */
-.tabs.is-home .lib-side-switch,
-.tabs.is-home #libLayoutSwitch,
-.tabs.is-home #libViewSwitch { visibility: hidden; }
+.lib-toolbar-row.is-home .lib-side-switch,
+.lib-toolbar-row.is-home #libLayoutSwitch,
+.lib-toolbar-row.is-home #libViewSwitch { visibility: hidden; }
 #trackList[data-home] { padding: 0; }
 .home { display: flex; flex-direction: column; gap: 26px; padding: 18px 18px 26px; max-width: 1100px; margin: 0 auto; }
 .home-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
@@ -2946,7 +2946,7 @@ few-px band where scrolled rows peek through. */
 .melo-lyric-nav-btn {
   position: absolute; top: 50%; transform: translateY(-50%); pointer-events: auto; cursor: pointer;
   width: var(--melo-lyric-nav-size, 18px); height: var(--melo-lyric-nav-size, 18px); padding: 0; border: 0; border-radius: 50%;
-  display: grid; place-items: center; color: inherit;
+  display: grid; place-items: center; color: inherit; -webkit-app-region: no-drag;
   background: var(--melo-lyric-nav-bg, color-mix(in srgb, currentColor 16%, transparent));
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
@@ -2955,3 +2955,36 @@ few-px band where scrolled rows peek through. */
 .melo-lyric-nav-btn:hover:not(:disabled) { background: var(--melo-lyric-nav-bg-hover, color-mix(in srgb, currentColor 30%, transparent)); }
 .melo-lyric-nav-btn:disabled { opacity: .3; cursor: default; }
 .melo-lyric-nav-btn svg { width: 62%; height: 62%; }
+
+/* Toolbar row under the tabs (formerly the totals strip): view buttons + mini-player switch.
+   Same 26px height as the strip it replaced. */
+.lib-toolbar-row {
+  display: flex; align-items: center; justify-content: flex-end; box-sizing: border-box; height: 26px; flex-shrink: 0;
+  padding: 0 12px !important; border-bottom: 1px solid var(--card-border); font-size: 11px; text-transform: none; letter-spacing: 0;
+}
+.lib-toolbar-row .lib-switches { gap: 12px; }
+.lib-toolbar-row .lib-side-switch,
+.lib-toolbar-row .lib-layout-switch,
+.lib-toolbar-row .lib-view-switch { padding-right: 12px; border-right: 1px solid var(--card-border); align-items: center; }
+.lib-toolbar-row .lib-view-btn { width: 22px !important; height: 22px !important; border-radius: 6px; }
+.lib-toolbar-row .lib-view-btn:hover { transform: none; }
+.lib-toolbar-row .lib-mini-switch { height: 22px; padding: 0 2px; }
+
+/* Default skin: a small glyph in front of the title (note), artist (person) and album (disc).
+   Drawn with a mask so it follows the text colour; the empty album line shows nothing. */
+.player-main .track-meta .track-title::before,
+.player-main .track-meta .track-artist::before,
+.player-main .track-meta .track-album::before {
+  content: ""; display: inline-block; width: .95em; height: .95em; margin-right: .5em; vertical-align: -.12em;
+  background-color: currentColor; opacity: .62;
+  -webkit-mask: var(--track-ico) center / contain no-repeat; mask: var(--track-ico) center / contain no-repeat;
+}
+.player-main .track-meta .track-title { --track-ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18V5l12-2v13'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Ccircle cx='18' cy='16' r='3'/%3E%3C/svg%3E"); }
+.player-main .track-meta .track-title::before { width: .8em; height: .8em; margin-right: .45em; vertical-align: -.04em; }
+.player-main .track-meta .track-artist { --track-ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='3.5'/%3E%3Cpath d='M5.5 19.5c1.2-3.2 3.4-4.8 6.5-4.8s5.3 1.6 6.5 4.8'/%3E%3C/svg%3E"); }
+.player-main .track-meta .track-album { --track-ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='3.5' width='17' height='17' rx='2.2'/%3E%3Ccircle cx='12' cy='12' r='5'/%3E%3Ccircle cx='12' cy='12' r='1.4'/%3E%3C/svg%3E"); }
+.player-main .track-meta .track-album:empty::before { display: none; }
+
+/* Side list on the Albums tab: the album's artist is a name, not a number — let it shrink with an ellipsis. */
+.las-stat.las-stat-name { min-width: 0; max-width: 100%; }
+.las-stat.las-stat-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

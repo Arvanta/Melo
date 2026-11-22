@@ -1950,18 +1950,18 @@ test("Artist sidebar: toolbar button enabled only on the artist tabs, names only
   assert.match(main, /id="btn-lib-artistbar"/, "the toolbar button exists next to the other library buttons");
   assert.match(main, /id="libArtistSidebarList"/, "the sidebar list container exists in the markup");
   assert.match(main, /<aside id="libArtistSidebar" class="lib-artist-sidebar" aria-label="Artist list" aria-hidden="true">/, "it starts closed");
-  assert.match(lib, /function artistSidebarActive\(\): boolean \{ return libTab === "artists" \|\| libTab === "album-artists"; \}/,
-    "enabled only on the Artists / Album Artist tab");
+  assert.match(lib, /function artistSidebarActive\(\): boolean \{ return libTab === "artists" \|\| libTab === "album-artists" \|\| libTab === "albums" \|\| libTab === "genres"; \}/,
+    "enabled on the Artists, Album Artist, Albums and Genres tabs");
   assert.match(lib, /localStorage\.setItem\("melo-lib-artistbar", artistSidebarOpen \? "1" : "0"\)/, "the toggle persists");
   assert.match(lib, /btn\.disabled = !available;/, "the button reflects availability (v1.2.0 label toggle)");
-  assert.match(lib, /const label = open \? "Hide artist list" : "Show artist list";/, "Show / Hide artist list label");
+  assert.match(lib, /const label = open \? "Hide list" : "Show list";/, "Show / Hide list label (no 'artist': it serves albums and genres too)");
   // v1.2.0 redesign: rows = avatar + name + icon stats; NO All/Favorites chips, NO footer yet
-  assert.match(lib, /class="las-row\$\{i < 24 \? " las-anim" : ""\}\$\{on \? " active" : ""\}"[^`]*data-side-artist="\$\{esc\(name\)\}"/, "rows carry data-side-artist + the active highlight");
+  assert.match(lib, /class="las-row\$\{i < 24 \? " las-anim" : ""\}\$\{on \? " active" : ""\}"[^`]*data-side-key="\$\{esc\(rowKey\)\}"/, "rows carry data-side-key + the active highlight");
   assert.doesNotMatch(main, /side-chip|sideChipFav|side-foot|libSideFoot/, "no All/Favorites tabs and no totals footer");
   assert.match(main, /id="libSideSearch"/, "quick find box");
   assert.match(main, /id="libSideRail"/, "A–Z rail");
   // clicking a name switches the artist and stays usable while drilled in
-  assert.match(lib, /selectedArtist = name;\s*selectedAlbum = null;\s*selectedGenre = null;\s*savedGroupsScrollTop = 0;/,
+  assert.match(lib, /selectedArtist = key;\s*selectedAlbum = null;\s*selectedGenre = null;\s*\}\s*savedGroupsScrollTop = 0;/,
     "a sidebar click re-scopes to that artist");
   assert.match(lib, /artistSidebarCache = null;\n    invalidateLibraryWindow\(\);/, "library changes invalidate the sidebar cache");
   assert.match(lib, /if \(on\) b\.scrollIntoView\(\{ block: "nearest" \}\);/, "the active artist is kept in view");
@@ -1972,7 +1972,7 @@ test("Artist sidebar: toolbar button enabled only on the artist tabs, names only
 test("Playlist next/previous starts from the CLICKED track (queue position hint)", () => {
   const lib = readSrc("src/library.ts");
   const player = readSrc("src/player.ts");
-  assert.match(lib, /async function playFromDbQueue\(focus: Track, announce = true, queueHint\?: number\)/, "the sender takes a hint");
+  assert.match(lib, /async function playFromDbQueue\(focus: Track, announce = true, queueHint\?: number, startAt\?: number\)/, "the sender takes a hint (and an optional resume position)");
   assert.match(lib, /fromQueue: true, queueHint: Number\.isInteger\(queueHint\) \? queueHint : undefined/, "the hint rides on the bus event");
   assert.equal((lib.match(/playFromDbQueue\(focus, true, (absIndex|index)\);/g) || []).length, 3,
     "all three fromQueue callers (library rows, playlist window, playlists tab) pass the hint");
@@ -2572,7 +2572,7 @@ test("round 116: Library Home tab — first tab, own renderer, backend queries r
   assert.match(mainRs, /library_db::library_home,/);
   assert.match(mainRs, /library_db::library_mix_tracks,/);
   const css = readSrc("src/app.css");
-  assert.match(css, /\.tabs\.is-home #libLayoutSwitch,\s*\.tabs\.is-home #libViewSwitch \{ visibility: hidden; \}/);
+  assert.match(css, /\.lib-toolbar-row\.is-home #libLayoutSwitch,\s*\.lib-toolbar-row\.is-home #libViewSwitch \{ visibility: hidden; \}/);
 });
 
 test("round 116b: Years tab, tab icons, last tab survives a restart", () => {
@@ -2622,3 +2622,41 @@ test("round 116b: Years tab, tab icons, last tab survives a restart", () => {
     assert.match(st, /name: "lyricsSkinNav".*def: true/);
   });
 }
+
+test("round 117b: Home resume position, section order, merged counts; library header; lilt layout", () => {
+  const lib = readSrc("src/library.ts");
+  const player = readSrc("src/player.ts");
+  const main = readSrc("src/main.ts");
+  const lilt = fs.readFileSync(path.join(here, "..", "skins", "lilt.html"), "utf8");
+  assert.match(lib, /function savedResumePosition\(track: Track\)/);
+  assert.match(player, /loadTrack\(idx, true, Number\.isFinite\(startAt\) && startAt > 0 \? startAt : undefined\)/);
+  assert.match(lib, /\{ id: "bestArtist", label: "Best of an artist" \},\s*\{ id: "decades"/);
+  assert.doesNotMatch(lib, /repeat: pick\("repeat"\)/);
+  assert.match(lib, /repeatLimit: readHomeCounts\(\)\.tracks/);
+  assert.ok(lib.indexOf('mixCard("shuffle"') < lib.indexOf('mixCard("forgotten"'), "Forgotten favourites is the last mix card");
+  assert.match(lib, /function homeLibraryStatsHtml\(/);
+  assert.doesNotMatch(main, /id="libraryStats"/);
+  assert.match(main, /id="libToolbarRow"[\s\S]*class="lib-switches"[\s\S]*id="libMiniSwitch"/);
+  assert.match(lilt, /<div class="lt-tools">[\s\S]*<\/section>\s*<nav class="lt-actions"/);
+  assert.match(lilt, /<nav class="lt-actions"[^>]*data-tauri-drag-region>[\s\S]*data-melo="current-lyric"/);
+});
+
+test("round 117c: side list serves albums and genres; seek-bar wheel scrubs; Stop sits after Play; bean waveform", () => {
+  const lib = readSrc("src/library.ts");
+  const player = readSrc("src/player.ts");
+  const main = readSrc("src/main.ts");
+  assert.match(lib, /function sideMode\(\): SideMode \{ return libTab === "albums" \? "albums" : libTab === "genres" \? "genres" : "artists"; \}/);
+  assert.match(lib, /void playGroupScope\(\{ genre: key \}\)/);
+  assert.match(lib, /void playGroupScope\(\{ albumArtist: parts\[0\] \|\| undefined, album: parts\[1\] \|\| key \}\)/);
+  assert.match(player, /target\.closest\('#seekBar, \[data-melo="seek"\], \[data-melo="waveform"\], \.seek-wrap'\)/);
+  assert.ok(main.indexOf('id="btnPlay"') < main.indexOf('id="btnStop"') && main.indexOf('id="btnStop"') < main.indexOf('id="btnNext"'), "default skin: Play, Stop, Next");
+  for (const f of ["Fold", "Prism", "aria", "bean", "bean-compact", "graphite", "haven", "lilt", "lumen", "mist", "mica", "rail", "Mochi", "Scrapbook"]) {
+    const html = fs.readFileSync(path.join(here, "..", "skins", f + ".html"), "utf8");
+    const iPlay = html.search(/data-melo="play"/), iStop = html.search(/data-melo="stop"/), iNext = html.search(/data-melo="next"/);
+    assert.ok(iPlay < iStop && iStop < iNext, f + ": Stop between Play and Next");
+  }
+  const bean = fs.readFileSync(path.join(here, "..", "skins", "bean.html"), "utf8");
+  const compact = fs.readFileSync(path.join(here, "..", "skins", "bean-compact.html"), "utf8");
+  assert.match(bean, /top: 11px; bottom: 11px;/);
+  assert.match(compact, /width: 100%; height: 12px;/);
+});

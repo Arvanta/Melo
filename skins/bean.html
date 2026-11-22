@@ -787,7 +787,7 @@
   /* Optional waveform (Settings → Waveform seek bar). Fills the seek cell; the plain
      range stays underneath as the keyboard control and is hidden while it shows. */
   .nk-wave {
-    position: absolute; left: 0; right: 0; top: 6px; bottom: 6px;
+    position: absolute; left: 0; right: 0; top: 11px; bottom: 11px; /* 14px tall (was 24) */
     display: none; cursor: pointer; touch-action: none;
     -webkit-app-region: no-drag;
   }
@@ -1059,12 +1059,12 @@
         <button class="nk-btn" type="button" data-melo="prev" title="Previous">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
         </button>
-        <button class="nk-btn" type="button" data-melo="stop" title="Stop">
-          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-        </button>
         <button class="nk-btn nk-play" type="button" data-melo="play" title="Play / Pause">
           <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button class="nk-btn" type="button" data-melo="stop" title="Stop">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
         </button>
         <button class="nk-btn" type="button" data-melo="next" title="Next">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>

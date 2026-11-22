@@ -643,7 +643,7 @@ test("round 116d: Home item counts, mini-player modes, artist-list icon, keys", 
   const lib = readFileSync(join(here, "..", "src", "library.ts"), "utf8");
   const db = readFileSync(join(here, "..", "src-tauri", "src", "library_db.rs"), "utf8");
   const main = readFileSync(join(here, "..", "src", "main.ts"), "utf8");
-  assert.match(lib, /shelf: \[4, 24, 14\], ranks: \[3, 20, 5\], tracks: \[3, 20, 5\], repeat: \[3, 20, 5\]/);
+  assert.match(lib, /shelf: \[4, 24, 14\], ranks: \[3, 20, 5\], tracks: \[3, 20, 5\], fgPlays/);
   assert.match(db, /rank_limit: Option<i64>/);
   assert.match(main, /id="libMiniShuffle"[\s\S]*id="libMiniPrev"[\s\S]*id="libMiniNext"[\s\S]*id="libMiniRepeat"/);
   assert.match(main, /library: \[1000, 800\]/);

@@ -131,8 +131,10 @@
     min-width: 0;
     min-height: 0;
     display: grid;
-    grid-template-rows: 25px 62px 26px minmax(32px, 1fr) 14px 30px;
+    grid-template-rows: 25px var(--lt-cover) 26px minmax(32px, 1fr) 14px 30px;
     row-gap: 2px;
+    /* Cover tile; the five window buttons are stacked beside it at the same height. */
+    --lt-cover: 84px;
   }
 
   /* ── Top chrome ───────────────────────────────────────────────────── */
@@ -248,27 +250,26 @@
   }
   .lt-menu > input:checked ~ .lt-dismiss { display: block; }
 
-  /* Optional synced lyric: a clean, single centered line in the chrome. */
+  /* Optional synced lyric: one clean line in the actions row, beside the stage
+     tabs. The row itself is a drag area; the line is no-drag so hovering it
+     (previous / next line buttons) and clicking it (seek) work. */
   .lt-current-lyric {
-    position: absolute;
-    left: 50%;
-    top: 50%;
+    position: relative;
     z-index: 2;
-    width: min(46cqw, calc(100% - 156px));
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transform: translate(-50%, -50%);
+    flex: 1 1 0;
+    min-width: 0;
+    height: 22px;
+    display: block;
+    padding: 0 8px;
     overflow: hidden;
     color: var(--lt-soft);
     font-size: 9.5px;
     font-weight: 600;
-    line-height: 1;
+    line-height: 22px;
     white-space: nowrap;
     text-overflow: ellipsis;
     text-align: center;
-    pointer-events: none;
+    -webkit-app-region: no-drag;
   }
   .lt-current-lyric:empty,
   .lt-current-lyric.melo-lyric-empty { display: none !important; }
@@ -304,9 +305,9 @@
   .lt-main {
     min-width: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 58px;
+    grid-template-columns: minmax(0, 1fr) var(--lt-cover) 22px;
     align-items: center;
-    column-gap: 13px;
+    column-gap: 10px;
     padding: 0 4px;
     -webkit-app-region: drag;
   }
@@ -372,10 +373,10 @@
 
   .lt-cover {
     position: relative;
-    width: 58px;
-    height: 58px;
+    width: var(--lt-cover);
+    height: var(--lt-cover);
     overflow: hidden;
-    border-radius: 12px;
+    border-radius: 14px;
     background: var(--lt-surface-2);
     border: 1px solid var(--lt-line-strong);
     box-shadow: 0 5px 14px rgba(20, 28, 46, .14);
@@ -417,6 +418,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    -webkit-app-region: drag;
   }
   .lt-stage-tabs {
     min-width: 0;
@@ -460,18 +462,23 @@
     box-shadow: 0 1px 3px rgba(20, 28, 46, .10);
   }
 
+  /* Window buttons: a vertical stack to the right of the cover, same height. */
   .lt-tools {
     min-width: 0;
-    margin-left: auto;
+    height: var(--lt-cover);
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: space-between;
     gap: 1px;
-    flex: 0 0 auto;
     -webkit-app-region: no-drag;
   }
   .lt-tools button {
     width: 22px;
-    height: 23px;
+    height: auto;
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: 20px;
     display: grid;
     place-items: center;
     padding: 0;
@@ -755,7 +762,8 @@
    */
   @container lilt (max-height: 206px) {
     .lt-layout {
-      grid-template-rows: 25px minmax(62px, 1fr) 23px 14px 30px !important;
+      grid-template-rows: 25px minmax(72px, 1fr) 23px 14px 30px !important;
+      --lt-cover: clamp(72px, 40cqh, 96px);
     }
     .lt-main {
       display: grid !important;
@@ -764,13 +772,12 @@
       min-height: 0;
       overflow: visible !important;
       padding: 0 4px !important;
-      grid-template-columns: minmax(0, 1fr) clamp(54px, 32cqh, 70px);
+      grid-template-columns: minmax(0, 1fr) var(--lt-cover) 22px;
       column-gap: 10px;
     }
-    .lt-cover { width: clamp(54px, 32cqh, 70px); height: clamp(54px, 32cqh, 70px); }
     .lt-stage,
     .lt-stage-tabs { display: none !important; }
-    .lt-actions { justify-content: flex-end; }
+    .lt-actions { justify-content: flex-start; }
     .lt-transport { transform: translateY(-2px); }
   }
 
@@ -817,7 +824,6 @@
       <label class="lt-dismiss" for="ltMenuToggle" aria-label="Close menu"></label>
     </div>
 
-    <div class="lt-current-lyric" data-melo="current-lyric" aria-live="polite" title="Current lyric"></div>
 
     <div class="lt-window-controls">
       <button type="button" data-melo="minimize" title="Minimize" aria-label="Minimize">
@@ -849,24 +855,6 @@
       </div>
       <span class="lt-cover-rim" aria-hidden="true"></span>
     </div>
-  </section>
-
-  <nav class="lt-actions" aria-label="Player panels">
-    <div class="lt-stage-tabs">
-      <button type="button" class="lt-stage-btn stage-btn active" data-melo="toggle-embedded-viz" title="Visualizer">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 18v-5M9 18V6M14 18V9M19 18V4"/></svg>
-        <span>Visualizer</span>
-      </button>
-      <button type="button" class="lt-stage-btn stage-btn" data-melo="toggle-embedded-playlist" title="Queue">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h8"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/></svg>
-        <span>Queue</span>
-      </button>
-      <button type="button" class="lt-stage-btn stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M5 11h10M5 16h7"/><path d="M18 14v5"/><circle cx="18" cy="21" r="1"/></svg>
-        <span>Lyrics</span>
-      </button>
-    </div>
-
     <div class="lt-tools">
       <button type="button" id="btnToggleLibrary" data-melo="toggle-library" title="Library" aria-label="Library">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg>
@@ -884,6 +872,24 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
       </button>
     </div>
+  </section>
+
+  <nav class="lt-actions" aria-label="Player panels" data-tauri-drag-region>
+    <div class="lt-stage-tabs">
+      <button type="button" class="lt-stage-btn stage-btn active" data-melo="toggle-embedded-viz" title="Visualizer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 18v-5M9 18V6M14 18V9M19 18V4"/></svg>
+        <span>Visualizer</span>
+      </button>
+      <button type="button" class="lt-stage-btn stage-btn" data-melo="toggle-embedded-playlist" title="Queue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h8"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/></svg>
+        <span>Queue</span>
+      </button>
+      <button type="button" class="lt-stage-btn stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M5 11h10M5 16h7"/><path d="M18 14v5"/><circle cx="18" cy="21" r="1"/></svg>
+        <span>Lyrics</span>
+      </button>
+    </div>
+    <div class="lt-current-lyric" data-melo="current-lyric" aria-live="polite" title="Current lyric"></div>
   </nav>
 
   <section class="lt-stage" aria-label="Visualizer, queue, or lyrics">
@@ -913,12 +919,12 @@
       <button class="lt-btn" type="button" data-melo="prev" title="Previous" aria-label="Previous">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
       </button>
-      <button class="lt-btn" type="button" data-melo="stop" title="Stop" aria-label="Stop">
-        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-      </button>
       <button class="lt-btn lt-play" type="button" data-melo="play" title="Play / Pause" aria-label="Play or pause">
         <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+      </button>
+      <button class="lt-btn" type="button" data-melo="stop" title="Stop" aria-label="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
       </button>
       <button class="lt-btn" type="button" data-melo="next" title="Next" aria-label="Next">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>

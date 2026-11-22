@@ -117,11 +117,6 @@ app.innerHTML = `
             <input id="searchInput" class="search-input" placeholder="Search artist, album, track…" />
             <button class="search-clear" id="searchClear" type="button" aria-label="Clear search" title="Clear search">×</button>
           </div>
-          <label class="lib-mini-switch" id="libMiniSwitch" title="Show or hide the mini player at the bottom of the Library">
-            <input type="checkbox" id="libMiniToggle" role="switch" aria-label="Mini player" checked />
-            <span class="lms-track" aria-hidden="true"><span class="lms-knob"></span></span>
-            <span class="lms-label">Mini player</span>
-          </label>
           <button class="btn small library-action manage-action" id="btn-manage-library" title="Manage music folders, scan, or clear the Library">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="20" cy="14" r="2"/></svg>
             <span class="manage-label">Manage</span>
@@ -145,9 +140,11 @@ app.innerHTML = `
           <button class="tab" data-libtab="genres"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8zM7.5 7.5h.01"/></svg><span>Genres</span></button>
           <button class="tab" data-libtab="years"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg><span>Years</span></button>
           <button class="tab" data-libtab="playlists"><svg class="tab-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span>Playlists</span></button>
+        </div>
+        <div class="library-stats-row lib-toolbar-row" id="libToolbarRow">
           <div class="lib-switches">
           <div class="lib-side-switch">
-          <button type="button" class="lib-view-btn lib-side-toggle" id="btn-lib-artistbar" aria-expanded="true" aria-controls="libArtistSidebar" aria-label="Hide artist list" title="Hide artist list">
+          <button type="button" class="lib-view-btn lib-side-toggle" id="btn-lib-artistbar" aria-expanded="true" aria-controls="libArtistSidebar" aria-label="Hide list" title="Hide list">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/><path d="M5.5 9h1.5M5.5 12h1.5M5.5 15h1.5"/></svg>
           </button>
           </div>
@@ -173,10 +170,12 @@ app.innerHTML = `
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
             </button>
           </div>
+                      <label class="lib-mini-switch" id="libMiniSwitch" title="Show or hide the mini player at the bottom of the Library">
+            <input type="checkbox" id="libMiniToggle" role="switch" aria-label="Mini player" checked />
+            <span class="lms-track" aria-hidden="true"><span class="lms-knob"></span></span>
+            <span class="lms-label">Mini player</span>
+          </label>
           </div>
-        </div>
-        <div class="library-stats-row" style="padding:8px 12px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--card-border); flex-shrink:0;">
-          <span id="libraryStats" class="lib-stats-line">0 tracks • 0 artists • 0 albums</span>
         </div>
         <div class="lib-body-split">
           <aside id="libArtistSidebar" class="lib-artist-sidebar" aria-label="Artist list" aria-hidden="true">
@@ -464,7 +463,7 @@ app.innerHTML = `
           </div>
           <div class="settings-row" id="lyricsSkinNavRow">
             <div><div class="label">${t("settings.general.lyricsSkinNav.label")}</div><div class="desc">${t("settings.general.lyricsSkinNav.desc")}</div></div>
-            <div class="switch" id="swLyricsSkinNav" data-key="lyricsSkinNav"></div>
+            <div class="switch on" id="swLyricsSkinNav" data-key="lyricsSkinNav"></div>
           </div>
         </div>
 
@@ -733,12 +732,12 @@ app.innerHTML = `
           <button class="icon-btn" id="btnPrev" title="Previous">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20L9 12l10-8z"/><rect x="5" y="4" width="3" height="16" rx="1"/></svg>
           </button>
-          <button class="icon-btn" id="btnStop" title="Stop">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>
-          </button>
           <button class="play-btn" id="btnPlay" title="Play/Pause (Space)">
             <svg id="iconPause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
             <svg id="iconPlay" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="margin-left:2px;"><path d="M7 4.5L19 12 7 19.5z"/></svg>
+          </button>
+          <button class="icon-btn" id="btnStop" title="Stop">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>
           </button>
           <button class="icon-btn" id="btnNext" title="Next">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8L5 20z"/><rect x="16" y="4" width="3" height="16" rx="1"/></svg>
