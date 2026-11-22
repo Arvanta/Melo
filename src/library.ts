@@ -3205,6 +3205,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   };
   function artistSidebarActive(): boolean { return libTab === "artists" || libTab === "album-artists" || libTab === "albums" || libTab === "genres"; }
   /** Row identity: artist / genre name, or "albumArtist\0album" for albums. */
+  // An album key holds a NUL (artist\0album). HTML turns NUL in an attribute into U+FFFD (the "?"
+  // glyph), which broke splitting; the attribute carries U+001F instead.
+  const sideEnc = (k: string) => k.replace(/\0/g, "\u001f");
+  const sideDec = (k: string) => k.replace(/\u001f/g, "\0");
   function sideRowKey(g: GroupRow): string { return sideMode() === "albums" ? String(g.key || g.name || "") : String(g.name || ""); }
   /** What is currently open on the right, in the same identity as sideRowKey. */
   function sideSelectionKey(): string {
@@ -3268,7 +3272,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const side = document.getElementById("libArtistSidebar");
     if (!side?.classList.contains("open")) return;
     list.querySelectorAll<HTMLElement>("[data-side-key]").forEach(b => {
-      const on = (b.dataset.sideKey || "") === sel;
+      const on = sideDec(b.dataset.sideKey || "") === sel;
       b.classList.toggle("active", on);
       b.setAttribute("aria-selected", String(on));
       if (on) b.scrollIntoView({ block: "nearest" });
@@ -3354,7 +3358,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const avatar = cover
         ? `<div class="las-avatar" style="background-image:url('${esc(cover)}');background-size:cover;background-position:center" data-artwork-id="${esc(g.artworkTrackId || "")}"></div>`
         : `<div class="las-avatar" style="--h:${sideHue(name)}" data-artwork-id="${esc(g.artworkTrackId || "")}">${esc(sideInitials(name))}</div>`;
-      html += `<div class="las-row${i < 24 ? " las-anim" : ""}${on ? " active" : ""}" role="option" aria-selected="${on}" tabindex="0" data-side-key="${esc(rowKey)}" style="--i:${Math.min(i, 16)}">${avatar}<div class="las-info"><div class="las-name">${esc(name)}</div><div class="las-meta">${meta}</div></div><button type="button" class="las-play" data-las-play title="${esc("Play " + name)}" aria-label="${esc("Play " + name)}">${iconPlay(11)}</button></div>`;
+      html += `<div class="las-row${i < 24 ? " las-anim" : ""}${on ? " active" : ""}" role="option" aria-selected="${on}" tabindex="0" data-side-key="${esc(sideEnc(rowKey))}" style="--i:${Math.min(i, 16)}">${avatar}<div class="las-info"><div class="las-name">${esc(name)}</div><div class="las-meta">${meta}</div></div><button type="button" class="las-play" data-las-play title="${esc("Play " + name)}" aria-label="${esc("Play " + name)}">${iconPlay(11)}</button></div>`;
     });
     if (lastLetter) html += `</section>`;
     list.innerHTML = html;
@@ -3367,7 +3371,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     list.classList.add("entering");
     window.setTimeout(() => list.classList.remove("entering"), 700);
     const select = (row: HTMLElement) => {
-      const key = row.dataset.sideKey || "";
+      const key = sideDec(row.dataset.sideKey || "");
       if (mode === "albums") {
         const parts = key.split("\0");
         selectedArtist = parts[0] || null;
@@ -3397,7 +3401,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       b.querySelector<HTMLElement>("[data-las-play]")?.addEventListener("click", e => {
         e.preventDefault();
         e.stopPropagation(); // play, don't open the row
-        const key = b.dataset.sideKey || "";
+        const key = sideDec(b.dataset.sideKey || "");
         if (mode === "albums") {
           const parts = key.split("\0");
           void playGroupScope({ albumArtist: parts[0] || undefined, album: parts[1] || key });

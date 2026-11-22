@@ -1956,7 +1956,7 @@ test("Artist sidebar: toolbar button enabled only on the artist tabs, names only
   assert.match(lib, /btn\.disabled = !available;/, "the button reflects availability (v1.2.0 label toggle)");
   assert.match(lib, /const label = open \? "Hide list" : "Show list";/, "Show / Hide list label (no 'artist': it serves albums and genres too)");
   // v1.2.0 redesign: rows = avatar + name + icon stats; NO All/Favorites chips, NO footer yet
-  assert.match(lib, /class="las-row\$\{i < 24 \? " las-anim" : ""\}\$\{on \? " active" : ""\}"[^`]*data-side-key="\$\{esc\(rowKey\)\}"/, "rows carry data-side-key + the active highlight");
+  assert.match(lib, /class="las-row\$\{i < 24 \? " las-anim" : ""\}\$\{on \? " active" : ""\}"[^`]*data-side-key="\$\{esc\(sideEnc\(rowKey\)\)\}"/, "rows carry data-side-key + the active highlight");
   assert.doesNotMatch(main, /side-chip|sideChipFav|side-foot|libSideFoot/, "no All/Favorites tabs and no totals footer");
   assert.match(main, /id="libSideSearch"/, "quick find box");
   assert.match(main, /id="libSideRail"/, "A–Z rail");
