@@ -35,9 +35,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-          # No `cache: npm` — the repo has no package-lock.json (installs use
-          # `npm install`), and setup-node fails the whole job when it cannot
-          # find a lock file to key the cache on.
+          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -122,8 +120,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
-      - run: npm install --no-audit --no-fund
+      - run: npm ci
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
