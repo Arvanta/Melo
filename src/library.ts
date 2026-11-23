@@ -318,6 +318,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (libTab === "playlists" || libTab === "home") return false;
     return libraryMode() === "tracks" || !!librarySearch || ((libTab === "artists" || libTab === "album-artists") && !!selectedArtist);
   }
+  // Round 118: with the "All" field the Library shows Artists / Albums
+  // sections ABOVE the track list; the track list itself must then match the
+  // track TITLE only (an artist/album hit belongs to those sections, not to a
+  // flood of that artist's tracks). Every query that feeds the visible track
+  // list — rows, album sheets, the play queue built from it — goes through here.
+  function trackSearchField(): "artist" | "album" | "title" {
+    return librarySearchField === "all" ? "title" : librarySearchField;
+  }
   function sheetModeActive(): boolean {
     // The columned Details view is a list display: album sheets need the wide
     // two-line rows, so the "Album Sheets" layout is disabled there.
@@ -1785,7 +1793,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
     const page = await invoke<Page<Track>>("library_tracks", {
       search: librarySearch || null,
-      field: librarySearchField === "all" ? null : librarySearchField,
+      field: trackSearchField(),
       // Keep the drill-in scope ACTIVE while searching: dropping the filters
       // Returned library-wide results while the breadcrumb still claimed the
       // Scope. The backend ANDs the search clause with these filters.
@@ -3793,7 +3801,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         try {
           // The WHOLE filtered+scoped source (the exact parameters fetchLibraryPage
           // Uses) goes into the queue server-side — not just the rendered page.
-          await invoke!("replace_queue_from_library", { search: librarySearch || null, artist: selectedArtist, album: selectedAlbum, genre: selectedGenre, sort: "title-asc" });
+          await invoke!("replace_queue_from_library", { search: librarySearch || null, field: trackSearchField(), artist: libTab === "artists" ? selectedArtist : null, albumArtist: libTab === "album-artists" || libTab === "albums" ? selectedArtist : null, album: selectedAlbum, genre: selectedGenre, sort: "title-asc" });
         } catch (e) {
           // A queue-build failure must never cost playback — but must not silently
           // Substitute the RENDERED PAGE as the queue either: play only the
@@ -3837,6 +3845,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     try {
       const page = await invoke<Page<Track>>("library_tracks", {
         search: librarySearch || null,
+        field: trackSearchField(),
         artist: libTab === "artists" ? selectedArtist : null,
         albumArtist: libTab === "album-artists" ? selectedArtist : null,
         album: null,
@@ -3984,7 +3993,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     try {
       const page = await invoke<Page<Track>>("library_tracks", {
         search: librarySearch || null,
-        field: librarySearchField === "all" ? null : librarySearchField,
+        field: trackSearchField(),
         artist: libTab === "artists" ? selectedArtist : null,
         albumArtist: libTab === "album-artists" || libTab === "albums" ? selectedArtist : null,
         album: selectedAlbum,

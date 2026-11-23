@@ -1003,8 +1003,12 @@ test("Library search box has a field filter wired to the backend", () => {
   const lib = readSrc("src/library.ts");
   assert.match(lib, /let librarySearchField: "all" \| "artist" \| "album" \| "title" = "all";/,
     "the field state must default to all");
-  assert.match(lib, /field: librarySearchField === "all" \? null : librarySearchField,/,
-    "the query must carry the field (null = default all)");
+  // Round 118: the TRACK list under an "All" search matches titles only (artist /
+  // album hits live in the Artists / Albums sections above it).
+  assert.match(lib, /function trackSearchField\(\): "artist" \| "album" \| "title" \{\s*return librarySearchField === "all" \? "title" : librarySearchField;/,
+    "the track query field helper: all -> title");
+  assert.ok((lib.match(/field: trackSearchField\(\),/g) || []).length >= 4,
+    "rows, discography, album sheets and the queue build all carry the field");
   assert.match(lib, /librarySearchFieldSelect\?\.addEventListener\("change"/,
     "changing the field must re-run the query");
 });

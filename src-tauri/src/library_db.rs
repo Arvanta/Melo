@@ -4052,9 +4052,11 @@ pub async fn replace_queue_from_playlist(playlist_id: String, search: Option<Str
 }
 
 #[tauri::command]
-pub async fn replace_queue_from_library(search: Option<String>, artist: Option<String>, album: Option<String>, genre: Option<String>, sort: Option<String>, state: State<'_, LibraryState>) -> Result<(), String> {
+pub async fn replace_queue_from_library(search: Option<String>, field: Option<String>, artist: Option<String>, album_artist: Option<String>, album: Option<String>, genre: Option<String>, sort: Option<String>, state: State<'_, LibraryState>) -> Result<(), String> {
     let mut conn = locked_db(&state)?;
-    let (where_sql, values) = library_filter(search, artist, None, album, genre);
+    // Round 118: the SAME filter the visible list used (search field + the
+    // artist / album-artist scope) — the queue must equal what the list shows.
+    let (where_sql, values) = library_filter_field(search, field, artist, album_artist, album, genre);
     let sql = format!("INSERT INTO queue(position,track_id) SELECT ROW_NUMBER() OVER (ORDER BY {})-1,id FROM tracks{}", library_order(sort.as_deref()), where_sql);
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM queue", []).map_err(|e| e.to_string())?;
