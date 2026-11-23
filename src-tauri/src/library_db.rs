@@ -3837,6 +3837,8 @@ pub struct ListTotals {
     pub count: i64,
     pub seconds: f64,
     pub remaining_seconds: f64,
+    /// Queue only: zero-based index of the playing row (None when idle/unknown).
+    pub current_index: Option<i64>,
 }
 
 #[tauri::command]
@@ -3851,7 +3853,7 @@ pub async fn playlist_totals(playlist_id: String, search: Option<String>, state:
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
-    Ok(ListTotals { count, seconds, remaining_seconds: seconds })
+    Ok(ListTotals { count, seconds, remaining_seconds: seconds, current_index: None })
 }
 
 /// Queue totals plus the time left from the playing entry (inclusive) to the
@@ -3893,7 +3895,30 @@ pub async fn queue_totals(current_entry_id: Option<i64>, current_track_id: Optio
             .map_err(|e| e.to_string())?,
         None => seconds,
     };
-    Ok(ListTotals { count, seconds, remaining_seconds })
+    let current_index: Option<i64> = match pos {
+        Some(p) => conn
+            .query_row("SELECT COUNT(*) FROM queue WHERE position<?1", params![p], |r| r.get(0))
+            .ok(),
+        None => None,
+    };
+    Ok(ListTotals { count, seconds, remaining_seconds, current_index })
+}
+
+/// Round 118: zero-based row index of `track_id` inside a playlist as the
+/// window shows it (same search + sort), so the list can scroll to the
+/// playing track. First occurrence; None when the track is not listed.
+#[tauri::command]
+pub async fn playlist_track_index(playlist_id: String, track_id: String, search: Option<String>, sort: Option<String>, state: State<'_, LibraryState>) -> Result<Option<i64>, String> {
+    let conn = locked_db(&state)?;
+    let q = search_pattern(&search.unwrap_or_default());
+    let order = playlist_order(sort.as_deref());
+    let sql = format!(
+        "SELECT idx FROM (SELECT pt.track_id AS tid, ROW_NUMBER() OVER (ORDER BY {order}) - 1 AS idx \
+         FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id \
+         WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 ESCAPE '$' OR t.artist LIKE ?2 ESCAPE '$' OR t.album LIKE ?2 ESCAPE '$')) \
+         WHERE tid=?3 ORDER BY idx LIMIT 1"
+    );
+    conn.query_row(&sql, params![playlist_id, q, track_id], |r| r.get(0)).optional().map_err(|e| e.to_string())
 }
 
 /// "Play next": inserts the tracks right AFTER the anchor row (the playing

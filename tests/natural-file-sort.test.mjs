@@ -84,3 +84,23 @@ test("round 118: commands registered, UI hooks present", () => {
   assert.match(html, /id="playlistStats"/);
   assert.match(html, /removeItem\("melo-playlist-sorts"\)/);
 });
+
+test("round 118b: queue-view click keeps order, follow-playing, outside-click, skins", () => {
+  const lib = readFileSync(join(here, "..", "src/library.ts"), "utf8");
+  const pl = readFileSync(join(here, "..", "src/player.ts"), "utf8");
+  assert.equal((lib.match(/fromQueue: true, keepOrder: true/g) || []).length, 2);
+  assert.match(pl, /isShuffle && !keepOrder/);
+  assert.match(lib, /scrollPlaylistToPlaying/);
+  assert.match(lib, /"playlist_track_index"/);
+  assert.match(rs, /pub async fn playlist_track_index\(/);
+  assert.match(rs, /current_index: Option<i64>/);
+  assert.match(lib, /clearPlaylistSelection\(\);\n  \}\);/);
+  for (const f of ["Pane", "Ember"]) {
+    const html = readFileSync(join(here, "..", `skins/${f}.html`), "utf8");
+    const play = html.indexOf('data-melo="play"');
+    const stop = html.indexOf('data-melo="stop"');
+    const next = html.indexOf('data-melo="next"');
+    assert.ok(play > 0 && stop > play && stop < Math.max(next, html.indexOf('data-melo="prev"') + 1e9), `${f}: Stop right after Play`);
+    assert.ok(stop - play < 1200, `${f}: Stop directly follows Play`);
+  }
+});

@@ -970,6 +970,7 @@ fn main() {
             library_db::queue_tracks,
             library_db::playlist_totals,
             library_db::queue_totals,
+            library_db::playlist_track_index,
             library_db::insert_queue_after,
             library_db::replace_queue_tracks,
             library_db::append_queue_tracks,

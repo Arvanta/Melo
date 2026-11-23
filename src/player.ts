@@ -1430,7 +1430,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     loadTrack(idx, true, Number.isFinite(startAt) && startAt > 0 ? startAt : undefined);
     // A fromQueue click carries only the ONE clicked record (instant
     // start); grow the runtime queue to the full DB queue in place.
-    if (p.fromQueue) hydrateFullQueue(gen, p.tracks[0], p.queueHint);
+    if (p.fromQueue) hydrateFullQueue(gen, p.tracks[0], p.queueHint, !!p.keepOrder);
     // A full-array handoff (no DB rebuild pending): apply shuffle directly
     // so the first Next already follows the random order.
     else if (isShuffle) applyShuffleToQueue();
@@ -1442,7 +1442,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // Next/Previous/shuffle/crossfade span the real source. Paged in via
   // LumiLibrary. A stale generation (user click-played again
   // mid-hydrate) or an empty result keeps the small queue.
-  async function hydrateFullQueue(gen: number, focusTrack: Track, hint?: number) {
+  async function hydrateFullQueue(gen: number, focusTrack: Track, hint?: number, keepOrder = false) {
     try {
       const lib = (window as any).LumiLibrary;
       const all: Track[] | undefined = await lib?.getQueueTracksAll?.();
@@ -1473,7 +1473,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       // re-hydrate) must immediately wear the shuffle order. Applied AFTER
       // the focus resolution so the clicked track keeps playing — it simply
       // lands on position 0 of the permuted array.
-      if (isShuffle) applyShuffleToQueue();
+      // A click INSIDE the queue view (keepOrder) jumps within the order the
+      // queue already has — under shuffle that order IS the shuffled one, so
+      // re-permuting it on every click made the list reshuffle.
+      if (isShuffle && !keepOrder) applyShuffleToQueue();
     } catch { /* the small queue stays; playback is unaffected */ }
   }
 }

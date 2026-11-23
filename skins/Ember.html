@@ -485,15 +485,6 @@
   .em-vol-ico:hover { background: var(--em-wash); color: var(--em-ink); }
   .em-vol-ico.muted { color: #e81123; }
   .em-vol-ico svg { width: 14px; height: 14px; display: block; }
-  .em-foot > .em-stop {
-    width: 24px; height: 24px; padding: 0; flex-shrink: 0;
-    display: grid; place-items: center;
-    border: 0; border-radius: 8px;
-    background: transparent; color: var(--em-soft); cursor: pointer;
-    transition: background .12s ease, color .12s ease;
-  }
-  .em-foot > .em-stop:hover { background: var(--em-wash); color: var(--em-ink); }
-  .em-foot > .em-stop svg { width: 12px; height: 12px; }
   .em-tools { display: flex; gap: 0; flex-shrink: 0; }
   .em-tools button {
     width: 24px; height: 24px; padding: 0;
@@ -725,6 +716,9 @@
         <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
       </button>
+      <button class="em-btn em-sm" type="button" data-melo="stop" title="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
+      </button>
       <button class="em-btn" type="button" data-melo="next" title="Next">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
       </button>
@@ -734,9 +728,6 @@
     </div>
 
     <div class="em-foot">
-      <button class="em-stop" type="button" data-melo="stop" title="Stop">
-        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
-      </button>
       <div class="em-vol">
         <span class="em-vol-ico" data-melo="volume-icon" title="Mute">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h4l5 4V6L7 10H3z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>

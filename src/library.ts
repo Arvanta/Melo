@@ -957,6 +957,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     updatePlaylistSelectionUI();
   }
 
+  // Round 118: like most apps, a click on "somewhere else" drops the
+  // selection. Rows keep their own rules (plain click = single action,
+  // Ctrl/Shift = extend); the bulk bars, menus and dialogs are part of the
+  // selection workflow and never clear it. The Library selection survives
+  // clicks inside the Playlist window (add-to-playlist flow when both live
+  // in one page) and vice versa.
+  document.addEventListener("click", event => {
+    const t = event.target as HTMLElement | null;
+    if (!t || !t.isConnected || !t.closest) return;
+    if (t.closest(".bulk-action-bar, .ctx-menu, [role='dialog'], [role='menu'], dialog, .modal, .overlay, .dialog, select, option, .lib-crumb")) return;
+    const inPlaylistWin = !!t.closest("#win-playlist");
+    if (librarySelectedIds.size && !inPlaylistWin && !t.closest("[data-track-id]")) clearLibrarySelection();
+    if (playlistSelectedEntryIds.size && (inPlaylistWin || !t.closest("#win-library")) && !t.closest("[data-pl-entry]")) clearPlaylistSelection();
+  });
+
   function confirmLibraryClear(): Promise<boolean> {
     return new Promise(resolve => {
       const overlay = document.createElement("div");
@@ -3797,10 +3812,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
     });
     trackList.querySelector<HTMLElement>("#virtualBack")?.addEventListener("click", () => {
-      if (libTab === "artists" && selectedArtist) selectedArtist = null;
+      // Same rules as the Album-sheets Back: Album Artist drill-ins included
+      // (this list used to ignore that tab, so Back did nothing there) and the
+      // navigation state is persisted.
+      if ((libTab === "artists" || libTab === "album-artists") && selectedArtist) { selectedArtist = null; selectedAlbum = null; }
       else if (libTab === "albums" && selectedAlbum) { selectedArtist = null; selectedAlbum = null; }
       else if ((libTab === "genres" || libTab === "years") && selectedGenre) selectedGenre = null;
       clearLibrarySelection();
+      persistLibraryNavigation();
       renderLibraryVirtual(false, savedGroupsScrollTop);
     });
     updateLibrarySelectionUI();
@@ -4488,6 +4507,38 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
 
+  // Round 118: bring the PLAYING track into view in the Playlist window — once
+  // when the window opens (first render + first known track) and whenever the
+  // track changes. Already-visible rows don't move the list, and it never
+  // fights an active drag (reorder / marquee).
+  let playlistFirstScroll = true;
+  let playlistFollowTimer: number | undefined;
+  function schedulePlaylistFollow() {
+    window.clearTimeout(playlistFollowTimer);
+    playlistFollowTimer = window.setTimeout(() => void scrollPlaylistToPlaying(), 150);
+  }
+  async function scrollPlaylistToPlaying() {
+    if (!invoke || !playlistList || !currentTrackId) return;
+    if (document.body.classList.contains("marquee-active") || playlistList.querySelector(".dragging")) return;
+    const viewport = playlistList.clientHeight;
+    if (viewport <= 0 || playlistList.scrollHeight <= viewport + 1) return; // not scrollable
+    let idx: number | null = null;
+    try {
+      if (currentPlaylistId === QUEUE_ID) {
+        const t = await invoke<{ currentIndex?: number | null }>("queue_totals", { currentEntryId: activeEntryId, currentTrackId });
+        idx = t.currentIndex ?? null;
+      } else {
+        idx = await invoke<number | null>("playlist_track_index", { playlistId: currentPlaylistId, trackId: currentTrackId, search: playlistSearchQuery(), sort: playlistSort?.value || "default" });
+      }
+    } catch { return; }
+    if (idx == null || !Number.isFinite(idx)) return;
+    const rowH = playlistView === "compact" ? playlistRowHeightCompact : playlistRowHeight;
+    const top = idx * rowH;
+    const st = playlistList.scrollTop;
+    if (top >= st && top + rowH <= st + viewport) return; // already visible
+    playlistList.scrollTop = Math.max(0, top - Math.round((viewport - rowH) / 2));
+  }
+
   async function renderPlaylistVirtual(reset = false) {
     if (!playlistList || !invoke) return;
     if (reset) { playlistList.scrollTop = 0; schedulePlaylistStats(); }
@@ -4609,7 +4660,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         const focus = page.items[index];
         if (!focus) return;
         if (currentPlaylistId === QUEUE_ID) {
-          busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true });
+          busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true, keepOrder: true });
           return;
         }
         try {
@@ -4630,6 +4681,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       };
     });
     updatePlaylistSelectionUI();
+    if (playlistFirstScroll && currentTrackId) { playlistFirstScroll = false; schedulePlaylistFollow(); }
     playlistList.querySelectorAll<HTMLElement>("[data-remove-entry]").forEach(button => {
       button.onclick = async event => {
         event.stopPropagation();
@@ -4983,7 +5035,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         const idx = Number(row.dataset.epIndex || 0);
         const focus = items[idx];
         if (!focus) return;
-        busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true });
+        busEmit("melo:play-tracks", { tracks: [focus], index: 0, fromQueue: true, keepOrder: true });
       };
     });
     if (showCover) bindLazyArtwork(embeddedPlaylistContainer);
@@ -5700,6 +5752,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     activeEntryId = t?.playlistEntryId != null ? Number(t.playlistEntryId) : null;
     setActiveTrack(t?.id || null);
     if (currentPlaylistId === QUEUE_ID) schedulePlaylistStats();
+    schedulePlaylistFollow();
     if (t?.id) touchTrackPlayed(t.id);
     embeddedPlaylistContainer.querySelectorAll<HTMLElement>("[data-ep-track]").forEach(row => {
       row.classList.toggle("active", row.dataset.epTrack === (t?.id || null));
@@ -5755,7 +5808,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       try { await invoke("shuffle_queue_rows", { order }); busEmit("melo:queue-changed", {}); } catch {}
     })();
   });
-  busOn("melo:playback-state", (s: any) => { setActiveTrack(s?.track?.id || null); miniOnState(s); });
+  busOn("melo:playback-state", (s: any) => {
+    const prev = currentTrackId;
+    if (s?.track?.playlistEntryId != null) activeEntryId = Number(s.track.playlistEntryId);
+    setActiveTrack(s?.track?.id || null);
+    // Window just opened: the first state report tells us what is playing.
+    if (playlistFirstScroll && currentTrackId) { playlistFirstScroll = false; schedulePlaylistFollow(); }
+    else if (currentTrackId && currentTrackId !== prev) schedulePlaylistFollow();
+    miniOnState(s);
+  });
 
   // ── Mini player (v1.2.0) ───────────────────────────────────────────────
   // A docked bar at the bottom of the Library. It owns NO audio: it mirrors the

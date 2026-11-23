@@ -1976,7 +1976,7 @@ test("Playlist next/previous starts from the CLICKED track (queue position hint)
   assert.match(lib, /fromQueue: true, queueHint: Number\.isInteger\(queueHint\) \? queueHint : undefined/, "the hint rides on the bus event");
   assert.equal((lib.match(/playFromDbQueue\(focus, true, (absIndex|index)\);/g) || []).length, 3,
     "all three fromQueue callers (library rows, playlist window, playlists tab) pass the hint");
-  assert.match(player, /hydrateFullQueue\(gen, p\.tracks\[0\], p\.queueHint\);/, "the player receives the hint");
+  assert.match(player, /hydrateFullQueue\(gen, p\.tracks\[0\], p\.queueHint, !!p\.keepOrder\);/, "the player receives the hint (and the queue-view keepOrder flag)");
   assert.match(player, /String\(all\[hint as number\]\.id\) === String\(focusTrack\.id\)/,
     "the hint is only trusted when the queue row at that index is the clicked track");
   assert.match(player, /if \(focus < 0 && hint == null && focusTrack\.playlistEntryId != null\)/,
@@ -1984,7 +1984,7 @@ test("Playlist next/previous starts from the CLICKED track (queue position hint)
   assert.match(player, /if \(focus < 0\) focus = all\.findIndex\(t => t\.id === focusTrack\.id\);/,
     "last resort: first occurrence of the track, never position 0 blindly");
   // the QUEUE view's direct emit stays untouched (no hint → entry-id path)
-  assert.match(lib, /if \(currentPlaylistId === QUEUE_ID\) \{\s*busEmit\("melo:play-tracks", \{ tracks: \[focus\], index: 0, fromQueue: true \}\);/,
+  assert.match(lib, /if \(currentPlaylistId === QUEUE_ID\) \{\s*busEmit\("melo:play-tracks", \{ tracks: \[focus\], index: 0, fromQueue: true, keepOrder: true \}\);/,
     "queue-view clicks keep the entry-id lookup (correct id space there)");
 });
 
@@ -2010,9 +2010,9 @@ test("shuffle materialises into the real queue order (round 76→77), no per-pre
     "toggle ON materialises immediately");
   assert.match(player, /if \(isShuffle\) \{\s*\/\/ New pass[\s\S]*?applyShuffleToQueue\(\);\s*return Math\.min\(1, queue\.length - 1\);/,
     "repeat-all pass boundary reshuffles and starts at position 1 (no immediate repeat)");
-  assert.match(player, /if \(focus >= 0\) currentIndex = focus;\s*\/\/ Round 77[\s\S]*?if \(isShuffle\) applyShuffleToQueue\(\);/,
+  assert.match(player, /if \(focus >= 0\) currentIndex = focus;\s*\/\/ Round 77[\s\S]*?if \(isShuffle && !keepOrder\) applyShuffleToQueue\(\);/,
     "a DB re-hydrate under shuffle re-materialises the order (view never diverges)");
-  assert.match(player, /if \(p\.fromQueue\) hydrateFullQueue\(gen, p\.tracks\[0\], p\.queueHint\);\s*\/\/ A full-array handoff[\s\S]*?else if \(isShuffle\) applyShuffleToQueue\(\);/,
+  assert.match(player, /if \(p\.fromQueue\) hydrateFullQueue\(gen, p\.tracks\[0\], p\.queueHint, !!p\.keepOrder\);\s*\/\/ A full-array handoff[\s\S]*?else if \(isShuffle\) applyShuffleToQueue\(\);/,
     "direct play-tracks handoff applies it too");
   // plain walks = history; no deck branches remain in nav
   assert.match(player, /\/\/ Round 77: with shuffle the array itself carries the pass order[\s\S]*?let prv = currentIndex - 1;/,
