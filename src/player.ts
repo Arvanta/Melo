@@ -1368,7 +1368,19 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     const have = new Set(queue.filter((t: any) => t?.playlistEntryId != null).map((t: any) => `e${t.playlistEntryId}`));
     const fresh = p.tracks.filter((t: any) => t?.playlistEntryId == null || !have.has(`e${t.playlistEntryId}`));
     if (!fresh.length) return;
-    queue = queue.concat(fresh);
+    // Round 118 "Play next": the sender names the anchor (the playing entry,
+    // else the first row of the playing track) — same rule as the DB insert.
+    let anchorIdx = -1;
+    if (p.afterEntryId != null) anchorIdx = queue.findIndex((t: any) => t?.playlistEntryId != null && Number(t.playlistEntryId) === Number(p.afterEntryId));
+    if (anchorIdx < 0 && p.afterTrackId != null) anchorIdx = queue.findIndex((t: any) => t?.id === p.afterTrackId);
+    if (anchorIdx >= 0) {
+      queue = queue.slice(0, anchorIdx + 1).concat(fresh, queue.slice(anchorIdx + 1));
+      // Rows landed BEFORE the playing one only if the anchor was; keep the
+      // playing track's index pointing at the same track.
+      if (anchorIdx + 1 <= currentIndex) currentIndex += fresh.length;
+    } else {
+      queue = queue.concat(fresh);
+    }
     try { (window as any).__LUMI_SET_QUEUE__(queue); } catch {}
   });
 

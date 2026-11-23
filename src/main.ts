@@ -281,6 +281,7 @@ app.innerHTML = `
             <option value="album-asc">Album (A-Z)</option>
             <option value="dur-asc">Shortest</option>
             <option value="dur-desc">Longest</option>
+            <option value="file-asc">File name</option>
           </select>
           <button class="btn small ghost" id="btn-playlist-view" title="Compact row height" aria-pressed="false" style="height:28px; width:28px; padding:0; justify-content:center; flex:0 0 auto;">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="5" x2="21" y2="5"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="19" x2="21" y2="19"/></svg>
@@ -291,6 +292,8 @@ app.innerHTML = `
             Playlist is empty<br/>Use the Library to add tracks
           </div>
         </div>
+        <!-- Round 118 · totals line: count + total time (+ time left in the queue) and a hint when sorting turns drag-reorder off. -->
+        <div id="playlistStats" class="playlist-stats" aria-live="polite"><span id="playlistStatsText"></span><span id="playlistStatsHint" class="playlist-stats-hint"></span></div>
         <div class="playlist-footer-actions" style="display:flex; gap:6px; flex-shrink:0; align-items:center; padding:8px 4px 4px;">
           <div class="playlist-search-wrap" style="flex:1 1 auto; position:relative; min-width:100px; height:28px;">
             <input id="playlistSearchInput" class="search-input" placeholder="Search playlist…" style="width:100%; height:100%; font-size:11px; padding:0 28px 0 10px;" />
@@ -844,6 +847,8 @@ const urlPanel: PanelId | null = (() => {
   }
   return null;
 })();
+// Round 118: the Playlist window's per-view sort lives only while the app is open.
+if (!urlPanel) { try { localStorage.removeItem("melo-playlist-sorts"); } catch {} }
 if (urlPanel) {
   document.documentElement.classList.add("panel-window", `panel-${urlPanel}`);
   document.body.classList.add("panel-window", `panel-${urlPanel}`);

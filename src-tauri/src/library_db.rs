@@ -216,7 +216,110 @@ fn open_db(path: &Path) -> Result<Connection, String> {
         .map_err(|e| e.to_string())?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|e| e.to_string())?;
+    // Round 118: natural file-name order for the playlist/queue sort. Applied
+    // to `tracks.path`; only used by playlist_order / queue_order.
+    conn.create_collation("MELO_FILENAME", |a: &str, b: &str| natural_file_cmp(a, b))
+        .map_err(|e| e.to_string())?;
     Ok(conn)
+}
+
+/// One piece of a file stem: a digit run (leading zeros stripped, original
+/// length kept for tie-breaking) or a run of other characters (lower-cased,
+/// Arabic yeh/kaf folded to the Persian letters).
+enum NatTok {
+    Num(String, usize),
+    Text(String),
+}
+
+fn nat_fold(c: char) -> char {
+    match c {
+        '\u{064A}' => '\u{06CC}', // ARABIC YEH -> FARSI YEH
+        '\u{0643}' => '\u{06A9}', // ARABIC KAF -> KEHEH
+        _ => c,
+    }
+}
+
+fn nat_tokens(stem: &str) -> Vec<NatTok> {
+    let mut out: Vec<NatTok> = Vec::new();
+    let mut digits = String::new();
+    let mut text = String::new();
+    let flush_digits = |digits: &mut String, out: &mut Vec<NatTok>| {
+        if !digits.is_empty() {
+            let trimmed = digits.trim_start_matches('0').to_string();
+            out.push(NatTok::Num(trimmed, digits.len()));
+            digits.clear();
+        }
+    };
+    for c in stem.chars() {
+        if c.is_ascii_digit() {
+            if !text.is_empty() {
+                out.push(NatTok::Text(std::mem::take(&mut text)));
+            }
+            digits.push(c);
+        } else {
+            flush_digits(&mut digits, &mut out);
+            for l in c.to_lowercase() {
+                text.push(nat_fold(l));
+            }
+        }
+    }
+    flush_digits(&mut digits, &mut out);
+    if !text.is_empty() {
+        out.push(NatTok::Text(text));
+    }
+    out
+}
+
+/// Splits a path into (stem, extension, full file name): last `/` or `\`
+/// separates the directory; the extension is the part after the last `.`
+/// (a leading dot is part of the stem).
+fn nat_split(path: &str) -> (&str, &str, &str) {
+    let name = path.rsplit(|c| c == '/' || c == '\\').next().unwrap_or(path);
+    match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i + 1..], name),
+        _ => (name, "", name),
+    }
+}
+
+/// Natural, case-insensitive file-name order (`track2 < track03 < track10 <
+/// track100`). Directory and extension are ignored for the main comparison;
+/// ties fall back to zero-padding, extension and the raw name so the order is
+/// total and stable. An empty path sorts LAST.
+pub(crate) fn natural_file_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a.is_empty(), b.is_empty()) {
+        (true, true) => return Ordering::Equal,
+        (true, false) => return Ordering::Greater,
+        (false, true) => return Ordering::Less,
+        _ => {}
+    }
+    let (sa, ea, na) = nat_split(a);
+    let (sb, eb, nb) = nat_split(b);
+    let ta = nat_tokens(sa);
+    let tb = nat_tokens(sb);
+    let mut zero_tie = Ordering::Equal;
+    for (x, y) in ta.iter().zip(tb.iter()) {
+        let ord = match (x, y) {
+            (NatTok::Num(nx, lx), NatTok::Num(ny, ly)) => {
+                let o = nx.len().cmp(&ny.len()).then_with(|| nx.cmp(ny));
+                if o == Ordering::Equal && zero_tie == Ordering::Equal {
+                    zero_tie = lx.cmp(ly);
+                }
+                o
+            }
+            (NatTok::Text(tx), NatTok::Text(ty)) => tx.cmp(ty),
+            (NatTok::Num(..), NatTok::Text(_)) => Ordering::Less,
+            (NatTok::Text(_), NatTok::Num(..)) => Ordering::Greater,
+        };
+        if ord != Ordering::Equal {
+            return ord;
+        }
+    }
+    ta.len()
+        .cmp(&tb.len())
+        .then(zero_tie)
+        .then_with(|| ea.to_lowercase().cmp(&eb.to_lowercase()))
+        .then_with(|| na.cmp(nb))
 }
 
 /// Locks the shared persistent connection. The guard must never be held
@@ -1630,6 +1733,7 @@ fn playlist_order(sort: Option<&str>) -> &'static str {
         Some("album-asc")=>"t.album COLLATE NOCASE,pt.entry_id",
         Some("dur-asc")=>"t.duration,pt.entry_id",
         Some("dur-desc")=>"t.duration DESC,pt.entry_id",
+        Some("file-asc")=>"t.path COLLATE MELO_FILENAME,pt.entry_id",
         _=>"pt.position",
     }
 }
@@ -3724,6 +3828,128 @@ pub async fn queue_tracks(limit: usize, offset: usize, state: State<'_, LibraryS
     Ok(Page { items, total, limit, offset })
 }
 
+/// Round 118: totals for the Playlist window footer. `seconds` is the summed
+/// duration of the rows matching the (optional) search; `remaining_seconds`
+/// is only meaningful for the queue (current track + everything after it).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListTotals {
+    pub count: i64,
+    pub seconds: f64,
+    pub remaining_seconds: f64,
+}
+
+#[tauri::command]
+pub async fn playlist_totals(playlist_id: String, search: Option<String>, state: State<'_, LibraryState>) -> Result<ListTotals, String> {
+    let conn = locked_db(&state)?;
+    let q = search_pattern(&search.unwrap_or_default());
+    let (count, seconds): (i64, f64) = conn
+        .query_row(
+            "SELECT COUNT(*),COALESCE(SUM(t.duration),0) FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id \
+             WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 ESCAPE '$' OR t.artist LIKE ?2 ESCAPE '$' OR t.album LIKE ?2 ESCAPE '$')",
+            params![playlist_id, q],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(ListTotals { count, seconds, remaining_seconds: seconds })
+}
+
+/// Queue totals plus the time left from the playing entry (inclusive) to the
+/// end. The playing row is found by queue entry id, else by the first row of
+/// that track; unknown/idle -> the whole queue counts as remaining.
+#[tauri::command]
+pub async fn queue_totals(current_entry_id: Option<i64>, current_track_id: Option<String>, state: State<'_, LibraryState>) -> Result<ListTotals, String> {
+    let conn = locked_db(&state)?;
+    let (count, seconds): (i64, f64) = conn
+        .query_row(
+            "SELECT COUNT(*),COALESCE(SUM(t.duration),0) FROM queue q JOIN tracks t ON t.id=q.track_id",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    let mut pos: Option<i64> = None;
+    if let Some(entry) = current_entry_id {
+        pos = conn
+            .query_row("SELECT position FROM queue WHERE entry_id=?1", params![entry], |r| r.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+    }
+    if pos.is_none() {
+        if let Some(track) = current_track_id {
+            pos = conn
+                .query_row("SELECT MIN(position) FROM queue WHERE track_id=?1", params![track], |r| r.get::<_, Option<i64>>(0))
+                .optional()
+                .map_err(|e| e.to_string())?
+                .flatten();
+        }
+    }
+    let remaining_seconds: f64 = match pos {
+        Some(p) => conn
+            .query_row(
+                "SELECT COALESCE(SUM(t.duration),0) FROM queue q JOIN tracks t ON t.id=q.track_id WHERE q.position>=?1",
+                params![p],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?,
+        None => seconds,
+    };
+    Ok(ListTotals { count, seconds, remaining_seconds })
+}
+
+/// "Play next": inserts the tracks right AFTER the anchor row (the playing
+/// entry, else the first row of the playing track); without a usable anchor
+/// they go to the END. Returns the new entry ids in input order.
+#[tauri::command]
+pub async fn insert_queue_after(track_ids: Vec<String>, after_entry_id: Option<i64>, after_track_id: Option<String>, state: State<'_, LibraryState>) -> Result<Vec<i64>, String> {
+    let mut conn = locked_db(&state)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut anchor: Option<i64> = None;
+    if let Some(entry) = after_entry_id {
+        anchor = tx
+            .query_row("SELECT entry_id FROM queue WHERE entry_id=?1", params![entry], |r| r.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+    }
+    if anchor.is_none() {
+        if let Some(track) = after_track_id {
+            anchor = tx
+                .query_row("SELECT entry_id FROM queue WHERE track_id=?1 ORDER BY position LIMIT 1", params![track], |r| r.get(0))
+                .optional()
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    let mut position: i64 = tx.query_row("SELECT COALESCE(MAX(position),-1)+1 FROM queue", [], |r| r.get(0)).unwrap_or(0);
+    let mut new_entries: Vec<i64> = Vec::with_capacity(track_ids.len());
+    {
+        let mut stmt = tx.prepare("INSERT INTO queue(position,track_id) VALUES(?1,?2)").map_err(|e| e.to_string())?;
+        for id in track_ids {
+            stmt.execute(params![position, id]).map_err(|e| e.to_string())?;
+            new_entries.push(tx.last_insert_rowid());
+            position += 1;
+        }
+    }
+    if let Some(anchor_entry) = anchor {
+        // The new rows sit at the end; rebuild the order with them moved
+        // directly behind the anchor.
+        let existing: Vec<i64> = {
+            let mut stmt = tx.prepare("SELECT entry_id FROM queue ORDER BY position,entry_id").map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
+            rows.filter_map(log_skipped).collect()
+        };
+        let mut ordered: Vec<String> = Vec::with_capacity(existing.len());
+        for e in existing.iter().filter(|e| !new_entries.contains(e)) {
+            ordered.push(e.to_string());
+            if *e == anchor_entry {
+                ordered.extend(new_entries.iter().map(|n| n.to_string()));
+            }
+        }
+        apply_queue_order(&tx, &ordered)?;
+    }
+    renumber_queue(&tx)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(new_entries)
+}
+
 fn renumber_queue(conn: &Connection) -> Result<(), String> {
     let entries: Vec<i64> = {
         let mut stmt = conn.prepare("SELECT entry_id FROM queue ORDER BY position,entry_id").map_err(|e| e.to_string())?;
@@ -3848,6 +4074,7 @@ fn queue_order(sort: Option<&str>) -> &'static str {
         Some("album-asc") => "t.album COLLATE NOCASE,q.position",
         Some("dur-asc") => "t.duration,q.position",
         Some("dur-desc") => "t.duration DESC,q.position",
+        Some("file-asc") => "t.path COLLATE MELO_FILENAME,q.position",
         _ => "q.position",
     }
 }
@@ -3855,14 +4082,28 @@ fn queue_order(sort: Option<&str>) -> &'static str {
 /// Writes the queue in the given order: rows park on a negative range first
 /// (UNIQUE(position) is never transiently violated), then compact to 0..n.
 fn apply_queue_order(conn: &Connection, ids: &[String]) -> Result<(), String> {
-    // Ids are queue ENTRY ids (strings for the broadcast round-trip).
-    for (i, id) in ids.iter().enumerate() {
-        conn.execute("UPDATE queue SET position=?2 WHERE entry_id=?1", params![id, -1 - i as i64]).map_err(|e| e.to_string())?;
+    // Round 118: ONE transaction (a savepoint, so it also nests inside a
+    // caller's transaction) — without it every UPDATE was its own commit and
+    // sorting a few thousand queue rows took seconds.
+    conn.execute_batch("SAVEPOINT melo_queue_order").map_err(|e| e.to_string())?;
+    let run = || -> Result<(), String> {
+        // Ids are queue ENTRY ids (strings for the broadcast round-trip).
+        let mut stmt = conn.prepare("UPDATE queue SET position=?2 WHERE entry_id=?1").map_err(|e| e.to_string())?;
+        for (i, id) in ids.iter().enumerate() {
+            stmt.execute(params![id, -1 - i as i64]).map_err(|e| e.to_string())?;
+        }
+        for (i, id) in ids.iter().enumerate() {
+            stmt.execute(params![id, i as i64]).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    };
+    match run() {
+        Ok(()) => conn.execute_batch("RELEASE melo_queue_order").map_err(|e| e.to_string()),
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK TO melo_queue_order; RELEASE melo_queue_order");
+            Err(e)
+        }
     }
-    for (i, id) in ids.iter().enumerate() {
-        conn.execute("UPDATE queue SET position=?2 WHERE entry_id=?1", params![id, i as i64]).map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 /// One row of a queue-reorder broadcast: the queue ENTRY id plus the TRACK
@@ -4170,3 +4411,32 @@ pub async fn open_track_folder(id: String, state: State<'_, LibraryState>) -> Re
     Ok(())
 }
 
+#[cfg(test)]
+mod natural_file_tests {
+    use super::natural_file_cmp;
+
+    fn sorted(mut v: Vec<&str>) -> Vec<&str> {
+        v.sort_by(|a, b| natural_file_cmp(a, b));
+        v
+    }
+
+    #[test]
+    fn digits_compare_as_numbers() {
+        assert_eq!(
+            sorted(vec!["track100.mp3", "track2.mp3", "track10.mp3", "track03.mp3"]),
+            vec!["track2.mp3", "track03.mp3", "track10.mp3", "track100.mp3"]
+        );
+    }
+
+    #[test]
+    fn directory_case_and_extension() {
+        assert_eq!(sorted(vec!["C:\\m\\b.mp3", "/x/A.flac"]), vec!["/x/A.flac", "C:\\m\\b.mp3"]);
+        assert_eq!(sorted(vec!["Track2.mp3", "track1.mp3"]), vec!["track1.mp3", "Track2.mp3"]);
+    }
+
+    #[test]
+    fn padding_tie_and_empty_last() {
+        assert_eq!(sorted(vec!["t02.mp3", "t2.mp3"]), vec!["t2.mp3", "t02.mp3"]);
+        assert_eq!(sorted(vec!["", "a.mp3"]), vec!["a.mp3", ""]);
+    }
+}

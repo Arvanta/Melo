@@ -2991,3 +2991,12 @@ few-px band where scrolled rows peek through. */
 /* Side list on the Albums tab: the album's artist is a name, not a number — let it shrink with an ellipsis. */
 .las-stat.las-stat-name { min-width: 0; max-width: 100%; }
 .las-stat.las-stat-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Round 118 · Playlist window totals line */
+.playlist-stats { display:flex; justify-content:space-between; gap:8px; flex-shrink:0; padding:4px 8px 0; font-size:11px; line-height:1.4; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+.playlist-stats:empty, .playlist-stats > span:empty { display:none; }
+.playlist-stats-hint { opacity:.85; text-align:right; }
+
+/* Round 118 · drag-select box */
+.marquee-box { position:fixed; z-index:9999; pointer-events:none; border:1px solid var(--accent, #2a7bd6); background:rgba(42,123,214,0.14); border-radius:2px; }
+body.marquee-active, body.marquee-active * { user-select:none !important; -webkit-user-select:none !important; }

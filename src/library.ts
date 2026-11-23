@@ -54,6 +54,17 @@ function fmtDur(seconds: number) {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 }
 
+/** "2 h 5 min" / "42 min" / "35 s" for list totals. */
+function fmtTotal(seconds: number) {
+  const s = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
+
 export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) => void) {
   const trackList = document.getElementById("trackList") as HTMLElement | null;
   const searchInput = document.getElementById("searchInput") as HTMLInputElement | null;
@@ -93,6 +104,25 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // the frontend only needs Most Played — for its play-count badge (round 73).
   const AUTO_MOST_PLAYED_ID = "__auto_most_played__";
   let currentPlaylistId = localStorage.getItem("melo-currentPlaylist") || QUEUE_ID;
+  // Round 118: the Playlist window is its own Tauri window, so closing it
+  // destroys its state. The sort choice per view (queue / each playlist) lives
+  // in localStorage; the MAIN window clears it at startup, so it survives
+  // closing and reopening the window but not an app restart.
+  const SORT_KEY = "melo-playlist-sorts";
+  const SORT_VALUES = ["default", "title-asc", "artist-asc", "album-asc", "dur-asc", "dur-desc", "file-asc"];
+  function readSavedSort(id: string): string {
+    try {
+      const v = JSON.parse(localStorage.getItem(SORT_KEY) || "{}")?.[id];
+      return typeof v === "string" && SORT_VALUES.includes(v) ? v : "default";
+    } catch { return "default"; }
+  }
+  function writeSavedSort(id: string, value: string) {
+    try {
+      const all = JSON.parse(localStorage.getItem(SORT_KEY) || "{}") || {};
+      if (value === "default") delete all[id]; else all[id] = value;
+      localStorage.setItem(SORT_KEY, JSON.stringify(all));
+    } catch {}
+  }
   // Monotonic revision for the cross-window active-playlist sync: a later
   // Decision always beats an earlier one, so a LATE stale event can never
   // Overwrite a newer local selection. Updated on every local switch we
@@ -470,6 +500,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   libraryContextMenu.className = "ctx-menu";
   libraryContextMenu.style.display = "none";
   libraryContextMenu.innerHTML = `
+    <button class="ctx-item" id="ctxPlayNext">Play next</button>
+    <button class="ctx-item" id="ctxAddToQueue">Add to end of queue</button>
     <button class="ctx-item" id="ctxOpenTrackFolder">Open containing folder</button>
     <button class="ctx-item danger" id="ctxRemoveLibraryTrack">Remove from Library</button>
     <button class="ctx-item danger" id="ctxRemoveLibraryGroup">Remove from Library</button>`;
@@ -489,6 +521,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     <div style="height:1px; margin:4px 6px; background:var(--card-border);"></div>
     <button class="ctx-item danger" id="plCtxDelete" role="menuitem">Delete playlist…</button>`;
   document.body.appendChild(playlistContextMenu);
+  const contextPlayNext = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxPlayNext")!;
+  const contextAddToQueue = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxAddToQueue")!;
   const contextOpenFolder = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxOpenTrackFolder")!;
   const contextRemoveTrack = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxRemoveLibraryTrack")!;
   const contextRemoveGroup = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxRemoveLibraryGroup")!;
@@ -505,9 +539,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     libraryContextMenu.style.left = `${Math.max(6, Math.min(event.clientX, window.innerWidth - rect.width - 6))}px`;
     libraryContextMenu.style.top = `${Math.max(6, Math.min(event.clientY, window.innerHeight - rect.height - 6))}px`;
   }
+  // Round 118: right-clicking a SELECTED row acts on the whole selection; an
+  // unselected row acts on itself alone.
+  let contextQueueIds: string[] = [];
   function showTrackContextMenu(event: MouseEvent, id: string) {
     contextTrackId = id;
     contextLibraryGroup = null;
+    contextQueueIds = librarySelectedIds.has(id) && librarySelectedIds.size > 1 ? Array.from(librarySelectedIds) : [id];
+    contextPlayNext.hidden = false;
+    contextAddToQueue.hidden = false;
+    contextPlayNext.textContent = contextQueueIds.length > 1 ? `Play ${contextQueueIds.length} tracks next` : "Play next";
+    contextAddToQueue.textContent = contextQueueIds.length > 1 ? `Add ${contextQueueIds.length} tracks to end of queue` : "Add to end of queue";
     contextOpenFolder.hidden = false;
     contextRemoveTrack.hidden = false;
     contextRemoveGroup.hidden = true;
@@ -516,6 +558,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   function showGroupContextMenu(event: MouseEvent, group: ContextLibraryGroup) {
     contextTrackId = null;
     contextLibraryGroup = group;
+    contextPlayNext.hidden = true;
+    contextAddToQueue.hidden = true;
     contextOpenFolder.hidden = true;
     contextRemoveTrack.hidden = true;
     contextRemoveGroup.hidden = false;
@@ -554,6 +598,16 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     });
   }
 
+  contextPlayNext.onclick = event => {
+    event.stopPropagation();
+    libraryContextMenu.style.display = "none";
+    void queueLibraryTracks(contextQueueIds, "next");
+  };
+  contextAddToQueue.onclick = event => {
+    event.stopPropagation();
+    libraryContextMenu.style.display = "none";
+    void queueLibraryTracks(contextQueueIds, "end");
+  };
   contextOpenFolder.onclick = async event => {
     event.stopPropagation();
     libraryContextMenu.style.display = "none";
@@ -672,6 +726,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       },
     },
     {
+      label: "Play next",
+      onClick: () => { void queueLibraryTracks(Array.from(librarySelectedIds), "next"); },
+    },
+    {
+      label: "Add to queue",
+      onClick: () => { void queueLibraryTracks(Array.from(librarySelectedIds), "end"); },
+    },
+    {
       label: "Remove from Library",
       danger: true,
       onClick: async () => {
@@ -749,6 +811,122 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     });
     libraryBulk.bar.style.display = librarySelectedIds.size ? "flex" : "none";
     libraryBulk.countEl.textContent = `${librarySelectedIds.size} selected`;
+  }
+
+  // Round 118: drag-to-select (marquee). MOUSE-event based like the row
+  // reorder (WebView2's native drop handler swallows HTML5 drag). The box is
+  // tracked in CONTENT coordinates and hit-tested against the RENDERED rows
+  // each frame, so it keeps working while the list auto-scrolls and the
+  // virtual window swaps rows; ids seen once keep their last hit state.
+  function attachMarquee(opts: {
+    scroller: HTMLElement | null;
+    rowSel: string;
+    idOf: (row: HTMLElement) => string | null;
+    selected: Set<string>;
+    onChange: () => void;
+    /** May a drag that begins ON a row start the marquee? (empty space always may) */
+    fromRow: (e: MouseEvent) => boolean;
+    enabled?: () => boolean;
+  }) {
+    const scroller = opts.scroller;
+    if (!scroller) return;
+    const THRESHOLD = 5;
+    const EDGE = 28;
+    type St = { x0: number; y0c: number; sx: number; sy: number; base: Set<string>; additive: boolean; active: boolean; hits: Map<string, boolean>; box: HTMLElement | null; cx: number; cy: number; raf: number };
+    let st: St | null = null;
+
+    const compute = () => {
+      if (!st || !st.active) return;
+      const r = scroller.getBoundingClientRect();
+      const y1c = st.cy - r.top + scroller.scrollTop;
+      const top = Math.min(st.y0c, y1c);
+      const bottom = Math.max(st.y0c, y1c);
+      const left = Math.min(st.x0, st.cx);
+      const right = Math.max(st.x0, st.cx);
+      scroller.querySelectorAll<HTMLElement>(opts.rowSel).forEach(row => {
+        const id = opts.idOf(row);
+        if (!id) return;
+        const rr = row.getBoundingClientRect();
+        const rt = rr.top - r.top + scroller.scrollTop;
+        const rb = rt + rr.height;
+        st!.hits.set(id, rb >= top && rt <= bottom && rr.right >= left && rr.left <= right);
+      });
+      opts.selected.clear();
+      st.base.forEach(id => opts.selected.add(id));
+      st.hits.forEach((hit, id) => { if (hit) opts.selected.add(id); });
+      opts.onChange();
+      if (st.box) {
+        const vTop = Math.max(r.top, top - scroller.scrollTop + r.top);
+        const vBottom = Math.min(r.top + scroller.clientHeight, bottom - scroller.scrollTop + r.top);
+        const vLeft = Math.max(r.left, left);
+        const vRight = Math.min(r.left + scroller.clientWidth, right);
+        st.box.style.cssText = `left:${vLeft}px;top:${vTop}px;width:${Math.max(0, vRight - vLeft)}px;height:${Math.max(0, vBottom - vTop)}px`;
+      }
+    };
+    const tick = () => {
+      if (!st || !st.active) return;
+      const r = scroller.getBoundingClientRect();
+      const bottomEdge = r.top + scroller.clientHeight;
+      if (st.cy < r.top + EDGE) scroller.scrollTop -= Math.min(24, 4 + (r.top + EDGE - st.cy) / 3);
+      else if (st.cy > bottomEdge - EDGE) scroller.scrollTop += Math.min(24, 4 + (st.cy - (bottomEdge - EDGE)) / 3);
+      compute();
+      st.raf = requestAnimationFrame(tick);
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!st) return;
+      st.cx = e.clientX;
+      st.cy = e.clientY;
+      if (!st.active) {
+        if (Math.hypot(e.clientX - st.sx, e.clientY - st.sy) < THRESHOLD) return;
+        st.active = true;
+        if (!st.additive) opts.selected.clear();
+        const box = document.createElement("div");
+        box.className = "marquee-box";
+        document.body.appendChild(box);
+        st.box = box;
+        document.body.classList.add("marquee-active");
+        try { window.getSelection()?.removeAllRanges(); } catch {}
+        st.raf = requestAnimationFrame(tick);
+      }
+      compute();
+    };
+    const swallow = (e: Event) => { e.stopPropagation(); e.preventDefault(); };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      const was = st;
+      st = null;
+      if (!was || !was.active) return;
+      cancelAnimationFrame(was.raf);
+      was.box?.remove();
+      document.body.classList.remove("marquee-active");
+      // The click that follows a drag must not play/toggle the row under it.
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      window.setTimeout(() => window.removeEventListener("click", swallow, true), 80);
+    };
+    scroller.addEventListener("mousedown", e => {
+      if (e.button !== 0 || (opts.enabled && !opts.enabled())) return;
+      const t = e.target as HTMLElement;
+      if (t.closest("button, input, select, textarea, a, .lib-col-head, [data-col-id]")) return;
+      const r = scroller.getBoundingClientRect();
+      // Scrollbar gutters are not part of the list.
+      if (e.clientX >= r.left + scroller.clientWidth || e.clientY >= r.top + scroller.clientHeight) return;
+      if (!scroller.querySelector(opts.rowSel)) return;
+      const onRow = !!t.closest(opts.rowSel);
+      if (onRow && !opts.fromRow(e)) return;
+      // A marquee that begins on a row must not also start that row's own
+      // drag-reorder (it listens on the row itself).
+      if (onRow) e.stopPropagation();
+      e.preventDefault();
+      const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+      st = {
+        x0: e.clientX, y0c: e.clientY - r.top + scroller.scrollTop, sx: e.clientX, sy: e.clientY,
+        base: additive ? new Set(opts.selected) : new Set<string>(), additive, active: false,
+        hits: new Map(), box: null, cx: e.clientX, cy: e.clientY, raf: 0,
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    }, true);
   }
 
   function updatePlaylistSelectionUI() {
@@ -4036,6 +4214,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       // Only a view projection.
       playlistSort.disabled = false;
       playlistSort.title = viewingQueue ? "Sort the play queue (re-orders playback)" : "Sort tracks";
+      // Restore this view's remembered sort (display only — the queue is NOT
+      // re-sorted: its stored order already is the sorted one).
+      const wanted = readSavedSort(currentPlaylistId);
+      if (playlistSort.value !== wanted) playlistSort.value = wanted;
     }
     if (playlistSearch) {
       // Round 78: no longer disabled for the queue — it turns into the
@@ -4269,9 +4451,46 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return v.length >= MIN_SEARCH_LEN ? v : null;
   }
 
+  // Round 118: totals line. Numbers come from the DB (SUM over ALL rows, not
+  // just the rendered window); coalesced so bursts of events cost one query.
+  let playlistStatsTimer: number | undefined;
+  let playlistStatsSeq = 0;
+  let activeEntryId: number | null = null;
+  function schedulePlaylistStats() {
+    window.clearTimeout(playlistStatsTimer);
+    playlistStatsTimer = window.setTimeout(() => void refreshPlaylistStats(), 120);
+  }
+  async function refreshPlaylistStats() {
+    const textEl = document.getElementById("playlistStatsText");
+    const hintEl = document.getElementById("playlistStatsHint");
+    if (!textEl || !invoke) return;
+    const seq = ++playlistStatsSeq;
+    const viewingQueue = currentPlaylistId === QUEUE_ID;
+    const search = viewingQueue ? null : playlistSearchQuery();
+    try {
+      const totals = viewingQueue
+        ? await invoke<{ count: number; seconds: number; remainingSeconds: number }>("queue_totals", { currentEntryId: activeEntryId, currentTrackId: currentTrackId })
+        : await invoke<{ count: number; seconds: number; remainingSeconds: number }>("playlist_totals", { playlistId: currentPlaylistId, search });
+      if (seq !== playlistStatsSeq) return;
+      let text = "";
+      if (totals.count > 0) {
+        text = `${fmtCount(totals.count)} track${totals.count === 1 ? "" : "s"} · ${fmtTotal(totals.seconds)}`;
+        if (viewingQueue && currentTrackId && totals.remainingSeconds < totals.seconds) text += ` · ${fmtTotal(totals.remainingSeconds)} left`;
+      }
+      textEl.textContent = text;
+      if (hintEl) {
+        const sorted = (playlistSort?.value || "default") !== "default";
+        const auto = !!playlists.find(p => p.id === currentPlaylistId && p.kind === "auto");
+        hintEl.textContent = sorted && !auto && totals.count > 1 ? "Sorted · set Default to drag-reorder" : "";
+      }
+    } catch {
+      if (seq === playlistStatsSeq) { textEl.textContent = ""; if (hintEl) hintEl.textContent = ""; }
+    }
+  }
+
   async function renderPlaylistVirtual(reset = false) {
     if (!playlistList || !invoke) return;
-    if (reset) playlistList.scrollTop = 0;
+    if (reset) { playlistList.scrollTop = 0; schedulePlaylistStats(); }
     // Row height for THIS render pass — the compact toggle changes it, and
     // Every measurement below (windowing math, absolute tops, total height)
     // Must agree with what the CSS paints.
@@ -4520,6 +4739,36 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   // TypeScript cannot call a nullable function after an await without another
   // Guard; this helper centralizes that check for small event handlers.
+  // Round 118: "Play next" / "Add to end of queue" for Library rows. Both write
+  // the DB queue first, then tell the player (queue-entries-added) so its
+  // runtime queue follows; "next" lands right after the playing entry.
+  async function queueLibraryTracks(ids: string[], where: "next" | "end") {
+    await loadCore();
+    if (!invoke || !ids.length) return;
+    const tracks = await getTracksByIds(ids);
+    if (!tracks.length) { toast("Those tracks are no longer in the library"); return; }
+    const trackIds = tracks.map(t => t.id);
+    try {
+      let entryIds: number[];
+      const anchorEntry = where === "next" ? activeEntryId : null;
+      const anchorTrack = where === "next" ? currentTrackId : null;
+      if (where === "next") {
+        entryIds = await invoke<number[]>("insert_queue_after", { trackIds, afterEntryId: anchorEntry, afterTrackId: anchorTrack });
+      } else {
+        entryIds = await invoke<number[]>("append_queue_tracks", { trackIds });
+      }
+      const added = tracks.map((t, i) => (Array.isArray(entryIds) && entryIds[i] != null ? { ...t, playlistEntryId: Number(entryIds[i]) } : t));
+      busEmit("melo:queue-entries-added", { tracks: added, afterEntryId: anchorEntry, afterTrackId: anchorTrack });
+      busEmit("melo:queue-changed", {});
+      const n = tracks.length;
+      toast(where === "next"
+        ? (n === 1 ? "Will play next" : `${n} tracks will play next`)
+        : (n === 1 ? "Added to the end of the queue" : `Added ${n} tracks to the end of the queue`));
+    } catch (e) {
+      toast("Couldn't update the play queue — " + String(e));
+    }
+  }
+
   async function invokeSafe<T>(command: string, args?: Record<string, unknown>): Promise<T | null> {
     if (!invoke) return null;
     return invoke<T>(command, args);
@@ -5033,7 +5282,31 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     clearPlaylistSelection();
     renderPlaylistVirtual(true);
   });
+  attachMarquee({
+    scroller: trackList,
+    rowSel: "[data-track-id]",
+    idOf: row => row.dataset.trackId || null,
+    selected: librarySelectedIds,
+    onChange: updateLibrarySelectionUI,
+    fromRow: () => true,
+    enabled: () => !trackList?.hasAttribute("data-home"),
+  });
+  attachMarquee({
+    scroller: playlistList,
+    rowSel: "[data-pl-entry]",
+    idOf: row => row.dataset.plEntry || null,
+    selected: playlistSelectedEntryIds,
+    onChange: updatePlaylistSelectionUI,
+    // Where drag-reorder is on, a drag from a ROW reorders; Ctrl+drag (or a
+    // drag from empty space) selects instead.
+    fromRow: e => e.ctrlKey || e.metaKey || e.shiftKey || !(
+      !playlists.find(p => p.id === currentPlaylistId && p.kind === "auto")
+      && !playlistSearchQuery()
+      && (playlistSort?.value || "default") === "default"
+    ),
+  });
   playlistSort?.addEventListener("change", async () => {
+    writeSavedSort(currentPlaylistId, playlistSort?.value || "default");
     clearPlaylistSelection();
     // Sorting the QUEUE persists a new play order (backend rewrite +
     // Broadcast); stored playlists keep projection-only sorting.
@@ -5401,10 +5674,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   busOn("melo:playlist-changed", () => {
     refreshPlaylists();
     renderPlaylistVirtual();
+    schedulePlaylistStats();
     renderEmbeddedPlaylist();
   });
   busOn("melo:queue-changed", () => {
-    if (currentPlaylistId === QUEUE_ID) renderPlaylistVirtual();
+    if (currentPlaylistId === QUEUE_ID) { renderPlaylistVirtual(); schedulePlaylistStats(); }
     renderEmbeddedPlaylist();
   });
   busOn("melo:current-playlist-changed", (payload: any) => {
@@ -5423,7 +5697,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   // Keep the "now playing" row highlighted in the Playlist window.
   busOn("melo:track-changed", (t: any) => {
+    activeEntryId = t?.playlistEntryId != null ? Number(t.playlistEntryId) : null;
     setActiveTrack(t?.id || null);
+    if (currentPlaylistId === QUEUE_ID) schedulePlaylistStats();
     if (t?.id) touchTrackPlayed(t.id);
     embeddedPlaylistContainer.querySelectorAll<HTMLElement>("[data-ep-track]").forEach(row => {
       row.classList.toggle("active", row.dataset.epTrack === (t?.id || null));
