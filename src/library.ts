@@ -553,6 +553,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // unselected row acts on itself alone.
   let contextQueueIds: string[] = [];
   function showTrackContextMenu(event: MouseEvent, id: string) {
+    contextEntryIds = null;
     contextTrackId = id;
     contextLibraryGroup = null;
     contextQueueIds = librarySelectedIds.has(id) && librarySelectedIds.size > 1 ? Array.from(librarySelectedIds) : [id];
@@ -568,6 +569,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     positionLibraryContextMenu(event);
   }
   function showGroupContextMenu(event: MouseEvent, group: ContextLibraryGroup) {
+    contextEntryIds = null;
     contextTrackId = null;
     contextLibraryGroup = group;
     contextPlayNext.hidden = true;
@@ -628,9 +630,35 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     if (!unique.length) return;
     busEmit("melo:open-tag-editor", { ids: unique });
   }
+  // Playlist / queue rows: only "Edit tags…" applies. Rows are ENTRIES, so the
+  // tracks are resolved in the database (a track may appear twice).
+  let contextEntryIds: string[] | null = null;
+  async function trackIdsOfEntries(entryIds: string[]): Promise<string[]> {
+    if (!invoke || !entryIds.length) return [];
+    return await invoke<string[]>("entry_track_ids", {
+      source: currentPlaylistId === QUEUE_ID ? "queue" : currentPlaylistId,
+      entryIds: entryIds.map(Number).filter(Number.isFinite),
+    });
+  }
+  function showEntryContextMenu(event: MouseEvent, entryIds: string[]) {
+    contextEntryIds = entryIds;
+    contextTrackId = null;
+    contextLibraryGroup = null;
+    for (const b of [contextPlayNext, contextAddToQueue, contextOpenFolder, contextRemoveTrack, contextRemoveGroup]) b.hidden = true;
+    contextEditTags.hidden = false;
+    contextEditTags.textContent = entryIds.length > 1 ? `Edit tags of ${entryIds.length} tracks…` : "Edit tags…";
+    positionLibraryContextMenu(event);
+  }
   contextEditTags.onclick = async event => {
     event.stopPropagation();
     libraryContextMenu.style.display = "none";
+    if (contextEntryIds) {
+      const entries = contextEntryIds;
+      contextEntryIds = null;
+      try { openTagEditor(await trackIdsOfEntries(entries)); }
+      catch (e) { toast("Couldn't open the tag editor — " + String(e)); }
+      return;
+    }
     const group = contextLibraryGroup;
     const ids = contextTrackId ? contextQueueIds.slice() : [];
     if (group) {
@@ -807,6 +835,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   };
 
   const playlistBulk = createBulkBar([
+    {
+      label: "Tags…",
+      onClick: async () => {
+        const entries = Array.from(playlistSelectedEntryIds);
+        try { openTagEditor(await trackIdsOfEntries(entries)); }
+        catch (e) { toast("Couldn't open the tag editor — " + String(e)); }
+      },
+    },
     {
       label: "Remove",
       danger: true,
@@ -4686,6 +4722,21 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // RE-ATTACH the flash; genuine data paints (reset=true) re-query.
     if (reset) void queueFindResync(); else queueFindHighlight();
     playlistList.querySelectorAll<HTMLElement>("[data-pl-track]").forEach(row => {
+      row.oncontextmenu = event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const entry = row.dataset.plEntry || "";
+        const track = row.dataset.plTrack || "";
+        if (entry) {
+          // Right-click on a selected row acts on the whole selection.
+          const ids = playlistSelectedEntryIds.has(entry) && playlistSelectedEntryIds.size > 1 ? Array.from(playlistSelectedEntryIds) : [entry];
+          showEntryContextMenu(event, ids);
+        } else if (track) {
+          // Rows without an entry id (read-only automatic lists) carry the track itself.
+          showTrackContextMenu(event, track);
+          for (const b of [contextPlayNext, contextAddToQueue, contextOpenFolder, contextRemoveTrack, contextRemoveGroup]) b.hidden = true;
+        }
+      };
       row.onclick = async event => {
         if ((event.target as HTMLElement).closest("[data-remove-entry], [data-remove-queue-entry]")) return;
         const index = Number(row.dataset.pageIndex || 0);

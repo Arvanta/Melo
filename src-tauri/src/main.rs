@@ -1091,6 +1091,7 @@ fn main() {
             library_db::tag_cover_read,
             library_db::tag_write_each,
             library_db::tag_info,
+            library_db::entry_track_ids,
             library_db::playlist_track_index,
             library_db::insert_queue_after,
             library_db::replace_queue_tracks,

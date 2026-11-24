@@ -4317,6 +4317,36 @@ pub async fn move_playlist_entries(playlist_id: String, entry_ids: Vec<i64>, tar
 /// Removes queue rows by ENTRY id (the × button); returns the remaining
 /// order as entry+track rows for the broadcast so the player follows
 /// immediately.
+/// Playlist / queue rows are ENTRY-keyed (a track can appear twice). The tag
+/// editor needs the TRACKS: entry ids -> distinct track ids, in list order.
+/// `source` is "queue" or a playlist id.
+fn entry_track_ids_in(conn: &Connection, source: &str, entry_ids: &[i64]) -> Result<Vec<String>, String> {
+    let wanted: std::collections::HashSet<i64> = entry_ids.iter().copied().collect();
+    let rows: Vec<(i64, String)> = if source == "queue" {
+        let mut stmt = conn.prepare("SELECT entry_id, track_id FROM queue ORDER BY position, entry_id").map_err(|e| e.to_string())?;
+        let it = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))).map_err(|e| e.to_string())?;
+        it.filter_map(log_skipped).collect()
+    } else {
+        let mut stmt = conn.prepare("SELECT entry_id, track_id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position, entry_id").map_err(|e| e.to_string())?;
+        let it = stmt.query_map(params![source], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))).map_err(|e| e.to_string())?;
+        it.filter_map(log_skipped).collect()
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (entry, track) in rows {
+        if wanted.contains(&entry) && seen.insert(track.clone()) {
+            out.push(track);
+        }
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn entry_track_ids(source: String, entry_ids: Vec<i64>, state: State<'_, LibraryState>) -> Result<Vec<String>, String> {
+    let conn = locked_db(&state)?;
+    entry_track_ids_in(&conn, &source, &entry_ids)
+}
+
 #[tauri::command]
 pub async fn remove_queue_entries(entry_ids: Vec<i64>, state: State<'_, LibraryState>) -> Result<Vec<QueueOrderRow>, String> {
     let conn = locked_db(&state)?;
@@ -4848,5 +4878,26 @@ mod purge_tests {
         conn.execute("INSERT INTO tracks VALUES ('a')", []).unwrap();
         let again: i64 = conn.query_row("SELECT COUNT(*) FROM listen_log WHERE track_id='a'", [], |r| r.get(0)).unwrap();
         assert_eq!(again, 0);
+    }
+}
+
+#[cfg(test)]
+mod entry_track_tests {
+    use super::*;
+
+    #[test]
+    fn entries_resolve_to_distinct_tracks_in_list_order() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE queue (entry_id INTEGER PRIMARY KEY, track_id TEXT NOT NULL, position INTEGER NOT NULL);
+             CREATE TABLE playlist_tracks (entry_id INTEGER PRIMARY KEY, playlist_id TEXT NOT NULL, track_id TEXT NOT NULL, position INTEGER NOT NULL);
+             INSERT INTO queue VALUES (1,'a',0),(2,'b',1),(3,'a',2);
+             INSERT INTO playlist_tracks VALUES (10,'p','x',1),(11,'p','y',0),(12,'q','z',0);",
+        ).unwrap();
+        // the same track queued twice counts once
+        assert_eq!(entry_track_ids_in(&conn, "queue", &[3, 1, 2]).unwrap(), vec!["a", "b"]);
+        // list order, not request order; other playlists are ignored
+        assert_eq!(entry_track_ids_in(&conn, "p", &[10, 11, 12]).unwrap(), vec!["y", "x"]);
+        assert!(entry_track_ids_in(&conn, "queue", &[99]).unwrap().is_empty());
     }
 }

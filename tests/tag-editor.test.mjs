@@ -99,3 +99,11 @@ test("edited files get a fresh media URL and cover caches are dropped (WebView2 
   assert.match(player, /q\.cover = /);
   assert.match(player, /clearGapless\(\);\s*try \{ const d = otherDeck\(\)/);
 });
+
+test("playlist and queue rows can open the tag editor", () => {
+  assert.match(lib, /showEntryContextMenu\(event, ids\)/);
+  assert.match(lib, /"entry_track_ids"/);
+  assert.match(lib, /label: "Tags…",\s+onClick: async \(\) => \{\s+const entries = Array\.from\(playlistSelectedEntryIds\)/);
+  assert.match(rs, /pub async fn entry_track_ids/);
+  assert.match(mainRs, /library_db::entry_track_ids,/);
+});
