@@ -443,6 +443,13 @@ export function setupLyrics(
   });
   // The tag editor changed this track's lyrics (tag, .lrc or cache): drop the
   // cached lookup and re-read if it is the track shown right now.
+  busOn("melo:tracks-renamed", (p: any) => {
+    const map: { oldId: string; newId: string; newPath: string }[] = Array.isArray(p?.map) ? p.map : [];
+    for (const m of map) {
+      if (currentTrackId === m.oldId) currentTrackId = m.newId;
+      if (lastTrack && (lastTrack.id === m.oldId || lastTrack.path === m.oldId)) lastTrack = { ...lastTrack, id: m.newId, path: m.newPath };
+    }
+  });
   busOn("melo:lyrics-changed", (p: any) => {
     if (!p || typeof p.trackPath !== "string") return;
     clearLyricsCache(p.trackPath);

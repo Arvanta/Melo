@@ -3,6 +3,7 @@
 mod instance_guard;
 mod library_db;
 mod tag_edit;
+mod file_rename;
 mod waveform;
 
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -1092,6 +1093,7 @@ fn main() {
             library_db::tag_write_each,
             library_db::tag_info,
             library_db::entry_track_ids,
+            library_db::rename_tracks,
             library_db::playlist_track_index,
             library_db::insert_queue_after,
             library_db::replace_queue_tracks,

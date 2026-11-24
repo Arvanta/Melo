@@ -4734,6 +4734,103 @@ pub async fn tag_info(track_ids: Vec<String>, state: State<'_, LibraryState>) ->
     .map_err(|e| e.to_string())?
 }
 
+/// Moves one track's identity in every table that references it. Normally
+/// id == path; a row whose id differs keeps its id and only gets the new path.
+/// Needs `defer_foreign_keys=ON` (set by the caller's transaction) because the
+/// child tables reference tracks(id) without ON UPDATE.
+fn move_track_rows(tx: &Connection, old_id: &str, old_path: &str, new_path: &str) -> Result<String, String> {
+    let new_id = if old_id == old_path { new_path.to_string() } else { old_id.to_string() };
+    tx.execute("UPDATE tracks SET id=?2, path=?3 WHERE id=?1", params![old_id, new_id, new_path])
+        .map_err(|e| format!("The library could not be updated ({e})"))?;
+    if new_id != old_id {
+        tx.execute("UPDATE playlist_tracks SET track_id=?2 WHERE track_id=?1", params![old_id, new_id]).map_err(|e| e.to_string())?;
+        tx.execute("UPDATE queue SET track_id=?2 WHERE track_id=?1", params![old_id, new_id]).map_err(|e| e.to_string())?;
+        tx.execute("UPDATE listen_log SET track_id=?2 WHERE track_id=?1", params![old_id, new_id]).map_err(|e| e.to_string())?;
+    }
+    Ok(new_id)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameItem {
+    pub track_id: String,
+    /// New file name WITHOUT extension (the extension and folder never change).
+    pub new_stem: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Renamed {
+    pub old_id: String,
+    pub new_id: String,
+    pub new_path: String,
+}
+
+/// Renames audio files (all or nothing). The track id IS the path, so the id is
+/// moved in every table that references it in ONE transaction; a `.lrc` next to
+/// the file and the lyrics-cache entry follow the file. Any failure puts every
+/// file back.
+#[tauri::command]
+pub async fn rename_tracks(app: tauri::AppHandle, items: Vec<RenameItem>, state: State<'_, LibraryState>) -> Result<Vec<Renamed>, String> {
+    use crate::file_rename::{apply_renames, target_for, undo_renames, RenamePair};
+    let db_path = state.db_path.clone();
+    let art_cache = state.full_art_cache.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<Renamed>, String> {
+        let mut conn = open_db(&db_path)?;
+        struct Plan { old_id: String, old_path: String, from: std::path::PathBuf, to: std::path::PathBuf }
+        let mut plans: Vec<Plan> = Vec::new();
+        let mut pairs: Vec<RenamePair> = Vec::new();
+        for it in &items {
+            let Some(old_path) = track_path_of(&conn, &it.track_id)? else {
+                return Err("This track is no longer in the library".into());
+            };
+            let from = std::path::PathBuf::from(&old_path);
+            let to = target_for(&from, &it.new_stem)?;
+            if to == from { continue; }
+            pairs.push(RenamePair { from: from.clone(), to: to.clone() });
+            let lrc_from = from.with_extension("lrc");
+            if lrc_from.is_file() {
+                pairs.push(RenamePair { from: lrc_from, to: to.with_extension("lrc") });
+            }
+            plans.push(Plan { old_id: it.track_id.clone(), old_path, from, to });
+        }
+        if plans.is_empty() { return Ok(Vec::new()); }
+        apply_renames(&pairs)?;
+
+        let db_result = (|| -> Result<Vec<Renamed>, String> {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            tx.pragma_update(None, "defer_foreign_keys", "ON").map_err(|e| e.to_string())?;
+            let mut out = Vec::new();
+            for p in &plans {
+                let new_path = p.to.to_string_lossy().to_string();
+                let new_id = move_track_rows(&tx, &p.old_id, &p.old_path, &new_path)?;
+                out.push(Renamed { old_id: p.old_id.clone(), new_id, new_path });
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(out)
+        })();
+        let renamed = match db_result {
+            Ok(r) => r,
+            Err(e) => {
+                undo_renames(&pairs);
+                return Err(format!("{e}. No file was renamed."));
+            }
+        };
+        // Best effort from here on: the files and the database already agree.
+        if let Ok(mut cache) = art_cache.lock() {
+            for p in &plans { cache.remove(&p.old_id); }
+        }
+        for p in &plans {
+            if let (Some(c_from), Some(c_to)) = (crate::cached_lrc_path(&app, &p.from), crate::cached_lrc_path(&app, &p.to)) {
+                if c_from.is_file() && !c_to.exists() { let _ = std::fs::rename(c_from, c_to); }
+            }
+        }
+        Ok(renamed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagWriteItem {
@@ -4899,5 +4996,53 @@ mod entry_track_tests {
         // list order, not request order; other playlists are ignored
         assert_eq!(entry_track_ids_in(&conn, "p", &[10, 11, 12]).unwrap(), vec!["y", "x"]);
         assert!(entry_track_ids_in(&conn, "queue", &[99]).unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod rename_row_tests {
+    use super::*;
+
+    #[test]
+    fn id_moves_through_every_table_with_foreign_keys_on() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tracks (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE);
+             CREATE TABLE playlist_tracks (entry_id INTEGER PRIMARY KEY, playlist_id TEXT NOT NULL, track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, position INTEGER NOT NULL);
+             CREATE TABLE queue (entry_id INTEGER PRIMARY KEY, track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE, position INTEGER NOT NULL);
+             CREATE TABLE listen_log (id INTEGER PRIMARY KEY AUTOINCREMENT, track_id TEXT NOT NULL, started_at INTEGER NOT NULL, seconds REAL NOT NULL, counted INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO tracks VALUES ('/m/a.mp3','/m/a.mp3'),('/m/other.mp3','/m/other.mp3');
+             INSERT INTO playlist_tracks VALUES (1,'p','/m/a.mp3',0),(2,'p','/m/other.mp3',1);
+             INSERT INTO queue VALUES (1,'/m/a.mp3',0),(2,'/m/a.mp3',1);
+             INSERT INTO listen_log(track_id,started_at,seconds,counted) VALUES ('/m/a.mp3',1,30,1),('/m/other.mp3',2,30,1);",
+        ).unwrap();
+        let tx = conn.transaction().unwrap();
+        tx.pragma_update(None, "defer_foreign_keys", "ON").unwrap();
+        let id = move_track_rows(&tx, "/m/a.mp3", "/m/a.mp3", "/m/b.mp3").unwrap();
+        tx.commit().unwrap();
+        assert_eq!(id, "/m/b.mp3");
+        let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(count("SELECT COUNT(*) FROM tracks WHERE id='/m/b.mp3' AND path='/m/b.mp3'"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM tracks WHERE id='/m/a.mp3'"), 0);
+        assert_eq!(count("SELECT COUNT(*) FROM playlist_tracks WHERE track_id='/m/b.mp3'"), 1);
+        assert_eq!(count("SELECT COUNT(*) FROM queue WHERE track_id='/m/b.mp3'"), 2);
+        assert_eq!(count("SELECT COUNT(*) FROM listen_log WHERE track_id='/m/b.mp3'"), 1);
+        // the other track is untouched and the foreign keys still hold
+        assert_eq!(count("SELECT COUNT(*) FROM playlist_tracks WHERE track_id='/m/other.mp3'"), 1);
+        let violations: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
+        assert_eq!(violations, 0);
+    }
+
+    #[test]
+    fn a_taken_path_fails_and_rolls_back() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE tracks (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE);
+            INSERT INTO tracks VALUES ('/m/a.mp3','/m/a.mp3'),('/m/b.mp3','/m/b.mp3');").unwrap();
+        let tx = conn.transaction().unwrap();
+        assert!(move_track_rows(&tx, "/m/a.mp3", "/m/a.mp3", "/m/b.mp3").is_err());
+        drop(tx);
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM tracks WHERE id='/m/a.mp3'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
     }
 }

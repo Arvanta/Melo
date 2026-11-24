@@ -3078,3 +3078,6 @@ select.te-input { padding-right: 4px; }
 .te-lyr-text { flex: 1; min-height: 220px; resize: none; font-size: 13px; line-height: 1.6; white-space: pre; overflow: auto; }
 .te-lyr-bottom { display: flex; gap: 10px; align-items: flex-end; }
 .te-lyr-bottom .te-field { flex: 1; }
+.te-rename { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--card-border); }
+.te-renamerow { display: flex; gap: 6px; align-items: center; }
+.te-ext { color: var(--muted, #888); font-size: 12.5px; flex: none; }

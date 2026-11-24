@@ -18,6 +18,7 @@ import {
   TEXT_FIELDS as TOOL_TEXT_FIELDS,
   type FieldKey, type FileRef, type PerFile,
 } from "./tag-tools";
+import { splitFileName, stemProblem } from "./file-rename";
 import {
   allowedTargets, defaultTarget, infoRows, KIND_LABEL, planLyricWrites, slotOf,
   type Info, type LyricDraft, type LyricKind, type LyricSlot, type LyricSource,
@@ -510,7 +511,80 @@ export function setupTagEditor(toast: (m: string) => void) {
   function renderInfo() {
     const rows = infoRows(infos || []);
     if (!rows.length) { infoEl.innerHTML = `<div class="te-pl muted">No details available.</div>`; return; }
-    infoEl.innerHTML = rows.map(([k, v]) => `<div class="te-inforow"><span class="te-infokey">${esc(k)}</span><span class="te-infoval" title="${esc(v)}">${esc(v)}</span></div>`).join("");
+    const f = n() === 1 ? editable()[0] : null;
+    const sp = f ? splitFileName(f.fileName) : null;
+    const renameBox = f && sp ? `
+      <div class="te-rename">
+        <div class="te-label">File name</div>
+        <div class="te-renamerow">
+          <input class="te-input" id="teRenameInput" spellcheck="false" autocomplete="off">
+          <span class="te-ext">${esc(sp.ext)}</span>
+          <button type="button" class="btn small" id="teRenameBtn">Rename</button>
+        </div>
+        <div class="te-hint" id="teRenameHint"></div>
+      </div>` : "";
+    infoEl.innerHTML = renameBox + rows.map(([k, v]) => `<div class="te-inforow"><span class="te-infokey">${esc(k)}</span><span class="te-infoval" title="${esc(v)}">${esc(v)}</span></div>`).join("");
+    if (f && sp) wireRename(f, sp);
+  }
+
+  // ── Rename the file (one track; the folder and the extension never change) ──
+  function hasUnsaved() { return dirty.size > 0 || perFile.size > 0 || !!cover || Object.keys(lyrDrafts).length > 0; }
+  function wireRename(f: FileInfo, sp: { stem: string; ext: string }) {
+    const input = infoEl.querySelector<HTMLInputElement>("#teRenameInput")!;
+    const btn = infoEl.querySelector<HTMLButtonElement>("#teRenameBtn")!;
+    const hint = infoEl.querySelector<HTMLElement>("#teRenameHint")!;
+    input.value = sp.stem;
+    const refresh = () => {
+      const value = input.value.trim();
+      const problem = stemProblem(input.value);
+      const unchanged = value === sp.stem;
+      const unsaved = hasUnsaved();
+      hint.classList.toggle("err", !!problem && !unchanged);
+      hint.textContent = unsaved ? "Save or revert your tag changes first, then rename."
+        : problem && !unchanged ? problem
+        : unchanged ? "Only the name changes — the folder and the extension stay as they are. A .lrc file next to the song is renamed with it."
+        : `New name: ${value}${sp.ext}`;
+      btn.disabled = busy || unsaved || !!problem || unchanged;
+    };
+    input.oninput = refresh;
+    input.onkeydown = ev => { if (ev.key === "Enter" && !btn.disabled) btn.click(); };
+    btn.onclick = () => { void renameFile(f, input.value.trim(), hint, btn); };
+    refresh();
+  }
+  async function renameFile(f: FileInfo, stem: string, hint: HTMLElement, btn: HTMLButtonElement) {
+    if (busy || stemProblem(stem)) return;
+    busy = true;
+    btn.disabled = true;
+    hint.classList.remove("err");
+    hint.textContent = "Renaming…";
+    // The player lets go of the file first (Windows will not rename an open file).
+    busEmit("melo:tags-will-write", { paths: [f.path] });
+    await sleep(350);
+    let renamed: { oldId: string; newId: string; newPath: string }[] = [];
+    let failure = "";
+    try {
+      await ensureInvoke();
+      renamed = await invoke!<{ oldId: string; newId: string; newPath: string }[]>("rename_tracks", { items: [{ trackId: f.id, newStem: stem }] });
+    } catch (e) {
+      failure = String(e);
+    }
+    if (renamed.length) busEmit("melo:tracks-renamed", { map: renamed });
+    busEmit("melo:tags-written", { ids: [], paths: [], released: [f.path] });
+    busy = false;
+    if (failure) {
+      hint.classList.add("err");
+      hint.textContent = failure;
+      btn.disabled = false;
+      return;
+    }
+    if (renamed.length) {
+      busEmit("melo:library-changed", { tagsEdited: 1 });
+      try { localStorage.setItem(TAGEDIT_IDS_KEY, JSON.stringify([renamed[0].newId])); } catch {}
+      toast("File renamed");
+      await load([renamed[0].newId]);
+    } else {
+      await load([f.id]);
+    }
   }
 
   // ── Lyrics tab (single file) ──

@@ -625,6 +625,15 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     void queueLibraryTracks(contextQueueIds, "end");
   };
   // Round 119: the tag editor is its own window; the player window opens it.
+  // The tag editor renamed files (id == path): follow the new ids.
+  busOn("melo:tracks-renamed", (p: any) => {
+    const map: { oldId: string; newId: string }[] = Array.isArray(p?.map) ? p.map : [];
+    for (const m of map) {
+      if (currentTrackId === m.oldId) currentTrackId = m.newId;
+      librarySelectedIds.delete(m.oldId);
+    }
+    updateLibrarySelectionUI();
+  });
   function openTagEditor(ids: string[]) {
     const unique = Array.from(new Set(ids.filter(Boolean)));
     if (!unique.length) return;

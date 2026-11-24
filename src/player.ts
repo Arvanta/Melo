@@ -1393,6 +1393,28 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     tagRelease = { path: cur.path, time: audio.currentTime || 0, wasPlaying: !audio.paused };
     try { audio.pause(); audio.removeAttribute("src"); audio.load(); } catch {}
   });
+  // The tag editor renamed files: id == path, so every in-memory and stored
+  // reference to the old id must follow, or the queue would point at nothing.
+  busOn("melo:tracks-renamed", (p: any) => {
+    const map: { oldId: string; newId: string; newPath: string }[] = Array.isArray(p?.map) ? p.map : [];
+    if (!map.length) return;
+    const byOld = new Map(map.map(m => [m.oldId, m]));
+    for (const q of queue as any[]) {
+      const m = byOld.get(q?.id) || byOld.get(q?.path);
+      if (m) { q.id = m.newId; q.path = m.newPath; }
+    }
+    if (tagRelease) { const m = byOld.get(tagRelease.path); if (m) tagRelease.path = m.newPath; }
+    for (const m of map) bumpSrcVersion(m.newPath);
+    try {
+      const snap = JSON.parse(localStorage.getItem("melo-current-track") || "null");
+      const m = snap && (byOld.get(snap.id) || byOld.get(snap.path));
+      if (m) { snap.id = m.newId; snap.path = m.newPath; localStorage.setItem("melo-current-track", JSON.stringify(snap)); }
+      const rs = JSON.parse(localStorage.getItem("melo-resume-state") || "null");
+      const m2 = rs && byOld.get(rs.trackId);
+      if (m2) { rs.trackId = m2.newId; localStorage.setItem("melo-resume-state", JSON.stringify(rs)); }
+    } catch {}
+    busEmit("melo:queue-changed", {});
+  });
   busOn("melo:tags-written", async (p: any) => {
     const rel = tagRelease;
     tagRelease = null;
