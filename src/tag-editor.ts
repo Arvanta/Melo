@@ -13,6 +13,11 @@
 //    after (melo:tags-will-write / melo:tags-written);
 //  - the backend writes through a temp copy, so a failed file is untouched.
 import { busEmit, busOn } from "./bus";
+import {
+  findReplaceAll, normalizeValue, numberTracks, tagsFromFilenames,
+  TEXT_FIELDS as TOOL_TEXT_FIELDS,
+  type FieldKey, type FileRef, type PerFile,
+} from "./tag-tools";
 
 type Fields = {
   title: string; artist: string; albumArtist: string; album: string; genre: string;
@@ -32,7 +37,6 @@ type WriteResult = { ok: string[]; failed: { id: string; path: string; error: st
 
 type TextKey = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "comment";
 type NumKey = "year" | "track" | "trackTotal" | "disc" | "discTotal";
-type FieldKey = TextKey | NumKey;
 
 export const TAGEDIT_IDS_KEY = "melo-tagedit-ids";
 const CHUNK = 25;
@@ -77,6 +81,9 @@ export function buildEdit(
   return { edit, errors };
 }
 
+const PATTERN_KEY = "melo-tagedit-pattern";
+const PATTERN_PRESETS = ["%track% - %title%", "%artist% - %title%", "%track% %title%", "%track%. %title%", "%artist% - %album% - %track% - %title%", "%disc%-%track% - %title%", "%artist%/%album%/%track% - %title%"];
+
 export function setupTagEditor(toast: (m: string) => void) {
   const root = document.getElementById("tagEditRoot");
   if (!root) return;
@@ -84,6 +91,8 @@ export function setupTagEditor(toast: (m: string) => void) {
   let files: FileInfo[] = [];
   let common: Common | null = null;
   const dirty = new Map<FieldKey, string>();
+  // Per-file values produced by the batch tools (layered over `dirty`).
+  const perFile: PerFile = new Map();
   let cover: { action: "set"; path: string } | { action: "remove" } | null = null;
   let coverPreview: string | null = null;
   let busy = false;
@@ -109,6 +118,42 @@ export function setupTagEditor(toast: (m: string) => void) {
         </div>
         <div class="te-form" id="teForm"></div>
       </div>
+      <details class="te-tools" id="teTools">
+        <summary>Batch tools</summary>
+        <div class="te-tabs">
+          <button type="button" class="on" data-tool="name">From file name</button>
+          <button type="button" data-tool="num">Number tracks</button>
+          <button type="button" data-tool="find">Find &amp; replace</button>
+        </div>
+        <div class="te-pane" data-pane="name">
+          <label class="te-field"><span class="te-label">Pattern</span>
+            <input class="te-input" id="teTPattern" list="tePatterns" spellcheck="false" autocomplete="off">
+            <datalist id="tePatterns">${PATTERN_PRESETS.map(p => `<option value="${esc(p)}"></option>`).join("")}</datalist></label>
+          <div class="te-hint">%track% %disc% %title% %artist% %albumartist% %album% %year% %genre% %composer% %comment% %ignore% — use / for folder levels.</div>
+          <label class="te-check"><input type="checkbox" id="teTUnderscore"> Underscores → spaces</label>
+          <label class="te-check"><input type="checkbox" id="teTEmpty"> Only fill fields that are empty</label>
+          <button type="button" class="btn small" id="teTNameGo">Apply to files</button>
+        </div>
+        <div class="te-pane" data-pane="num" style="display:none">
+          <div class="te-toolrow">
+            <label class="te-field narrow"><span class="te-label">Start at</span><input class="te-input" id="teTStart" value="1" inputmode="numeric"></label>
+            <label class="te-field"><span class="te-label">Order</span>
+              <select class="te-input" id="teTOrder"><option value="filename">By file name</option><option value="list">As selected</option></select></label>
+          </div>
+          <label class="te-check"><input type="checkbox" id="teTTotal"> Also set the track total</label>
+          <button type="button" class="btn small" id="teTNumGo">Number tracks</button>
+        </div>
+        <div class="te-pane" data-pane="find" style="display:none">
+          <label class="te-field"><span class="te-label">Field</span>
+            <select class="te-input" id="teTField"><option value="*">All text fields</option>${TOOL_TEXT_FIELDS.map(k => `<option value="${k}">${esc(LABELS[k])}</option>`).join("")}</select></label>
+          <label class="te-field"><span class="te-label">Find</span><input class="te-input" id="teTFind" spellcheck="false" autocomplete="off"></label>
+          <label class="te-field"><span class="te-label">Replace with</span><input class="te-input" id="teTRepl" spellcheck="false" autocomplete="off"></label>
+          <label class="te-check"><input type="checkbox" id="teTCase"> Match case</label>
+          <label class="te-check"><input type="checkbox" id="teTRegex"> Regular expression</label>
+          <button type="button" class="btn small" id="teTFindGo">Replace in files</button>
+        </div>
+        <div class="te-toolmsg" id="teToolMsg"></div>
+      </details>
       <div class="te-preview" id="tePreview"></div>
       <div class="te-files" id="teFiles"></div>
       <div class="te-footer">
@@ -122,6 +167,7 @@ export function setupTagEditor(toast: (m: string) => void) {
   const summaryEl = $("teSummary");
   const formEl = $("teForm");
   const previewEl = $("tePreview");
+  const toolsEl = $("teTools");
   const filesEl = $("teFiles");
   const statusEl = $("teStatus");
   const saveBtn = $<HTMLButtonElement>("teSave");
@@ -136,6 +182,56 @@ export function setupTagEditor(toast: (m: string) => void) {
     const v = common[key];
     if (v === null) return null; // mixed
     return typeof v === "number" ? (v ? String(v) : "") : v;
+  }
+
+  const fileOf = (id: string) => files.find(f => f.id === id);
+  const origOf = (f: FileInfo | undefined, k: FieldKey): string => {
+    const v = f?.fields ? (f.fields as any)[k] : "";
+    return typeof v === "number" ? (v ? String(v) : "") : (v ?? "");
+  };
+  /** Base value of a file before per-file tools: shared edit, else what the file has. */
+  const baseOf = (id: string, k: FieldKey) => (dirty.has(k) ? dirty.get(k)! : origOf(fileOf(id), k));
+  const effective = (id: string, k: FieldKey) => perFile.get(id)?.get(k) ?? baseOf(id, k);
+  const hasPer = (k: FieldKey) => { for (const m of perFile.values()) if (m.has(k)) return true; return false; };
+  function clearPerKey(k: FieldKey) {
+    for (const [id, m] of perFile) { m.delete(k); if (!m.size) perFile.delete(id); }
+  }
+  /** Drops tool values that equal what would be written anyway. */
+  function prunePerFile() {
+    for (const [id, m] of perFile) {
+      for (const [k, v] of m) if (normalizeValue(k, v) === normalizeValue(k, baseOf(id, k))) m.delete(k);
+      if (!m.size) perFile.delete(id);
+    }
+  }
+  function mergePer(values: PerFile) {
+    for (const [id, m] of values) for (const [k, v] of m) {
+      let t = perFile.get(id); if (!t) { t = new Map(); perFile.set(id, t); }
+      t.set(k, v);
+    }
+    prunePerFile();
+  }
+  const fileRefs = (): FileRef[] => editable().map(f => ({ id: f.id, path: f.path, fileName: f.fileName }));
+
+  type Plan =
+    | { mode: "shared"; targets: FileInfo[]; edit: Record<string, unknown>; errors: string[] }
+    | { mode: "each"; targets: FileInfo[]; items: { trackId: string; edit: Record<string, unknown> }[]; errors: string[] };
+  function buildPlan(): Plan {
+    const targets = editable();
+    if (!perFile.size) {
+      const { edit, errors } = buildEdit(dirty, cover);
+      return { mode: "shared", targets: Object.keys(edit).length ? targets : [], edit, errors };
+    }
+    const items: { trackId: string; edit: Record<string, unknown> }[] = [];
+    const errors: string[] = [];
+    const used: FileInfo[] = [];
+    for (const f of targets) {
+      const m = new Map(dirty);
+      for (const [k, v] of perFile.get(f.id) || []) m.set(k, v);
+      const r = buildEdit(m, cover);
+      for (const e of r.errors) { const msg = `${f.fileName}: ${e}`; if (!errors.includes(msg)) errors.push(msg); }
+      if (Object.keys(r.edit).length) { items.push({ trackId: f.id, edit: r.edit }); used.push(f); }
+    }
+    return { mode: "each", targets: used, items, errors };
   }
 
   function fieldHtml(key: FieldKey, label: string, opts: { area?: boolean; narrow?: boolean } = {}): string {
@@ -162,6 +258,7 @@ export function setupTagEditor(toast: (m: string) => void) {
       const key = el.dataset.key as FieldKey;
       applyInput(el as HTMLInputElement, key);
       el.addEventListener("input", () => {
+        if (hasPer(key)) clearPerKey(key); // typing sets ONE value for every file
         dirty.set(key, (el as HTMLInputElement).value);
         markDirty(el as HTMLInputElement, key);
         renderPreview();
@@ -170,6 +267,7 @@ export function setupTagEditor(toast: (m: string) => void) {
     formEl.querySelectorAll<HTMLElement>("[data-clear]").forEach(btn => {
       btn.onclick = () => {
         const key = btn.dataset.clear as FieldKey;
+        clearPerKey(key);
         dirty.set(key, "");
         const el = formEl.querySelector<HTMLInputElement>(`.te-input[data-key="${key}"]`)!;
         el.value = "";
@@ -181,13 +279,16 @@ export function setupTagEditor(toast: (m: string) => void) {
 
   function applyInput(el: HTMLInputElement, key: FieldKey) {
     const v = valueOf(key);
-    el.value = dirty.has(key) ? dirty.get(key)! : (v ?? "");
+    el.value = hasPer(key) ? "" : dirty.has(key) ? dirty.get(key)! : (v ?? "");
     markDirty(el, key);
   }
   function markDirty(el: HTMLInputElement, key: FieldKey) {
     const isDirty = dirty.has(key);
     const mixed = valueOf(key) === null;
-    el.classList.toggle("dirty", isDirty);
+    const per = hasPer(key);
+    el.classList.toggle("dirty", isDirty && !per);
+    el.classList.toggle("perfile", per);
+    if (per) { el.placeholder = "<per file>"; return; }
     el.placeholder = mixed ? (isDirty && !el.value ? "(cleared)" : "<mixed>") : "";
   }
 
@@ -227,26 +328,40 @@ export function setupTagEditor(toast: (m: string) => void) {
   }
 
   function renderPreview() {
-    const { edit, errors } = buildEdit(dirty, cover);
+    const plan = buildPlan();
     const lines: string[] = [];
+    const sharedEdit = buildEdit(dirty, cover).edit;
+    const shown = (v: unknown) => (v === "" || v === 0 ? "(empty)" : String(v));
     for (const key of Object.keys(LABELS) as FieldKey[]) {
-      if (!(key in edit)) continue;
+      if (!(key in sharedEdit) || hasPer(key)) continue;
       const before = valueOf(key);
-      const after = edit[key];
-      const shown = (v: unknown) => (v === "" || v === 0 ? "(empty)" : String(v));
       const prev = before === null ? "<mixed>" : before === "" ? "(empty)" : before;
-      lines.push(`<div class="te-pl"><b>${esc(LABELS[key])}</b> ${esc(prev)} → <i>${esc(shown(after))}</i></div>`);
+      lines.push(`<div class="te-pl"><b>${esc(LABELS[key])}</b> ${esc(prev)} → <i>${esc(shown(sharedEdit[key]))}</i></div>`);
     }
     if (cover?.action === "set") lines.push(`<div class="te-pl"><b>Cover</b> → new image</div>`);
     if (cover?.action === "remove") lines.push(`<div class="te-pl"><b>Cover</b> → removed</div>`);
-    for (const e of errors) lines.push(`<div class="te-pl err">${esc(e)}</div>`);
+    // Per-file rows from the batch tools: one line per file, only changed fields.
+    for (const f of editable()) {
+      const m = perFile.get(f.id);
+      if (!m) continue;
+      const parts: string[] = [];
+      for (const key of Object.keys(LABELS) as FieldKey[]) {
+        if (!m.has(key)) continue;
+        const before = origOf(f, key);
+        parts.push(`${esc(LABELS[key])}: ${esc(before === "" ? "(empty)" : before)} → <i>${esc(m.get(key)! === "" ? "(empty)" : m.get(key)!)}</i>`);
+      }
+      lines.push(`<div class="te-pl"><b>${esc(f.fileName || f.id)}</b> ${parts.join(" · ")}</div>`);
+    }
+    for (const e of plan.errors) lines.push(`<div class="te-pl err">${esc(e)}</div>`);
+    const count = plan.targets.length;
     if (!lines.length) {
       previewEl.innerHTML = `<div class="te-pl muted">No changes yet. Only the fields you edit are written${n() > 1 ? "; <mixed> fields stay as they are" : ""}.</div>`;
     } else {
-      previewEl.innerHTML = `<div class="te-ph">${n() > 1 ? `Will change ${n()} files` : "Will change this file"}</div>` + lines.join("");
+      previewEl.innerHTML = `<div class="te-ph">${count === 1 ? "Will change 1 file" : `Will change ${count} files`}</div>` + lines.join("");
     }
-    saveBtn.disabled = busy || !n() || !lines.length || errors.length > 0;
-    revertBtn.disabled = busy || (!dirty.size && !cover);
+    saveBtn.disabled = busy || !count || plan.errors.length > 0;
+    revertBtn.disabled = busy || (!dirty.size && !cover && !perFile.size);
+    toolsEl.style.display = n() ? "" : "none";
     renderCover();
   }
 
@@ -271,9 +386,11 @@ export function setupTagEditor(toast: (m: string) => void) {
   async function load(ids: string[]) {
     const gen = ++loadGen;
     dirty.clear();
+    perFile.clear();
     cover = null;
     coverPreview = null;
     current = null;
+    toolMsg.textContent = "";
     statusEl.textContent = "Reading tags…";
     try {
       await ensureInvoke();
@@ -334,9 +451,56 @@ export function setupTagEditor(toast: (m: string) => void) {
     coverPreview = null;
     renderPreview();
   };
+  // ── batch tools ──
+  const toolMsg = $("teToolMsg");
+  const chk = (id: string) => $<HTMLInputElement>(id).checked;
+  const val = (id: string) => $<HTMLInputElement>(id).value;
+  root.querySelectorAll<HTMLButtonElement>("[data-tool]").forEach(btn => {
+    btn.onclick = () => {
+      root.querySelectorAll<HTMLElement>("[data-tool]").forEach(b => b.classList.toggle("on", b === btn));
+      root.querySelectorAll<HTMLElement>("[data-pane]").forEach(p => { p.style.display = p.dataset.pane === btn.dataset.tool ? "" : "none"; });
+      toolMsg.textContent = "";
+    };
+  });
+  try { $<HTMLInputElement>("teTPattern").value = localStorage.getItem(PATTERN_KEY) || PATTERN_PRESETS[0]; }
+  catch { $<HTMLInputElement>("teTPattern").value = PATTERN_PRESETS[0]; }
+  const afterTool = (msg: string, isErr = false) => {
+    toolMsg.textContent = msg;
+    toolMsg.classList.toggle("err", isErr);
+    buildForm();
+    renderPreview();
+  };
+  $("teTNameGo").onclick = () => {
+    if (busy) return;
+    const pattern = val("teTPattern");
+    const r = tagsFromFilenames(fileRefs(), pattern, effective, { underscores: chk("teTUnderscore"), onlyEmpty: chk("teTEmpty") });
+    if (r.error) { afterTool(r.error, true); return; }
+    try { localStorage.setItem(PATTERN_KEY, pattern); } catch {}
+    mergePer(r.values);
+    const miss = r.unmatched.length;
+    afterTool(`Matched ${r.matched} of ${r.matched + miss} files` + (miss ? ` · ${miss} did not fit the pattern and are unchanged` : ""), r.matched === 0);
+  };
+  $("teTNumGo").onclick = () => {
+    if (busy) return;
+    const startText = val("teTStart").trim();
+    if (!/^\d+$/.test(startText)) { afterTool("Start must be a number", true); return; }
+    mergePer(numberTracks(fileRefs(), { start: Number(startText), setTotal: chk("teTTotal"), order: val("teTOrder") === "list" ? "list" : "filename" }));
+    afterTool(`Numbered ${n()} files from ${Number(startText)}`);
+  };
+  $("teTFindGo").onclick = () => {
+    if (busy) return;
+    const f = val("teTField");
+    const fields: FieldKey[] = f === "*" ? [...TOOL_TEXT_FIELDS] : [f as FieldKey];
+    const r = findReplaceAll(fileRefs(), fields, effective, val("teTFind"), val("teTRepl"), { matchCase: chk("teTCase"), regex: chk("teTRegex") });
+    if (r.error) { afterTool(r.error, true); return; }
+    mergePer(r.values);
+    afterTool(r.changed ? `Changed ${r.changed} file${r.changed === 1 ? "" : "s"}` : "Nothing matched");
+  };
+
   revertBtn.onclick = () => {
     if (busy) return;
-    dirty.clear(); cover = null; coverPreview = null;
+    dirty.clear(); perFile.clear(); cover = null; coverPreview = null;
+    toolMsg.textContent = "";
     buildForm();
     renderPreview();
   };
@@ -345,10 +509,9 @@ export function setupTagEditor(toast: (m: string) => void) {
 
   async function save() {
     if (busy) return;
-    const { edit, errors } = buildEdit(dirty, cover);
-    if (errors.length || !Object.keys(edit).length) return;
-    const targets = editable();
-    if (!targets.length) return;
+    const plan = buildPlan();
+    if (plan.errors.length || !plan.targets.length) return;
+    const targets = plan.targets;
     busy = true;
     saveBtn.disabled = true;
     const ids = targets.map(f => f.id);
@@ -365,7 +528,9 @@ export function setupTagEditor(toast: (m: string) => void) {
         statusEl.textContent = ids.length > 1 ? `Saving ${Math.min(i + CHUNK, ids.length)} / ${ids.length}…` : "Saving…";
         const part = ids.slice(i, i + CHUNK);
         try {
-          const res = await invoke!<WriteResult>("tag_write", { trackIds: part, edit });
+          const res = plan.mode === "shared"
+            ? await invoke!<WriteResult>("tag_write", { trackIds: part, edit: plan.edit })
+            : await invoke!<WriteResult>("tag_write_each", { items: plan.items.slice(i, i + CHUNK) });
           okIds.push(...res.ok);
           failed.push(...res.failed);
         } catch (e) {
@@ -390,10 +555,12 @@ export function setupTagEditor(toast: (m: string) => void) {
       : `Nothing was saved (${failed.length} failed).`;
     // Reload what is on disk now, keep the user's edits so a retry is one click.
     const keepDirty = new Map(dirty);
+    const keepPer: PerFile = new Map(Array.from(perFile, ([id, m]) => [id, new Map(m)] as [string, Map<FieldKey, string>]));
     const keepCover = cover;
     const keepPreview = coverPreview;
     await load(files.map(f => f.id));
     for (const [k, v] of keepDirty) dirty.set(k, v);
+    mergePer(keepPer); // values already on disk equal their file and are pruned
     cover = keepCover; coverPreview = keepPreview;
     buildForm();
     renderFiles(failed);

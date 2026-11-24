@@ -3040,3 +3040,22 @@ body.marquee-active, body.marquee-active * { user-select:none !important; -webki
 .te-footer { display: flex; gap: 8px; align-items: center; margin-top: auto; }
 .te-status { flex: 1; font-size: 11.5px; color: var(--text-soft); min-width: 0; }
 .te-footer .btn:disabled { opacity: .5; cursor: default; }
+
+/* Batch tools (round 120) */
+.te-tools { border: 1px solid var(--card-border); border-radius: 10px; background: var(--card); padding: 6px 10px 10px; }
+.te-tools > summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--text-soft); padding: 4px 0; user-select: none; }
+.te-tabs { display: flex; gap: 6px; margin: 6px 0 10px; flex-wrap: wrap; }
+.te-tabs button { appearance: none; border: 1px solid var(--card-border); background: transparent; color: var(--text-soft); border-radius: 999px; padding: 4px 10px; font-size: 11.5px; cursor: pointer; }
+.te-tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.te-pane { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.te-pane .te-field { align-self: stretch; }
+.te-pane .btn { align-self: flex-start; }
+.te-toolrow { display: flex; gap: 10px; align-self: stretch; align-items: flex-end; }
+.te-toolrow .te-field.narrow { width: 90px; }
+.te-hint { font-size: 10.5px; color: var(--text-muted); line-height: 1.5; }
+.te-check { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text); cursor: pointer; }
+.te-toolmsg { margin-top: 8px; font-size: 11.5px; color: var(--text-soft); min-height: 14px; }
+.te-toolmsg.err { color: #e5484d; }
+.te-input.perfile { border-color: var(--accent); border-style: dashed; }
+select.te-input { padding-right: 4px; }
+.te-preview { max-height: 220px; }

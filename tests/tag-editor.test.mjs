@@ -65,3 +65,11 @@ test("bulk bar keeps buttons on one line each and wraps the bar", () => {
   assert.match(css, /\.bulk-action-bar \.btn \{ white-space: nowrap; \}/);
   assert.match(css, /flex-wrap: wrap; justify-content: center; width: max-content/);
 });
+
+test("batch tools write per-file edits through tag_write_each", () => {
+  assert.match(ui, /from "\.\/tag-tools"/);
+  assert.match(ui, /"tag_write_each"/);
+  assert.match(ui, /prunePerFile/);
+  assert.match(rs, /pub async fn tag_write_each/);
+  assert.match(mainRs, /tag_write_each,/);
+});

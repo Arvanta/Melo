@@ -4578,16 +4578,25 @@ pub async fn tag_cover_read(track_id: String, state: State<'_, LibraryState>) ->
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn tag_write(track_ids: Vec<String>, edit: crate::tag_edit::TagEdit, state: State<'_, LibraryState>) -> Result<TagWriteResult, String> {
-    if edit.is_empty() {
-        return Ok(TagWriteResult { ok: Vec::new(), failed: Vec::new() });
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagWriteItem {
+    pub track_id: String,
+    pub edit: crate::tag_edit::TagEdit,
+}
+
+/// Shared writer: one (id, edit) pair per file. Covers are loaded once per
+/// distinct image path, up front, so a bad image fails the request before any
+/// file changes.
+async fn write_tag_items(items: Vec<(String, crate::tag_edit::TagEdit)>, state: &State<'_, LibraryState>) -> Result<TagWriteResult, String> {
+    let mut covers: std::collections::HashMap<String, crate::tag_edit::CoverImage> = std::collections::HashMap::new();
+    for (_, edit) in &items {
+        if let Some(crate::tag_edit::CoverEdit::Set { path }) = &edit.cover {
+            if !covers.contains_key(path) {
+                covers.insert(path.clone(), crate::tag_edit::load_cover(Path::new(path))?);
+            }
+        }
     }
-    // A bad cover image fails the whole request up front, before any file changes.
-    let cover = match &edit.cover {
-        Some(crate::tag_edit::CoverEdit::Set { path }) => Some(crate::tag_edit::load_cover(Path::new(path))?),
-        _ => None,
-    };
     let db_path = state.db_path.clone();
     let artwork_dir = state.artwork_dir.clone();
     let art_cache = state.full_art_cache.clone();
@@ -4595,17 +4604,22 @@ pub async fn tag_write(track_ids: Vec<String>, edit: crate::tag_edit::TagEdit, s
         let conn = open_db(&db_path)?;
         let mut ok: Vec<String> = Vec::new();
         let mut failed: Vec<TagWriteFailure> = Vec::new();
-        for id in track_ids {
+        for (id, edit) in items {
+            if edit.is_empty() { continue; }
             let Some(path) = track_path_of(&conn, &id)? else {
                 failed.push(TagWriteFailure { id, path: String::new(), error: "This track is no longer in the library".into() });
                 continue;
             };
             let p = Path::new(&path);
+            let cover = match &edit.cover {
+                Some(crate::tag_edit::CoverEdit::Set { path }) => covers.get(path),
+                _ => None,
+            };
             let result: Result<(), String> = if is_mka(p) {
                 Err("Tags of Matroska audio files cannot be edited".into())
             } else {
                 read_tagged_tolerant(p).and_then(|mut tagged| {
-                    crate::tag_edit::apply_edit(&mut tagged, &edit, cover.as_ref())?;
+                    crate::tag_edit::apply_edit(&mut tagged, &edit, cover)?;
                     crate::tag_edit::write_safely(p, &tagged)
                 })
             };
@@ -4626,6 +4640,21 @@ pub async fn tag_write(track_ids: Vec<String>, edit: crate::tag_edit::TagEdit, s
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// One edit applied to every listed file.
+#[tauri::command]
+pub async fn tag_write(track_ids: Vec<String>, edit: crate::tag_edit::TagEdit, state: State<'_, LibraryState>) -> Result<TagWriteResult, String> {
+    if edit.is_empty() {
+        return Ok(TagWriteResult { ok: Vec::new(), failed: Vec::new() });
+    }
+    write_tag_items(track_ids.into_iter().map(|id| (id, edit.clone())).collect(), &state).await
+}
+
+/// A DIFFERENT edit per file (tag-from-filename, numbering, find/replace).
+#[tauri::command]
+pub async fn tag_write_each(items: Vec<TagWriteItem>, state: State<'_, LibraryState>) -> Result<TagWriteResult, String> {
+    write_tag_items(items.into_iter().map(|i| (i.track_id, i.edit)).collect(), &state).await
 }
 
 #[cfg(test)]
