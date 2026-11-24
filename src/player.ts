@@ -1363,6 +1363,53 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // the new tracks would never play. Appending never shifts currentIndex;
   // the playing track is untouched. Entry-id dedupe makes a redelivery a
   // no-op.
+  // Round 119 (tag editor): a file that is open for playback cannot be replaced
+  // on Windows. Before the editor writes, the player lets go of the playing file
+  // (keeping position + play state); afterwards it reloads it and refreshes the
+  // text fields of every queued copy of an edited track.
+  let tagRelease: { path: string; time: number; wasPlaying: boolean } | null = null;
+  busOn("melo:tags-will-write", (p: any) => {
+    const cur = queue[currentIndex];
+    if (!cur || !Array.isArray(p?.paths) || !p.paths.includes(cur.path) || tagRelease) return;
+    cancelCrossfade();
+    tagRelease = { path: cur.path, time: audio.currentTime || 0, wasPlaying: !audio.paused };
+    try { audio.pause(); audio.removeAttribute("src"); audio.load(); } catch {}
+  });
+  busOn("melo:tags-written", async (p: any) => {
+    const rel = tagRelease;
+    tagRelease = null;
+    const ids: string[] = Array.isArray(p?.ids) ? p.ids : [];
+    if (ids.length) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const fresh = await invoke<any[]>("get_tracks_by_ids", { ids });
+        const byId = new Map(fresh.map(t => [t.id, t]));
+        for (const q of queue as any[]) {
+          const f = byId.get(q?.id);
+          if (!f) continue;
+          q.title = f.title; q.artist = f.artist || q.artist; q.album = f.album;
+          q.albumArtist = f.albumArtist || q.albumArtist; q.genre = f.genre; q.year = f.year;
+        }
+        const cur = queue[currentIndex];
+        if (cur && byId.has(cur.id)) applyTrackMetadata(cur, { resetProgress: false });
+        busEmit("melo:queue-changed", {});
+      } catch { /* the library refresh below still reflects the new tags */ }
+    }
+    const cur = queue[currentIndex];
+    if (rel && cur && cur.path === rel.path) {
+      try {
+        audio.src = await resolveSrc(rel.path);
+        audio.load();
+        const onMeta = () => {
+          audio.removeEventListener("loadedmetadata", onMeta);
+          try { audio.currentTime = rel.time; } catch {}
+          if (rel.wasPlaying) play();
+        };
+        audio.addEventListener("loadedmetadata", onMeta);
+      } catch { /* the user can press play again */ }
+    }
+  });
+
   busOn("melo:queue-entries-added", (p: any) => {
     if (!p || !Array.isArray(p.tracks) || !p.tracks.length) return;
     const have = new Set(queue.filter((t: any) => t?.playlistEntryId != null).map((t: any) => `e${t.playlistEntryId}`));

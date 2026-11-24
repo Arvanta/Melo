@@ -1645,6 +1645,7 @@ pub async fn library_groups(
 // `replace_queue_from_library`: the queue must contain exactly what the
 // browse view shows, in the same order. Every ORDER BY ends with a unique
 // tie-breaker (`id`) so virtualized pages never duplicate or drop rows.
+#[allow(dead_code)] // superseded by library_filter_field (round 118); kept for the static tests
 fn library_filter(
     search: Option<String>,
     artist: Option<String>,
@@ -4438,6 +4439,148 @@ pub async fn open_track_folder(id: String, state: State<'_, LibraryState>) -> Re
     Ok(())
 }
 
+// ───────────────────────── Tag editor (round 119) ─────────────────────────
+// Reading/writing lives in tag_edit.rs (pure lofty, tested on real files);
+// this section only maps track ids to paths and keeps the database in step.
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagFileInfo {
+    pub id: String,
+    pub path: String,
+    pub file_name: String,
+    pub fields: Option<crate::tag_edit::TagFields>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagReadResult {
+    pub files: Vec<TagFileInfo>,
+    /// Fields every readable file agrees on (None = mixed).
+    pub common: crate::tag_edit::CommonFields,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagWriteFailure {
+    pub id: String,
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagWriteResult {
+    pub ok: Vec<String>,
+    pub failed: Vec<TagWriteFailure>,
+}
+
+fn track_path_of(conn: &Connection, id: &str) -> Result<Option<String>, String> {
+    conn.query_row("SELECT path FROM tracks WHERE id=?1", params![id], |r| r.get(0))
+        .optional()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn tag_read(track_ids: Vec<String>, state: State<'_, LibraryState>) -> Result<TagReadResult, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<TagReadResult, String> {
+        let conn = open_db(&db_path)?;
+        let mut files: Vec<TagFileInfo> = Vec::with_capacity(track_ids.len());
+        let mut readable: Vec<crate::tag_edit::TagFields> = Vec::new();
+        for id in track_ids {
+            let Some(path) = track_path_of(&conn, &id)? else {
+                files.push(TagFileInfo { id, path: String::new(), file_name: String::new(), fields: None, error: Some("This track is no longer in the library".into()) });
+                continue;
+            };
+            let p = Path::new(&path);
+            let file_name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if is_mka(p) {
+                files.push(TagFileInfo { id, path, file_name, fields: None, error: Some("Tags of Matroska audio files cannot be edited".into()) });
+                continue;
+            }
+            match read_tagged_tolerant(p) {
+                Ok(tagged) => {
+                    let fields = crate::tag_edit::read_fields(&tagged);
+                    readable.push(fields.clone());
+                    files.push(TagFileInfo { id, path, file_name, fields: Some(fields), error: None });
+                }
+                Err(e) => files.push(TagFileInfo { id, path, file_name, fields: None, error: Some(e) }),
+            }
+        }
+        let common = crate::tag_edit::common_fields(&readable);
+        Ok(TagReadResult { files, common })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Re-reads one file after a successful write and brings its database row up
+/// to date. Unlike a scan upsert this OVERWRITES `artwork_path` (a removed
+/// cover must clear it) and keeps id, play counts and playlist membership.
+fn refresh_track_row(conn: &Connection, id: &str, path: &str, artwork_dir: &Path) -> Result<(), String> {
+    let Some((t, size, modified)) = parse_track_cached(Path::new(path), artwork_dir, true) else {
+        return Ok(());
+    };
+    conn.execute(
+        "UPDATE tracks SET title=?2,artist=?3,album_artist=?4,album=?5,genre=?6,year=?7,duration=?8,replay_gain=?9,artwork_path=?10,file_size=?11,modified_at=?12 WHERE id=?1",
+        params![id, t.title, t.artist, t.album_artist, t.album, t.genre, t.year as i64, t.duration, t.replay_gain, t.cover, size as i64, modified],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn tag_write(track_ids: Vec<String>, edit: crate::tag_edit::TagEdit, state: State<'_, LibraryState>) -> Result<TagWriteResult, String> {
+    if edit.is_empty() {
+        return Ok(TagWriteResult { ok: Vec::new(), failed: Vec::new() });
+    }
+    // A bad cover image fails the whole request up front, before any file changes.
+    let cover = match &edit.cover {
+        Some(crate::tag_edit::CoverEdit::Set { path }) => Some(crate::tag_edit::load_cover(Path::new(path))?),
+        _ => None,
+    };
+    let db_path = state.db_path.clone();
+    let artwork_dir = state.artwork_dir.clone();
+    let art_cache = state.full_art_cache.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<TagWriteResult, String> {
+        let conn = open_db(&db_path)?;
+        let mut ok: Vec<String> = Vec::new();
+        let mut failed: Vec<TagWriteFailure> = Vec::new();
+        for id in track_ids {
+            let Some(path) = track_path_of(&conn, &id)? else {
+                failed.push(TagWriteFailure { id, path: String::new(), error: "This track is no longer in the library".into() });
+                continue;
+            };
+            let p = Path::new(&path);
+            let result: Result<(), String> = if is_mka(p) {
+                Err("Tags of Matroska audio files cannot be edited".into())
+            } else {
+                read_tagged_tolerant(p).and_then(|mut tagged| {
+                    crate::tag_edit::apply_edit(&mut tagged, &edit, cover.as_ref())?;
+                    crate::tag_edit::write_safely(p, &tagged)
+                })
+            };
+            match result {
+                Ok(()) => {
+                    // The file is already changed: a row refresh problem must not
+                    // turn this into a reported failure (the next scan repairs it).
+                    let _ = refresh_track_row(&conn, &id, &path, &artwork_dir);
+                    if let Ok(mut cache) = art_cache.lock() {
+                        cache.remove(&id);
+                    }
+                    ok.push(id);
+                }
+                Err(error) => failed.push(TagWriteFailure { id, path, error }),
+            }
+        }
+        Ok(TagWriteResult { ok, failed })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod natural_file_tests {
     use super::natural_file_cmp;
@@ -4459,6 +4602,20 @@ mod natural_file_tests {
     fn directory_case_and_extension() {
         assert_eq!(sorted(vec!["C:\\m\\b.mp3", "/x/A.flac"]), vec!["/x/A.flac", "C:\\m\\b.mp3"]);
         assert_eq!(sorted(vec!["Track2.mp3", "track1.mp3"]), vec!["track1.mp3", "Track2.mp3"]);
+    }
+
+    #[test]
+    fn collation_is_registered_on_real_connections() {
+        let dir = std::env::temp_dir().join(format!("melo-collation-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let conn = super::open_db(&dir.join("t.db")).unwrap();
+        conn.execute_batch("CREATE TABLE t(p TEXT); INSERT INTO t VALUES('C:\\m\\track10.mp3'),('/x/track2.mp3'),(''),('/x/Track03.flac'),('/x/track100.mp3');").unwrap();
+        let mut stmt = conn.prepare("SELECT p FROM t ORDER BY p COLLATE MELO_FILENAME").unwrap();
+        let rows: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(rows, vec!["/x/track2.mp3", "/x/Track03.flac", "C:\\m\\track10.mp3", "/x/track100.mp3", ""]);
+        drop(stmt);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

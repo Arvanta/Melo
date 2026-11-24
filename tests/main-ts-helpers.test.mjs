@@ -52,12 +52,12 @@ function readSrc(rel) {
 
 // ─────────────────────────── panel allowlist ───────────────────────────
 
-test("ALLOWED_PANELS contains exactly the 5 expected ids, in documented order", () => {
+test("ALLOWED_PANELS contains exactly the 6 expected ids, in documented order", () => {
   const src = readSrc("src/main.ts");
   const m = src.match(/const ALLOWED_PANELS = \[(.*?)\] as const/);
   assert.ok(m, "ALLOWED_PANELS definition not found");
   const items = m[1].split(",").map((s) => s.trim().replace(/^"|"$/g, ""));
-  assert.deepEqual(items, ["library", "playlist", "equalizer", "lyrics", "settings"]);
+  assert.deepEqual(items, ["library", "playlist", "equalizer", "lyrics", "settings", "tagedit"]);
 });
 
 test("isAllowedPanel type-narrows and gates every code path that opens a webview", () => {

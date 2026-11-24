@@ -4,6 +4,7 @@ import { setupLibrary } from "./library";
 import { setupEqualizer } from "./equalizer";
 import { setupVisualizer, VIZ_MODES } from "./visualizer";
 import { setupLyrics } from "./lyrics";
+import { setupTagEditor, TAGEDIT_IDS_KEY } from "./tag-editor";
 import { setupSkinLyricLine } from "./lyric-line";
 import { setupWaveformSeek } from "./waveform";
 import { setupSkinEngine, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry, getSkinCapabilities, clearSkinCapabilityCache, type SkinCapabilities } from "./skin";
@@ -407,6 +408,14 @@ app.innerHTML = `
         <div id="lyricsContainer" class="lyrics-scroll-container" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:20px 8px; text-align:center;"></div>
       </div>
       <div class="resize-handle" data-resize="win-lyrics">◢</div>
+    </div>
+
+    <!-- TAG EDITOR WINDOW (round 119): opens only as its own native window -->
+    <div class="float-win hidden" id="win-tagedit" style="left:200px; top:40px; width:560px; height:640px; z-index:3;">
+      <div class="float-header" data-drag="win-tagedit">
+        <div class="float-title">Edit tags</div>
+      </div>
+      <div class="float-body"><div id="tagEditRoot"></div></div>
     </div>
 
     <!-- SETTINGS WINDOW -->
@@ -821,7 +830,7 @@ app.innerHTML = `
 // Ordering test guards this).
 // Allowlisted panel ids: anything else is silently dropped from ?panel=
 // And toggle calls. KEEP IN SYNC with the panel-btn map below.
-const ALLOWED_PANELS = ["library", "playlist", "equalizer", "lyrics", "settings"] as const;
+const ALLOWED_PANELS = ["library", "playlist", "equalizer", "lyrics", "settings", "tagedit"] as const;
 type PanelId = typeof ALLOWED_PANELS[number];
 
 function isAllowedPanel(id: string): id is PanelId {
@@ -1243,7 +1252,7 @@ if (isTauri && !urlPanel) {
       try { localStorage.setItem("melo-tray-snapshot", JSON.stringify(Array.from(visiblePanels))); } catch {}
       panelSnapshotFrozen = true;
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      for (const p of ["library", "playlist", "equalizer", "lyrics", "settings"]) {
+      for (const p of ["library", "playlist", "equalizer", "lyrics", "settings", "tagedit"]) {
         try {
           const w = await WebviewWindow.getByLabel("panel-" + p);
           if (w) await w.close();
@@ -1260,7 +1269,8 @@ if (isTauri && !urlPanel) {
         const raw = JSON.parse(localStorage.getItem("melo-tray-snapshot") || "[]");
         if (!Array.isArray(raw)) return;
         for (const p of raw) {
-          if (typeof p === "string" && isAllowedPanel(p)) openPanelWindow(p);
+          // The tag editor is a one-shot tool; it never reopens by itself.
+          if (typeof p === "string" && p !== "tagedit" && isAllowedPanel(p)) openPanelWindow(p);
         }
       } catch {}
     }, 700);
@@ -1674,7 +1684,7 @@ if (isTauri) {
 // By panel, held for one create/check cycle, never chained across panels.
 const panelCreationLocks = new Map<string, Promise<void>>();
 
-async function openPanelWindow(panel: string) {
+async function openPanelWindow(panel: string, opts: { noToggle?: boolean } = {}) {
   // Allowlist gate: openPanelWindow is reachable from custom-skin hook
   // Strings, so a malformed panel name must never reach WebviewWindow.
   // Type-narrows `panel` to PanelId for setPanelVisible.
@@ -1707,14 +1717,19 @@ async function openPanelWindow(panel: string) {
         btn?.classList.add("active");
         return;
       }
+      if (opts.noToggle) {
+        // One-shot windows (tag editor) are re-used, never toggled shut.
+        try { await existing.show(); await existing.setFocus(); } catch {}
+        return;
+      }
       await existing.close();
       btn?.classList.remove("active");
       return;
     }
-    const sizes: Record<string, [number, number]> = { library: [1000, 800], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [630, 660] };
+    const sizes: Record<string, [number, number]> = { library: [1000, 800], playlist: [440, 560], equalizer: [700, 440], lyrics: [380, 520], settings: [630, 660], tagedit: [560, 680] };
     // Per-panel minimums: Library 400×550; Settings min width 650.
-const mins: Record<string, [number, number]> = { library: [400, 550], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [650, 400] };
-    const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings" };
+const mins: Record<string, [number, number]> = { library: [400, 550], playlist: [360, 360], equalizer: [620, 400], lyrics: [320, 360], settings: [650, 400], tagedit: [480, 520] };
+    const titles: Record<string, string> = { library: "Library", playlist: "Playlist", equalizer: "Equalizer", lyrics: "Lyric", settings: "Settings", tagedit: "Edit tags" };
     const sz = sizes[panel] || [420, 520];
     const mn = mins[panel] || [360, 360];
     // Saved geometry is logical and clamped to a still-connected monitor
@@ -1744,6 +1759,24 @@ const mins: Record<string, [number, number]> = { library: [400, 550], playlist: 
     panelCreationLocks.delete(label);
     release();
   }
+}
+
+// Round 119: any window (Library, Playlist…) asks the player window to open the
+// tag editor. The ids travel through localStorage (shared origin) so a window
+// that is still booting reads them on load; an open one gets a bus nudge.
+if (!urlPanel) {
+  busOn("melo:open-tag-editor", async (p: any) => {
+    const ids: string[] = Array.isArray(p?.ids) ? Array.from(new Set(p.ids.filter((x: unknown) => typeof x === "string" && x))) as string[] : [];
+    if (!ids.length) return;
+    try { localStorage.setItem(TAGEDIT_IDS_KEY, JSON.stringify(ids)); } catch {}
+    let existed = false;
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      existed = !!(await WebviewWindow.getByLabel("panel-tagedit"));
+    } catch {}
+    await openPanelWindow("tagedit", { noToggle: true });
+    if (existed) busEmit("melo:tagedit-load", {});
+  });
 }
 
 busOn("melo:panel-closed", (role: any) => {
@@ -2934,6 +2967,7 @@ if (urlPanel) {
   if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
   else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
   else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
+  else if (urlPanel === "tagedit") setupTagEditor(showToast);
   else if (urlPanel === "settings") { initLocale(); setupSettings(showToast); setupSkinEngine(showToast); }
 } else {
   // A fresh launch reopens Library on the tab that was last used, but not

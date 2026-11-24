@@ -3000,3 +3000,41 @@ few-px band where scrolled rows peek through. */
 /* Round 118 · drag-select box */
 .marquee-box { position:fixed; z-index:9999; pointer-events:none; border:1px solid var(--accent, #2a7bd6); background:rgba(42,123,214,0.14); border-radius:2px; }
 body.marquee-active, body.marquee-active * { user-select:none !important; -webkit-user-select:none !important; }
+
+/* ── Tag editor window (round 119) ─────────────────────────────────────── */
+.te-wrap { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 14px; min-height: 100%; box-sizing: border-box; }
+.te-summary { font-size: 12px; font-weight: 700; color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.te-main { display: flex; gap: 14px; align-items: flex-start; }
+.te-cover { width: 132px; flex: none; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.te-cover-box { width: 132px; height: 132px; border-radius: 10px; background: var(--track-bg); border: 1px solid var(--card-border); display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 11px; color: var(--text-muted); text-align: center; }
+.te-cover-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.te-cover-actions { display: flex; gap: 6px; }
+.te-cover-actions .btn { flex: 1; justify-content: center; }
+.te-cover-note { font-size: 10.5px; color: var(--text-muted); min-height: 13px; }
+.te-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.te-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.te-label { font-size: 10.5px; font-weight: 700; letter-spacing: .02em; color: var(--text-muted); text-transform: uppercase; }
+.te-inputrow { display: flex; gap: 4px; align-items: stretch; }
+.te-input { flex: 1; min-width: 0; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--card); color: var(--text); font: inherit; font-size: 12.5px; resize: vertical; }
+.te-input:focus { outline: none; border-color: var(--accent); }
+.te-input.dirty { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.te-input::placeholder { color: var(--text-muted); font-style: italic; }
+.te-clear { appearance: none; border: 1px solid var(--card-border); background: var(--card); color: var(--text-muted); border-radius: 8px; width: 26px; cursor: pointer; font-size: 11px; }
+.te-clear:hover { color: var(--text); background: var(--track-bg); }
+.te-row2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.te-row2 .te-field.narrow { width: 78px; }
+.te-pairrow .te-field.narrow { width: 92px; }
+.te-pair { display: flex; flex-direction: column; gap: 3px; }
+.te-pairrow { display: flex; gap: 6px; align-items: flex-end; }
+.te-pairrow .te-label { display: none; }
+.te-of { font-size: 11px; color: var(--text-muted); padding-bottom: 8px; }
+.te-preview, .te-files { border: 1px solid var(--card-border); border-radius: 10px; background: var(--card); padding: 8px 10px; font-size: 11.5px; max-height: 150px; overflow-y: auto; }
+.te-files { display: none; }
+.te-ph { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+.te-pl { padding: 1px 0; color: var(--text); word-break: break-word; }
+.te-pl.muted { color: var(--text-muted); }
+.te-pl.err { color: #e5484d; }
+.te-pl i { font-style: normal; color: var(--accent); }
+.te-footer { display: flex; gap: 8px; align-items: center; margin-top: auto; }
+.te-status { flex: 1; font-size: 11.5px; color: var(--text-soft); min-width: 0; }
+.te-footer .btn:disabled { opacity: .5; cursor: default; }

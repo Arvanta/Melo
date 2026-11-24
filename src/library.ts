@@ -510,6 +510,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   libraryContextMenu.innerHTML = `
     <button class="ctx-item" id="ctxPlayNext">Play next</button>
     <button class="ctx-item" id="ctxAddToQueue">Add to end of queue</button>
+    <button class="ctx-item" id="ctxEditTags">Edit tags…</button>
     <button class="ctx-item" id="ctxOpenTrackFolder">Open containing folder</button>
     <button class="ctx-item danger" id="ctxRemoveLibraryTrack">Remove from Library</button>
     <button class="ctx-item danger" id="ctxRemoveLibraryGroup">Remove from Library</button>`;
@@ -531,6 +532,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   document.body.appendChild(playlistContextMenu);
   const contextPlayNext = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxPlayNext")!;
   const contextAddToQueue = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxAddToQueue")!;
+  const contextEditTags = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxEditTags")!;
   const contextOpenFolder = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxOpenTrackFolder")!;
   const contextRemoveTrack = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxRemoveLibraryTrack")!;
   const contextRemoveGroup = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxRemoveLibraryGroup")!;
@@ -558,6 +560,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     contextAddToQueue.hidden = false;
     contextPlayNext.textContent = contextQueueIds.length > 1 ? `Play ${contextQueueIds.length} tracks next` : "Play next";
     contextAddToQueue.textContent = contextQueueIds.length > 1 ? `Add ${contextQueueIds.length} tracks to end of queue` : "Add to end of queue";
+    contextEditTags.hidden = false;
+    contextEditTags.textContent = contextQueueIds.length > 1 ? `Edit tags of ${contextQueueIds.length} tracks…` : "Edit tags…";
     contextOpenFolder.hidden = false;
     contextRemoveTrack.hidden = false;
     contextRemoveGroup.hidden = true;
@@ -568,6 +572,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     contextLibraryGroup = group;
     contextPlayNext.hidden = true;
     contextAddToQueue.hidden = true;
+    contextEditTags.hidden = false;
+    contextEditTags.textContent = `Edit tags of this ${group.album ? "album" : "artist"}…`;
     contextOpenFolder.hidden = true;
     contextRemoveTrack.hidden = true;
     contextRemoveGroup.hidden = false;
@@ -615,6 +621,31 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     event.stopPropagation();
     libraryContextMenu.style.display = "none";
     void queueLibraryTracks(contextQueueIds, "end");
+  };
+  // Round 119: the tag editor is its own window; the player window opens it.
+  function openTagEditor(ids: string[]) {
+    const unique = Array.from(new Set(ids.filter(Boolean)));
+    if (!unique.length) return;
+    busEmit("melo:open-tag-editor", { ids: unique });
+  }
+  contextEditTags.onclick = async event => {
+    event.stopPropagation();
+    libraryContextMenu.style.display = "none";
+    const group = contextLibraryGroup;
+    const ids = contextTrackId ? contextQueueIds.slice() : [];
+    if (group) {
+      if (!invoke) return;
+      try {
+        const page = await invoke<Page<Track>>("library_tracks", {
+          search: null, field: null, artist: group.artist, albumArtist: group.albumArtist || null,
+          album: group.album || null, genre: null, sort: "title-asc", limit: 5000, offset: 0,
+        });
+        if (page.total > page.items.length) toast(`Editing the first ${page.items.length} of ${page.total} tracks`);
+        openTagEditor(page.items.map(t => t.id));
+      } catch (e) { toast("Couldn't open the tag editor — " + String(e)); }
+      return;
+    }
+    openTagEditor(ids);
   };
   contextOpenFolder.onclick = async event => {
     event.stopPropagation();
@@ -740,6 +771,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     {
       label: "Add to queue",
       onClick: () => { void queueLibraryTracks(Array.from(librarySelectedIds), "end"); },
+    },
+    {
+      label: "Edit tags…",
+      onClick: () => { openTagEditor(Array.from(librarySelectedIds)); },
     },
     {
       label: "Remove from Library",
