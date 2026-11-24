@@ -112,6 +112,15 @@ pub fn read_fields(tagged: &TaggedFile) -> TagFields {
     }
 }
 
+/// The embedded cover (front cover preferred, else the first picture) as
+/// (mime label, bytes).
+pub fn read_cover(tagged: &TaggedFile) -> Option<(String, Vec<u8>)> {
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+    let pic = tag.pictures().iter().find(|p| p.pic_type() == PictureType::CoverFront).or_else(|| tag.pictures().first())?;
+    let mime = pic.mime_type().map(|m| m.to_string()).unwrap_or_else(|| "image/*".into());
+    Some((mime, pic.data().to_vec()))
+}
+
 /// A validated cover image ready to embed.
 pub struct CoverImage {
     pub mime: MimeType,

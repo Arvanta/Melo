@@ -809,7 +809,9 @@ menus show BOTH remove variants at once. */
   z-index: 4500; display: flex; align-items: center; gap: 8px;
   background: var(--card); border: 1px solid var(--card-border);
   border-radius: 12px; box-shadow: var(--shadow-lg); padding: 8px 10px;
+  flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 24px); box-sizing: border-box;
 }
+.bulk-action-bar .btn { white-space: nowrap; }
 .bulk-count { font-size: 12px; color: var(--text-soft); padding: 0 4px; white-space: nowrap; }
 .bulk-action-bar .btn.danger { color: #e5484d; border-color: rgba(229,72,77,0.35); }
 .bulk-action-bar .btn.danger:hover { background: rgba(229,72,77,0.12); }

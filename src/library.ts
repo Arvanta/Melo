@@ -715,6 +715,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return absIndex;
   }
 
+  // Short labels keep the bar on one line in a small window; tooltips carry the full wording.
+  const BULK_TIPS: Record<string, string> = {
+    "Playlist": "Add to playlist", "Next": "Play next", "Queue": "Add to end of queue",
+    "Tags…": "Edit tags…", "Remove": "Remove from Library",
+  };
   function createBulkBar(actions: { label: string; danger?: boolean; onClick: () => void }[]) {
     const bar = document.createElement("div");
     bar.className = "bulk-action-bar";
@@ -727,6 +732,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const btn = document.createElement("button");
       btn.className = `btn small ${action.danger ? "danger" : ""}`;
       btn.textContent = action.label;
+      const tip = BULK_TIPS[action.label]; if (tip) btn.title = tip;
       btn.onclick = action.onClick;
       bar.appendChild(btn);
       if (!actionBtn) actionBtn = btn;
@@ -741,7 +747,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   const libraryBulk = createBulkBar([
     {
-      label: "Add to Playlist",
+      label: "Playlist",
       onClick: async () => {
         if (!invoke || !librarySelectedIds.size) return;
         if (currentPlaylistId === QUEUE_ID) {
@@ -765,19 +771,19 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       },
     },
     {
-      label: "Play next",
+      label: "Next",
       onClick: () => { void queueLibraryTracks(Array.from(librarySelectedIds), "next"); },
     },
     {
-      label: "Add to queue",
+      label: "Queue",
       onClick: () => { void queueLibraryTracks(Array.from(librarySelectedIds), "end"); },
     },
     {
-      label: "Edit tags…",
+      label: "Tags…",
       onClick: () => { openTagEditor(Array.from(librarySelectedIds)); },
     },
     {
-      label: "Remove from Library",
+      label: "Remove",
       danger: true,
       onClick: async () => {
         if (!invoke || !librarySelectedIds.size) return;

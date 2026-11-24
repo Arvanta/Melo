@@ -973,6 +973,7 @@ fn main() {
             library_db::queue_totals,
             library_db::tag_read,
             library_db::tag_write,
+            library_db::tag_cover_read,
             library_db::playlist_track_index,
             library_db::insert_queue_after,
             library_db::replace_queue_tracks,

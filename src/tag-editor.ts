@@ -27,6 +27,7 @@ type Common = {
 };
 type FileInfo = { id: string; path: string; fileName: string; fields: Fields | null; error: string | null };
 type ReadResult = { files: FileInfo[]; common: Common };
+type CoverInfo = { dataUrl: string; mime: string; bytes: number };
 type WriteResult = { ok: string[]; failed: { id: string; path: string; error: string }[] };
 
 type TextKey = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "comment";
@@ -88,6 +89,8 @@ export function setupTagEditor(toast: (m: string) => void) {
   let busy = false;
   let loadGen = 0;
   let toAsset: ((p: string) => string) | null = null;
+  // The cover actually stored in the file (first editable file that has one).
+  let current: { url: string; note: string } | null = null;
 
   const editable = () => files.filter(f => f.fields && !f.error);
   const n = () => editable().length;
@@ -213,9 +216,12 @@ export function setupTagEditor(toast: (m: string) => void) {
     } else if (cover?.action === "remove") {
       coverBox.innerHTML = `<span>Cover removed</span>`;
       coverNote.textContent = "Will be removed on save";
+    } else if (current && state !== "none") {
+      coverBox.innerHTML = `<img alt="" src="${esc(current.url)}">`;
+      coverNote.textContent = state === "mixed" ? `Some files have no cover or a different one · ${current.note}` : (multi ? `Every file has a cover · ${current.note}` : current.note);
     } else {
       coverBox.innerHTML = `<span>${state === "has" ? "Has cover" : state === "mixed" ? "Mixed" : "No cover"}</span>`;
-      coverNote.textContent = state === "has" ? (multi ? "Every file has a cover" : "Embedded cover") : state === "mixed" ? "Some files have a cover" : "";
+      coverNote.textContent = state === "mixed" ? "Some files have a cover" : "";
     }
     coverRemoveBtn.disabled = busy || (cover?.action === "remove") || (!cover && state === "none");
   }
@@ -267,6 +273,7 @@ export function setupTagEditor(toast: (m: string) => void) {
     dirty.clear();
     cover = null;
     coverPreview = null;
+    current = null;
     statusEl.textContent = "Reading tags…";
     try {
       await ensureInvoke();
@@ -281,10 +288,31 @@ export function setupTagEditor(toast: (m: string) => void) {
     }
     if (gen !== loadGen) return;
     if (files.length) statusEl.textContent = "";
+    void loadCurrentCover(gen);
     renderSummary();
     buildForm();
     renderFiles();
     renderPreview();
+  }
+
+  const fmtBytes = (b: number) => (b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
+  async function loadCurrentCover(gen: number) {
+    const first = editable().find(f => f.fields?.hasCover);
+    if (!first || !invoke) { renderPreview(); return; }
+    try {
+      const info = await invoke<CoverInfo | null>("tag_cover_read", { trackId: first.id });
+      if (gen !== loadGen || !info) return;
+      const kind = /png/i.test(info.mime) ? "PNG" : /jpe?g/i.test(info.mime) ? "JPEG" : info.mime.replace("image/", "").toUpperCase();
+      current = { url: info.dataUrl, note: `${kind} · ${fmtBytes(info.bytes)}` };
+      renderPreview();
+      const img = new Image();
+      img.onload = () => {
+        if (gen !== loadGen || !current) return;
+        current.note = `${kind} · ${img.naturalWidth}×${img.naturalHeight} · ${fmtBytes(info.bytes)}`;
+        renderCover();
+      };
+      img.src = info.dataUrl;
+    } catch { /* the "Has cover" label stays */ }
   }
 
   coverSetBtn.onclick = async () => {

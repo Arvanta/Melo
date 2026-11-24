@@ -38,7 +38,7 @@ test("player releases the playing file around a write", () => {
 
 test("library entry points open the editor", () => {
   assert.match(lib, /id="ctxEditTags"/);
-  assert.match(lib, /label: "Edit tags…"/);
+  assert.match(lib, /label: "Tags…"/);
   assert.match(lib, /busEmit\("melo:open-tag-editor"/);
 });
 
@@ -48,4 +48,20 @@ test("backend commands exist and are registered", () => {
   assert.match(mainRs, /tag_read,/);
   assert.match(mainRs, /tag_write,/);
   assert.match(mainRs, /mod tag_edit;/);
+});
+
+test("cover is shown from the file, and removal forgets listening history", () => {
+  assert.match(ui, /invoke!?<CoverInfo \| null>\("tag_cover_read"/);
+  assert.match(rs, /pub async fn tag_cover_read/);
+  assert.match(mainRs, /tag_cover_read,/);
+  assert.match(rs, /fn purge_orphan_listens/);
+  // every user-initiated delete path purges, plus scan prune and a one-time cleanup
+  assert.equal((rs.match(/purge_orphan_listens\(/g) || []).length >= 5, true);
+  assert.match(rs, /PRAGMA user_version/);
+});
+
+test("bulk bar keeps buttons on one line each and wraps the bar", () => {
+  const css = read("src/app.css");
+  assert.match(css, /\.bulk-action-bar \.btn \{ white-space: nowrap; \}/);
+  assert.match(css, /flex-wrap: wrap; justify-content: center; width: max-content/);
 });

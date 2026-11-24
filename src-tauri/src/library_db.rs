@@ -475,6 +475,13 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    // One-time (round 119b): drop listen_log rows left behind by tracks removed
+    // before deletes purged them, so a re-added file does not resurrect them.
+    let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if ver < 1 {
+        purge_orphan_listens(conn)?;
+        conn.execute_batch("PRAGMA user_version = 1;").map_err(|e| e.to_string())?;
+    }
     conn.execute_batch(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlist_position ON playlist_tracks(playlist_id, position);
          CREATE INDEX IF NOT EXISTS idx_playlist_track ON playlist_tracks(playlist_id, track_id);
@@ -1305,6 +1312,7 @@ pub async fn start_managed_library_scan(
                     removed_count += n;
                 }
             }
+            if removed_count > 0 { let _ = purge_orphan_listens(&conn); }
         }
         let final_error_paths = failed_paths.lock().map(|list| list.clone()).unwrap_or_default();
         let _ = app.emit(
@@ -4341,6 +4349,15 @@ pub async fn write_text_file(path:String, contents:String)->Result<(),String>{
     tauri::async_runtime::spawn_blocking(move || std::fs::write(&path, contents).map_err(|e| e.to_string())).await.map_err(|e|e.to_string())?
 }
 
+/// Round 119b: "removed from the Library" means forgotten. listen_log has no
+/// foreign key (track id = file path), so without this its rows of a deleted
+/// track survived and re-attached when the same file was added again, while
+/// play_count / last_played_at restarted from zero.
+fn purge_orphan_listens(conn: &Connection) -> Result<usize, String> {
+    conn.execute("DELETE FROM listen_log WHERE track_id NOT IN (SELECT id FROM tracks)", [])
+        .map_err(|e| e.to_string())
+}
+
 /// Permanently removes track rows; foreign keys remove playlist/queue
 /// occurrences. A no-longer-scanned path is a removed Track, not a rename.
 fn delete_track_ids(conn: &mut Connection, ids: &[String]) -> Result<(), String> {
@@ -4361,6 +4378,7 @@ fn delete_track_ids(conn: &mut Connection, ids: &[String]) -> Result<(), String>
         let still_used: i64 = tx.query_row("SELECT COUNT(*) FROM tracks WHERE artwork_path=?1", params![path], |r| r.get(0)).unwrap_or(1);
         if still_used == 0 { let _ = std::fs::remove_file(path); }
     }
+    purge_orphan_listens(&tx)?;
     tx.commit().map_err(|e| e.to_string())
 }
 
@@ -4398,6 +4416,7 @@ pub async fn delete_library_group(
     } else {
         tx.execute("DELETE FROM tracks WHERE library_owned=1 AND artist=?1", params![artist])
     }.map_err(|e| e.to_string())?;
+    purge_orphan_listens(&tx)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(removed)
 }
@@ -4531,6 +4550,34 @@ fn refresh_track_row(conn: &Connection, id: &str, path: &str, artwork_dir: &Path
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagCover {
+    pub data_url: String,
+    pub mime: String,
+    pub bytes: usize,
+}
+
+/// The embedded cover of one file, read from the FILE (not the thumbnail cache)
+/// so the editor shows what is really stored.
+#[tauri::command]
+pub async fn tag_cover_read(track_id: String, state: State<'_, LibraryState>) -> Result<Option<TagCover>, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Option<TagCover>, String> {
+        let conn = open_db(&db_path)?;
+        let Some(path) = track_path_of(&conn, &track_id)? else { return Ok(None) };
+        let p = Path::new(&path);
+        if is_mka(p) { return Ok(None); }
+        let tagged = read_tagged_tolerant(p)?;
+        let Some((mime, data)) = crate::tag_edit::read_cover(&tagged) else { return Ok(None) };
+        if data.len() > MAX_FULL_ART_BYTES { return Ok(None); }
+        let bytes = data.len();
+        Ok(Some(TagCover { data_url: format!("data:{};base64,{}", art_mime(&data), b64_encode(&data)), mime, bytes }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn tag_write(track_ids: Vec<String>, edit: crate::tag_edit::TagEdit, state: State<'_, LibraryState>) -> Result<TagWriteResult, String> {
     if edit.is_empty() {
@@ -4622,5 +4669,29 @@ mod natural_file_tests {
     fn padding_tie_and_empty_last() {
         assert_eq!(sorted(vec!["t02.mp3", "t2.mp3"]), vec!["t2.mp3", "t02.mp3"]);
         assert_eq!(sorted(vec!["", "a.mp3"]), vec!["a.mp3", ""]);
+    }
+}
+
+#[cfg(test)]
+mod purge_tests {
+    use super::*;
+
+    #[test]
+    fn deleting_a_track_forgets_its_listens_but_keeps_others() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tracks (id TEXT PRIMARY KEY);
+             CREATE TABLE listen_log (id INTEGER PRIMARY KEY AUTOINCREMENT, track_id TEXT NOT NULL, started_at INTEGER NOT NULL, seconds REAL NOT NULL, counted INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO tracks VALUES ('a'),('b');
+             INSERT INTO listen_log(track_id,started_at,seconds,counted) VALUES ('a',1,10,1),('a',2,10,1),('b',3,10,1);",
+        ).unwrap();
+        conn.execute("DELETE FROM tracks WHERE id='a'", []).unwrap();
+        assert_eq!(purge_orphan_listens(&conn).unwrap(), 2);
+        let left: i64 = conn.query_row("SELECT COUNT(*) FROM listen_log", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 1);
+        // Re-adding the same id must not resurrect anything.
+        conn.execute("INSERT INTO tracks VALUES ('a')", []).unwrap();
+        let again: i64 = conn.query_row("SELECT COUNT(*) FROM listen_log WHERE track_id='a'", [], |r| r.get(0)).unwrap();
+        assert_eq!(again, 0);
     }
 }
