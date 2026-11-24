@@ -218,13 +218,23 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if (notify) toast(audio.muted ? "Muted" : "Unmuted");
   }
 
+  // Files rewritten by the tag editor keep their URL, so WebView2 kept serving
+  // the OLD bytes (old length, old headers): playback failed with "file may be
+  // missing", or stopped when seeking, until the app restarted. A per-file
+  // version in the query string (the asset protocol ignores it) forces a fresh
+  // request.
+  const srcVersion = new Map<string, number>();
+  const bumpSrcVersion = (path: string) => { if (path) srcVersion.set(path, Date.now()); };
+
   async function resolveSrc(p: string): Promise<string> {
     if (!p) return "";
     if (/^(https?|data|blob):/.test(p)) return p;
     if (isTauri) {
       try {
         const { convertFileSrc } = await import("@tauri-apps/api/core");
-        return convertFileSrc(p);
+        const url = convertFileSrc(p);
+        const v = srcVersion.get(p);
+        return v ? `${url}${url.includes("?") ? "&" : "?"}v=${v}` : url;
       } catch {}
     }
     return p;
@@ -1370,7 +1380,15 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   let tagRelease: { path: string; time: number; wasPlaying: boolean } | null = null;
   busOn("melo:tags-will-write", (p: any) => {
     const cur = queue[currentIndex];
-    if (!cur || !Array.isArray(p?.paths) || !p.paths.includes(cur.path) || tagRelease) return;
+    if (!Array.isArray(p?.paths)) return;
+    // A preloaded next track that is about to be rewritten must not stay open
+    // (it would block the rename on Windows and play stale data later).
+    const nextPrep = gaplessPrep as { nxt: number } | null;
+    if (nextPrep && queue[nextPrep.nxt] && p.paths.includes(queue[nextPrep.nxt].path)) {
+      clearGapless();
+      try { const d = otherDeck(); d.pause(); d.removeAttribute("src"); d.load(); } catch {}
+    }
+    if (!cur || !p.paths.includes(cur.path) || tagRelease) return;
     cancelCrossfade();
     tagRelease = { path: cur.path, time: audio.currentTime || 0, wasPlaying: !audio.paused };
     try { audio.pause(); audio.removeAttribute("src"); audio.load(); } catch {}
@@ -1379,9 +1397,11 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     const rel = tagRelease;
     tagRelease = null;
     const ids: string[] = Array.isArray(p?.ids) ? p.ids : [];
+    for (const path of [...(Array.isArray(p?.paths) ? p.paths : []), ...(Array.isArray(p?.released) ? p.released : [])]) bumpSrcVersion(path);
+    for (const id of ids) fullArtCache.delete(id);
     if (ids.length) {
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
+        const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
         const fresh = await invoke<any[]>("get_tracks_by_ids", { ids });
         const byId = new Map(fresh.map(t => [t.id, t]));
         for (const q of queue as any[]) {
@@ -1389,9 +1409,15 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
           if (!f) continue;
           q.title = f.title; q.artist = f.artist || q.artist; q.album = f.album;
           q.albumArtist = f.albumArtist || q.albumArtist; q.genre = f.genre; q.year = f.year;
+          // Thumbnails are content-hashed files, so a changed cover is a new path.
+          const raw = typeof f.cover === "string" ? f.cover : "";
+          q.cover = !raw ? "" : /^(data:|blob:|https?:)/i.test(raw) ? raw : convertFileSrc(raw);
         }
         const cur = queue[currentIndex];
-        if (cur && byId.has(cur.id)) applyTrackMetadata(cur, { resetProgress: false });
+        if (cur && byId.has(cur.id)) {
+          applyTrackMetadata(cur, { resetProgress: false });
+          void upgradeCoverToFull(cur); // re-read the original artwork (cache entry dropped above)
+        }
         busEmit("melo:queue-changed", {});
       } catch { /* the library refresh below still reflects the new tags */ }
     }

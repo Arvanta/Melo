@@ -89,3 +89,13 @@ test("tabs, Info and Lyrics are wired end to end", () => {
   // the player and the editor read .lrc files through the same decoder
   assert.equal((mainRs.match(/read_lyrics_file\(/g) || []).length >= 5, true);
 });
+
+test("edited files get a fresh media URL and cover caches are dropped (WebView2 stale-cache fix)", () => {
+  assert.match(player, /const srcVersion = new Map<string, number>\(\)/);
+  assert.match(player, /\?"\s*:\s*"\?"\}v=\$\{v\}|v=\$\{v\}/);
+  assert.match(player, /bumpSrcVersion\(path\)/);
+  assert.match(player, /fullArtCache\.delete\(id\)/);
+  assert.match(player, /upgradeCoverToFull\(cur\)/);
+  assert.match(player, /q\.cover = /);
+  assert.match(player, /clearGapless\(\);\s*try \{ const d = otherDeck\(\)/);
+});
