@@ -26,6 +26,8 @@ walkdir = "2.5"
 rusqlite = { version = "0.31", features = ["bundled", "collation"] }
 crossbeam-channel = "0.5"
 sha2 = "0.10"
+# Legacy (Windows-1256) .lrc files in the lyrics reader; already in the tree via other crates.
+encoding_rs = "0.8"
 # Pure-Rust decoder for the waveform seek bar peaks (waveform.rs). Opus/WMA are not
 # supported by symphonia: those files simply keep the plain seek bar.
 symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "ogg", "vorbis", "wav", "aac", "isomp4", "alac", "pcm", "mkv", "aiff"] }

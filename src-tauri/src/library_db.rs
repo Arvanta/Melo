@@ -4578,6 +4578,132 @@ pub async fn tag_cover_read(track_id: String, state: State<'_, LibraryState>) ->
     .map_err(|e| e.to_string())?
 }
 
+/// Read-only facts shown by the editor's Info tab.
+#[derive(Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TagInfo {
+    pub id: String,
+    pub path: String,
+    pub error: Option<String>,
+    pub format: String,
+    pub tag_types: Vec<String>,
+    pub id3_version: Option<String>,
+    pub size: u64,
+    pub modified: Option<i64>,
+    pub duration_ms: u64,
+    pub overall_bitrate: Option<u32>,
+    pub audio_bitrate: Option<u32>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u8>,
+    pub bit_depth: Option<u8>,
+    pub encoder: String,
+    pub added_at: Option<i64>,
+    pub play_count: Option<i64>,
+    pub last_played_at: Option<i64>,
+}
+
+fn friendly_format(ft: lofty::file::FileType) -> String {
+    use lofty::file::FileType as F;
+    match ft {
+        F::Mpeg => "MPEG audio (MP3)".into(),
+        F::Flac => "FLAC".into(),
+        F::Mp4 => "MP4 audio (M4A)".into(),
+        F::Vorbis => "Ogg Vorbis".into(),
+        F::Opus => "Ogg Opus".into(),
+        F::Speex => "Ogg Speex".into(),
+        F::Wav => "WAV".into(),
+        F::Aiff => "AIFF".into(),
+        F::Ape => "Monkey's Audio (APE)".into(),
+        F::Mpc => "Musepack".into(),
+        F::WavPack => "WavPack".into(),
+        other => format!("{other:?}"),
+    }
+}
+
+fn friendly_tag_type(t: lofty::tag::TagType) -> String {
+    use lofty::tag::TagType as T;
+    match t {
+        T::Id3v2 => "ID3v2".into(),
+        T::Id3v1 => "ID3v1".into(),
+        T::VorbisComments => "Vorbis comments".into(),
+        T::Mp4Ilst => "MP4 (iTunes)".into(),
+        T::Ape => "APE".into(),
+        T::RiffInfo => "RIFF INFO".into(),
+        T::AiffText => "AIFF text".into(),
+        other => format!("{other:?}"),
+    }
+}
+
+fn read_tag_info(conn: &Connection, id: &str, path: &str) -> TagInfo {
+    use lofty::file::{AudioFile, TaggedFileExt};
+    let mut info = TagInfo { id: id.to_string(), path: path.to_string(), ..Default::default() };
+    let p = Path::new(path);
+    match std::fs::metadata(p) {
+        Ok(m) => {
+            info.size = m.len();
+            info.modified = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64);
+        }
+        Err(e) => { info.error = Some(format!("Cannot open the file: {e}")); return info; }
+    }
+    if let Ok((added, plays, last)) = conn.query_row(
+        "SELECT added_at, play_count, last_played_at FROM tracks WHERE id = ?1",
+        [id],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?)),
+    ) {
+        info.added_at = Some(added);
+        info.play_count = plays;
+        info.last_played_at = last;
+    }
+    if is_mka(p) {
+        info.format = "Matroska audio".into();
+        return info;
+    }
+    if let Ok(mut f) = std::fs::File::open(p) {
+        use std::io::Read;
+        let mut head = [0u8; 10];
+        if f.read_exact(&mut head).is_ok() && &head[0..3] == b"ID3" {
+            info.id3_version = Some(format!("ID3v2.{}", head[3]));
+        }
+    }
+    match read_tagged_tolerant(p) {
+        Ok(tagged) => {
+            info.format = friendly_format(tagged.file_type());
+            let props = tagged.properties();
+            info.duration_ms = props.duration().as_millis() as u64;
+            info.overall_bitrate = props.overall_bitrate();
+            info.audio_bitrate = props.audio_bitrate();
+            info.sample_rate = props.sample_rate();
+            info.channels = props.channels();
+            info.bit_depth = props.bit_depth();
+            info.tag_types = tagged.tags().iter().map(|t| friendly_tag_type(t.tag_type())).collect();
+            if let Some(t) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
+                info.encoder = t.get_string(&lofty::tag::ItemKey::EncoderSoftware).unwrap_or("").trim().to_string();
+            }
+        }
+        Err(e) => info.error = Some(e),
+    }
+    info
+}
+
+/// Facts for the Info tab: one entry per id (the UI aggregates for several files).
+#[tauri::command]
+pub async fn tag_info(track_ids: Vec<String>, state: State<'_, LibraryState>) -> Result<Vec<TagInfo>, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<TagInfo>, String> {
+        let conn = open_db(&db_path)?;
+        let mut out = Vec::with_capacity(track_ids.len());
+        for id in track_ids {
+            match track_path_of(&conn, &id)? {
+                Some(path) => out.push(read_tag_info(&conn, &id, &path)),
+                None => out.push(TagInfo { id, error: Some("This track is no longer in the library".into()), ..Default::default() }),
+            }
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagWriteItem {

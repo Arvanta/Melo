@@ -3059,3 +3059,22 @@ body.marquee-active, body.marquee-active * { user-select:none !important; -webki
 .te-input.perfile { border-color: var(--accent); border-style: dashed; }
 select.te-input { padding-right: 4px; }
 .te-preview { max-height: 220px; }
+
+/* Tabs, Info and Lyrics (round 121) */
+.te-wrap { height: 100%; }
+.te-panes { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.te-tabbar { display: flex; gap: 2px; border-bottom: 1px solid var(--card-border); margin: -4px 0 0; }
+.te-tabbar button { appearance: none; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-soft); padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.te-tabbar button:hover { color: var(--text); }
+.te-tabbar button.on { color: var(--accent); border-bottom-color: var(--accent); }
+.te-preview { max-height: 110px; flex: none; }
+.te-info { display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; }
+.te-inforow { display: flex; gap: 12px; padding: 6px 8px; border-radius: 6px; font-size: 12.5px; }
+.te-inforow:nth-child(odd) { background: var(--track-bg); }
+.te-infokey { width: 110px; flex: none; color: var(--text-muted); }
+.te-infoval { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; word-break: break-all; }
+.te-lyrics { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.te-lyr-top { display: flex; gap: 18px; }
+.te-lyr-text { flex: 1; min-height: 220px; resize: none; font-size: 13px; line-height: 1.6; white-space: pre; overflow: auto; }
+.te-lyr-bottom { display: flex; gap: 10px; align-items: flex-end; }
+.te-lyr-bottom .te-field { flex: 1; }

@@ -18,6 +18,10 @@ import {
   TEXT_FIELDS as TOOL_TEXT_FIELDS,
   type FieldKey, type FileRef, type PerFile,
 } from "./tag-tools";
+import {
+  allowedTargets, defaultTarget, infoRows, KIND_LABEL, planLyricWrites, slotOf,
+  type Info, type LyricDraft, type LyricKind, type LyricSlot, type LyricSource,
+} from "./tag-info";
 
 type Fields = {
   title: string; artist: string; albumArtist: string; album: string; genre: string;
@@ -101,12 +105,28 @@ export function setupTagEditor(toast: (m: string) => void) {
   // The cover actually stored in the file (first editable file that has one).
   let current: { url: string; note: string } | null = null;
 
+  // Info tab (loaded lazily, once per load()).
+  let infos: Info[] | null = null;
+  // Lyrics tab (single file only).
+  let lyr: { sources: LyricSource[]; playerUses: LyricKind | null } | null = null;
+  let lyrSlot: LyricSlot = "plain";
+  const lyrChosen: Partial<Record<LyricSlot, LyricKind | null>> = {};
+  let lyrDrafts: Partial<Record<LyricSlot, LyricDraft>> = {};
+
   const editable = () => files.filter(f => f.fields && !f.error);
   const n = () => editable().length;
 
   root.innerHTML = `
     <div class="te-wrap">
       <div class="te-summary" id="teSummary"></div>
+      <div class="te-tabbar" id="teTabbar">
+        <button type="button" class="on" data-tab="tags">Tags</button>
+        <button type="button" data-tab="batch" id="teTabBatch">Batch tools</button>
+        <button type="button" data-tab="info">Info</button>
+        <button type="button" data-tab="lyrics" id="teTabLyrics">Lyrics</button>
+      </div>
+      <div class="te-panes">
+      <div class="te-tabpane" data-tabpane="tags">
       <div class="te-main">
         <div class="te-cover">
           <div class="te-cover-box" id="teCoverBox"></div>
@@ -118,8 +138,9 @@ export function setupTagEditor(toast: (m: string) => void) {
         </div>
         <div class="te-form" id="teForm"></div>
       </div>
-      <details class="te-tools" id="teTools">
-        <summary>Batch tools</summary>
+      </div>
+      <div class="te-tabpane" data-tabpane="batch" style="display:none">
+      <div class="te-tools" id="teTools">
         <div class="te-tabs">
           <button type="button" class="on" data-tool="name">From file name</button>
           <button type="button" data-tool="num">Number tracks</button>
@@ -153,7 +174,11 @@ export function setupTagEditor(toast: (m: string) => void) {
           <button type="button" class="btn small" id="teTFindGo">Replace in files</button>
         </div>
         <div class="te-toolmsg" id="teToolMsg"></div>
-      </details>
+      </div>
+      </div>
+      <div class="te-tabpane" data-tabpane="info" style="display:none"><div id="teInfo" class="te-info"></div></div>
+      <div class="te-tabpane" data-tabpane="lyrics" style="display:none"><div id="teLyrics" class="te-lyrics"></div></div>
+      </div>
       <div class="te-preview" id="tePreview"></div>
       <div class="te-files" id="teFiles"></div>
       <div class="te-footer">
@@ -167,7 +192,10 @@ export function setupTagEditor(toast: (m: string) => void) {
   const summaryEl = $("teSummary");
   const formEl = $("teForm");
   const previewEl = $("tePreview");
-  const toolsEl = $("teTools");
+  const tabBatchBtn = $<HTMLButtonElement>("teTabBatch");
+  const tabLyricsBtn = $<HTMLButtonElement>("teTabLyrics");
+  const infoEl = $("teInfo");
+  const lyricsEl = $("teLyrics");
   const filesEl = $("teFiles");
   const statusEl = $("teStatus");
   const saveBtn = $<HTMLButtonElement>("teSave");
@@ -352,16 +380,25 @@ export function setupTagEditor(toast: (m: string) => void) {
       }
       lines.push(`<div class="te-pl"><b>${esc(f.fileName || f.id)}</b> ${parts.join(" · ")}</div>`);
     }
+    const lp = lyricsPlan();
+    for (const w of lp.writes) {
+      const what = `${w.slot === "synced" ? "Synchronised" : "Plain"} lyrics (${KIND_LABEL[w.kind]})`;
+      lines.push(`<div class="te-pl"><b>Lyrics</b> ${esc(what)} → <i>${w.text ? "updated" : "will be deleted"}</i></div>`);
+    }
     for (const e of plan.errors) lines.push(`<div class="te-pl err">${esc(e)}</div>`);
+    for (const e of lp.errors) lines.push(`<div class="te-pl err">${esc(e)}</div>`);
     const count = plan.targets.length;
     if (!lines.length) {
-      previewEl.innerHTML = `<div class="te-pl muted">No changes yet. Only the fields you edit are written${n() > 1 ? "; <mixed> fields stay as they are" : ""}.</div>`;
+      previewEl.innerHTML = `<div class="te-pl muted">No changes yet. Only the fields you edit are written${n() > 1 ? "; &lt;mixed&gt; fields stay as they are" : ""}.</div>`;
     } else {
-      previewEl.innerHTML = `<div class="te-ph">${count === 1 ? "Will change 1 file" : `Will change ${count} files`}</div>` + lines.join("");
+      const heading = count ? (count === 1 ? "Will change 1 file" : `Will change ${count} files`) : "Will change";
+      previewEl.innerHTML = `<div class="te-ph">${heading}</div>` + lines.join("");
     }
-    saveBtn.disabled = busy || !count || plan.errors.length > 0;
-    revertBtn.disabled = busy || (!dirty.size && !cover && !perFile.size);
-    toolsEl.style.display = n() ? "" : "none";
+    saveBtn.disabled = busy || (!count && !lp.writes.length) || plan.errors.length > 0 || lp.errors.length > 0;
+    revertBtn.disabled = busy || (!dirty.size && !cover && !perFile.size && !Object.keys(lyrDrafts).length);
+    tabBatchBtn.style.display = n() ? "" : "none";
+    tabLyricsBtn.style.display = n() === 1 ? "" : "none";
+    if (activeTab === "lyrics" && n() !== 1) showTab("tags");
     renderCover();
   }
 
@@ -387,6 +424,7 @@ export function setupTagEditor(toast: (m: string) => void) {
     const gen = ++loadGen;
     dirty.clear();
     perFile.clear();
+    infos = null; lyr = null; lyrDrafts = {}; lyrChosen.plain = undefined; lyrChosen.synced = undefined;
     cover = null;
     coverPreview = null;
     current = null;
@@ -410,6 +448,8 @@ export function setupTagEditor(toast: (m: string) => void) {
     buildForm();
     renderFiles();
     renderPreview();
+    if (activeTab === "info") void ensureInfo();
+    if (activeTab === "lyrics") void ensureLyrics();
   }
 
   const fmtBytes = (b: number) => (b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
@@ -451,6 +491,117 @@ export function setupTagEditor(toast: (m: string) => void) {
     coverPreview = null;
     renderPreview();
   };
+  // ── Info tab ──
+  async function ensureInfo() {
+    if (infos) { renderInfo(); return; }
+    const gen = loadGen;
+    infoEl.innerHTML = `<div class="te-pl muted">Reading file details…</div>`;
+    try {
+      await ensureInvoke();
+      const res = await invoke!<Info[]>("tag_info", { trackIds: editable().map(f => f.id) });
+      if (gen !== loadGen) return;
+      infos = res;
+    } catch (e) {
+      infoEl.innerHTML = `<div class="te-pl err">${esc("Couldn't read the file details — " + String(e))}</div>`;
+      return;
+    }
+    renderInfo();
+  }
+  function renderInfo() {
+    const rows = infoRows(infos || []);
+    if (!rows.length) { infoEl.innerHTML = `<div class="te-pl muted">No details available.</div>`; return; }
+    infoEl.innerHTML = rows.map(([k, v]) => `<div class="te-inforow"><span class="te-infokey">${esc(k)}</span><span class="te-infoval" title="${esc(v)}">${esc(v)}</span></div>`).join("");
+  }
+
+  // ── Lyrics tab (single file) ──
+  const lyricFile = () => (n() === 1 ? editable()[0] : null);
+  function lyricsPlan() {
+    if (!lyr) return { writes: [] as { slot: LyricSlot; kind: LyricKind; text: string }[], errors: [] as string[] };
+    return planLyricWrites(lyr.sources, lyrDrafts, lyrChosen);
+  }
+  const slotSources = (slot: LyricSlot) => (lyr ? lyr.sources.filter(s => slotOf(s.text) === slot) : []);
+  function slotState(slot: LyricSlot) {
+    const cands = slotSources(slot);
+    const wanted = lyrChosen[slot];
+    const src = cands.find(c => c.kind === wanted) || cands[0] || null;
+    const draft = lyrDrafts[slot];
+    return {
+      cands, src,
+      text: draft ? draft.text : (src ? src.text : ""),
+      target: draft ? draft.target : (src ? src.kind : defaultTarget(slot)),
+    };
+  }
+  async function ensureLyrics() {
+    const f = lyricFile();
+    if (!f) { lyricsEl.innerHTML = `<div class="te-pl muted">Lyrics can be edited for one track at a time.</div>`; return; }
+    if (lyr) { renderLyricsTab(); return; }
+    const gen = loadGen;
+    lyricsEl.innerHTML = `<div class="te-pl muted">Looking for lyrics…</div>`;
+    try {
+      await ensureInvoke();
+      const res = await invoke!<{ sources: LyricSource[]; playerUses: LyricKind | null }>("lyrics_read", { trackPath: f.path });
+      if (gen !== loadGen) return;
+      lyr = res;
+      // Open on the kind that exists (plain first, like MusicBee's default radio).
+      lyrSlot = slotSources("plain").length || !slotSources("synced").length ? "plain" : "synced";
+    } catch (e) {
+      lyricsEl.innerHTML = `<div class="te-pl err">${esc("Couldn't read the lyrics — " + String(e))}</div>`;
+      return;
+    }
+    renderLyricsTab();
+    renderPreview();
+  }
+  function renderLyricsTab() {
+    if (!lyr) return;
+    const st = slotState(lyrSlot);
+    const has = (s: LyricSlot) => slotSources(s).length > 0 || !!lyrDrafts[s];
+    const found = lyr.sources.map(s => `${KIND_LABEL[s.kind]} (${slotOf(s.text) === "synced" ? "synchronised" : "plain"})`);
+    const targets = allowedTargets(lyrSlot);
+    lyricsEl.innerHTML = `
+      <div class="te-lyr-top">
+        <label class="te-check"><input type="radio" name="teLyrSlot" value="plain" ${lyrSlot === "plain" ? "checked" : ""}> Unsynchronised${has("plain") ? " ✓" : ""}</label>
+        <label class="te-check"><input type="radio" name="teLyrSlot" value="synced" ${lyrSlot === "synced" ? "checked" : ""}> Synchronised${has("synced") ? " ✓" : ""}</label>
+      </div>
+      <div class="te-hint">${found.length ? "Found: " + esc(found.join(" · ")) : "No lyrics found for this track."}${lyr.playerUses ? `<br>The player shows: ${esc(KIND_LABEL[lyr.playerUses])}.` : ""}</div>
+      ${st.cands.length > 1 ? `<label class="te-field"><span class="te-label">Show</span><select class="te-input" id="teLyrSource">${st.cands.map(c => `<option value="${c.kind}" ${st.src && st.src.kind === c.kind ? "selected" : ""}>${esc(KIND_LABEL[c.kind])}</option>`).join("")}</select></label>` : ""}
+      <textarea class="te-input te-lyr-text" id="teLyrText" dir="auto" spellcheck="false" placeholder="${lyrSlot === "synced" ? "[00:12.50] Line of lyrics" : "Lyrics text"}"></textarea>
+      <div class="te-lyr-bottom">
+        <label class="te-field"><span class="te-label">Save to</span>
+          <select class="te-input" id="teLyrTarget">${targets.map(t => `<option value="${t}" ${st.target === t ? "selected" : ""}>${esc(KIND_LABEL[t])}</option>`).join("")}</select></label>
+        <button type="button" class="btn small" id="teLyrClear">Clear</button>
+      </div>`;
+    const ta = lyricsEl.querySelector<HTMLTextAreaElement>("#teLyrText")!;
+    ta.value = st.text;
+    lyricsEl.querySelectorAll<HTMLInputElement>('input[name="teLyrSlot"]').forEach(r => {
+      r.onchange = () => { lyrSlot = r.value as LyricSlot; renderLyricsTab(); };
+    });
+    const sel = lyricsEl.querySelector<HTMLSelectElement>("#teLyrSource");
+    if (sel) sel.onchange = () => { lyrChosen[lyrSlot] = sel.value as LyricKind; delete lyrDrafts[lyrSlot]; renderLyricsTab(); renderPreview(); };
+    const setDraft = (text: string, target: LyricKind) => {
+      const cur = slotState(lyrSlot);
+      const origText = cur.src ? cur.src.text : "";
+      const origTarget = cur.src ? cur.src.kind : defaultTarget(lyrSlot);
+      if (text === origText && target === origTarget) delete lyrDrafts[lyrSlot];
+      else lyrDrafts[lyrSlot] = { text, target };
+      renderPreview();
+    };
+    ta.oninput = () => setDraft(ta.value, slotState(lyrSlot).target);
+    lyricsEl.querySelector<HTMLSelectElement>("#teLyrTarget")!.onchange = ev => setDraft(ta.value, (ev.target as HTMLSelectElement).value as LyricKind);
+    lyricsEl.querySelector<HTMLButtonElement>("#teLyrClear")!.onclick = () => { ta.value = ""; setDraft("", slotState(lyrSlot).target); };
+  }
+
+  // ── tabs ──
+  let activeTab = "tags";
+  function showTab(name: string) {
+    activeTab = name;
+    root!.querySelectorAll<HTMLElement>("[data-tab]").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+    root!.querySelectorAll<HTMLElement>("[data-tabpane]").forEach(p => { p.style.display = p.dataset.tabpane === name ? "" : "none"; });
+    if (name === "info") void ensureInfo();
+    if (name === "lyrics") void ensureLyrics();
+    if (name !== "lyrics" && lyr) { /* drafts persist across tabs */ }
+  }
+  root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach(b => { b.onclick = () => showTab(b.dataset.tab!); });
+
   // ── batch tools ──
   const toolMsg = $("teToolMsg");
   const chk = (id: string) => $<HTMLInputElement>(id).checked;
@@ -500,7 +651,9 @@ export function setupTagEditor(toast: (m: string) => void) {
   revertBtn.onclick = () => {
     if (busy) return;
     dirty.clear(); perFile.clear(); cover = null; coverPreview = null;
+    lyrDrafts = {};
     toolMsg.textContent = "";
+    if (activeTab === "lyrics") renderLyricsTab();
     buildForm();
     renderPreview();
   };
@@ -510,18 +663,24 @@ export function setupTagEditor(toast: (m: string) => void) {
   async function save() {
     if (busy) return;
     const plan = buildPlan();
-    if (plan.errors.length || !plan.targets.length) return;
+    const lp = lyricsPlan();
+    if (plan.errors.length || lp.errors.length) return;
+    if (!plan.targets.length && !lp.writes.length) return;
     const targets = plan.targets;
+    const lyricFileInfo = lyricFile();
     busy = true;
     saveBtn.disabled = true;
     const ids = targets.map(f => f.id);
     const paths = targets.map(f => f.path);
+    // Lyrics stored in the tag rewrite the audio file too, so the player must let go of it.
+    if (lyricFileInfo && lp.writes.some(w => w.kind === "embedded") && !paths.includes(lyricFileInfo.path)) paths.push(lyricFileInfo.path);
     // Let the player release the playing file (Windows will not replace a file
     // that is open) before the first write.
     busEmit("melo:tags-will-write", { paths });
     await sleep(350);
     const okIds: string[] = [];
     const failed: { id: string; path: string; error: string }[] = [];
+    let lyricsSaved = false;
     try {
       await ensureInvoke();
       for (let i = 0; i < ids.length; i += CHUNK) {
@@ -539,13 +698,26 @@ export function setupTagEditor(toast: (m: string) => void) {
           break;
         }
       }
+      // Lyrics (single file): sidecar / cache / tag, each written on its own.
+      if (lyricFileInfo) {
+        for (const w of lp.writes) {
+          statusEl.textContent = "Saving lyrics…";
+          try {
+            await invoke!("lyrics_write", { trackPath: lyricFileInfo.path, kind: w.kind, text: w.text });
+            lyricsSaved = true;
+          } catch (e) {
+            failed.push({ id: lyricFileInfo.id, path: lyricFileInfo.path, error: "Lyrics: " + String(e) });
+          }
+        }
+      }
     } finally {
+      if (lyricsSaved && lyricFileInfo) busEmit("melo:lyrics-changed", { trackPath: lyricFileInfo.path });
       busEmit("melo:tags-written", { ids: okIds, paths: targets.filter(f => okIds.includes(f.id)).map(f => f.path), released: paths });
       if (okIds.length) busEmit("melo:library-changed", { tagsEdited: okIds.length });
       busy = false;
     }
     if (!failed.length) {
-      toast(okIds.length === 1 ? "Tags saved" : `Tags saved for ${okIds.length} files`);
+      toast(!okIds.length && lyricsSaved ? "Lyrics saved" : okIds.length === 1 ? "Saved" : `Saved ${okIds.length} files`);
       statusEl.textContent = "";
       await load(files.map(f => f.id));
       return;
@@ -558,10 +730,12 @@ export function setupTagEditor(toast: (m: string) => void) {
     const keepPer: PerFile = new Map(Array.from(perFile, ([id, m]) => [id, new Map(m)] as [string, Map<FieldKey, string>]));
     const keepCover = cover;
     const keepPreview = coverPreview;
+    const keepLyr = { ...lyrDrafts };
     await load(files.map(f => f.id));
     for (const [k, v] of keepDirty) dirty.set(k, v);
     mergePer(keepPer); // values already on disk equal their file and are pruned
     cover = keepCover; coverPreview = keepPreview;
+    if (Object.keys(keepLyr).length) { await ensureLyrics(); lyrDrafts = keepLyr; renderLyricsTab(); }
     buildForm();
     renderFiles(failed);
     renderPreview();

@@ -282,6 +282,7 @@ export function setupLyrics(
 
   let currentParsed: { isSynced: boolean; lines: LyricLine[]; raw: string } = { isSynced: false, lines: [], raw: "" };
   let currentTrackId: string | null = null;
+  let lastTrack: Track | null = null;
   let activeIndex = -1;
   let playbackTime = 0;
   let loadToken = 0;
@@ -300,6 +301,7 @@ export function setupLyrics(
       return;
     }
     currentTrackId = track.id;
+    lastTrack = track;
     if (lyricsTitle) lyricsTitle.textContent = `${track.title} — ${track.artist}`;
 
     // Show a loading state while the online lookup (if enabled) is in flight.
@@ -438,6 +440,13 @@ export function setupLyrics(
   // (possibly "not found") result so the next display hits disk.
   busOn("melo:lyrics-resolved", (p: any) => {
     if (p && typeof p.trackPath === "string") clearLyricsCache(p.trackPath);
+  });
+  // The tag editor changed this track's lyrics (tag, .lrc or cache): drop the
+  // cached lookup and re-read if it is the track shown right now.
+  busOn("melo:lyrics-changed", (p: any) => {
+    if (!p || typeof p.trackPath !== "string") return;
+    clearLyricsCache(p.trackPath);
+    if (lastTrack && lastTrack.path === p.trackPath) loadTrackLyrics(lastTrack);
   });
 
   window.addEventListener("lumi:trackChange", (e: any) => {

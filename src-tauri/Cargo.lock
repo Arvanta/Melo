@@ -2208,6 +2208,7 @@ name = "melo"
 version = "1.4.0"
 dependencies = [
  "crossbeam-channel",
+ "encoding_rs",
  "image",
  "lofty",
  "rusqlite",

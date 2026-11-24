@@ -73,3 +73,19 @@ test("batch tools write per-file edits through tag_write_each", () => {
   assert.match(rs, /pub async fn tag_write_each/);
   assert.match(mainRs, /tag_write_each,/);
 });
+
+test("tabs, Info and Lyrics are wired end to end", () => {
+  for (const t of ["tags", "batch", "info", "lyrics"]) assert.match(ui, new RegExp(`data-tab="${t}"`));
+  assert.match(ui, /"tag_info"/);
+  assert.match(ui, /"lyrics_read"/);
+  assert.match(ui, /"lyrics_write"/);
+  assert.match(ui, /busEmit\("melo:lyrics-changed"/);
+  assert.match(read("src/lyrics.ts"), /busOn\("melo:lyrics-changed"/);
+  assert.match(rs, /pub async fn tag_info/);
+  assert.match(mainRs, /library_db::tag_info,/);
+  assert.match(mainRs, /fn lyrics_read/);
+  assert.match(mainRs, /fn lyrics_write/);
+  assert.match(mainRs, /lyrics_read,\s+lyrics_write,/);
+  // the player and the editor read .lrc files through the same decoder
+  assert.equal((mainRs.match(/read_lyrics_file\(/g) || []).length >= 5, true);
+});

@@ -121,6 +121,25 @@ pub fn read_cover(tagged: &TaggedFile) -> Option<(String, Vec<u8>)> {
     Some((mime, pic.data().to_vec()))
 }
 
+/// Sets (non-empty) or removes (empty) the embedded lyrics (USLT / ©lyr / LYRICS).
+pub fn set_lyrics(tagged: &mut TaggedFile, text: &str) -> Result<(), String> {
+    if tagged.primary_tag().is_none() && tagged.first_tag().is_none() {
+        if text.trim().is_empty() { return Ok(()); }
+        let ty = tagged.file_type().primary_tag_type();
+        tagged.insert_tag(Tag::new(ty));
+    }
+    let tag = match tagged.primary_tag_mut() {
+        Some(t) => t,
+        None => tagged.first_tag_mut().ok_or_else(|| "This file has no writable tag".to_string())?,
+    };
+    if text.trim().is_empty() {
+        tag.remove_key(&ItemKey::Lyrics);
+    } else {
+        tag.insert_text(ItemKey::Lyrics, text.to_string());
+    }
+    Ok(())
+}
+
 /// A validated cover image ready to embed.
 pub struct CoverImage {
     pub mime: MimeType,

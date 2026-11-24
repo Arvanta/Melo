@@ -535,20 +535,135 @@ fn get_cached_lyrics(app: tauri::AppHandle, track_path: String) -> Option<String
     // 1. Sidecar .lrc — checked first for speed (no network needed).
     let sidecar = p.with_extension("lrc");
     if sidecar.exists() && sidecar.is_file() {
-        if let Ok(c) = std::fs::read_to_string(&sidecar) {
+        if let Ok(c) = read_lyrics_file(&sidecar) {
             if !c.trim().is_empty() { return Some(c); }
         }
     }
     // 2. Central cache (AppData/lyrics-cache/<hash>.lrc)
     if let Some(cache_path) = cached_lrc_path(&app, p) {
         if cache_path.exists() && cache_path.is_file() {
-            if let Ok(c) = std::fs::read_to_string(&cache_path) {
+            if let Ok(c) = read_lyrics_file(&cache_path) {
                 if !c.trim().is_empty() { return Some(c); }
             }
         }
     }
     // 3. Embedded tag (handled by get_track_lyrics)
     None
+}
+
+/// Decodes a lyrics file: UTF-8 (with or without BOM), UTF-16 with BOM, else
+/// legacy Windows-1256 (what old Persian/Arabic .lrc files were saved in).
+fn decode_lyrics_bytes(bytes: &[u8]) -> String {
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8_lossy(rest).into_owned();
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return encoding_rs::UTF_16LE.decode_without_bom_handling(rest).0.into_owned();
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        return encoding_rs::UTF_16BE.decode_without_bom_handling(rest).0.into_owned();
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(_) => encoding_rs::WINDOWS_1256.decode_without_bom_handling(bytes).0.into_owned(),
+    }
+}
+
+fn read_lyrics_file(path: &Path) -> std::io::Result<String> {
+    std::fs::read(path).map(|b| decode_lyrics_bytes(&b))
+}
+
+#[derive(Serialize)]
+struct LyricsSource {
+    /// "sidecar" | "cache" | "embedded"
+    kind: String,
+    text: String,
+    path: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LyricsRead {
+    sources: Vec<LyricsSource>,
+    /// The source the player shows: .lrc next to the track, then the tag, then the cache.
+    player_uses: Option<String>,
+}
+
+/// Every place lyrics exist for a track — used by the tag editor's Lyrics tab.
+#[tauri::command]
+fn lyrics_read(app: tauri::AppHandle, track_path: String) -> LyricsRead {
+    let p = Path::new(&track_path);
+    let mut sources: Vec<LyricsSource> = Vec::new();
+    let sidecar = p.with_extension("lrc");
+    if sidecar.is_file() {
+        if let Ok(text) = read_lyrics_file(&sidecar) {
+            if !text.trim().is_empty() {
+                sources.push(LyricsSource { kind: "sidecar".into(), text, path: Some(sidecar.to_string_lossy().into_owned()) });
+            }
+        }
+    }
+    if let Ok(tagged) = library_db::read_tagged_tolerant(p) {
+        if let Some(t) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
+            if let Some(l) = t.get_string(&lofty::tag::ItemKey::Lyrics) {
+                if !l.trim().is_empty() {
+                    sources.push(LyricsSource { kind: "embedded".into(), text: l.to_string(), path: None });
+                }
+            }
+        }
+    }
+    if let Some(cp) = cached_lrc_path(&app, p) {
+        if cp.is_file() {
+            if let Ok(text) = read_lyrics_file(&cp) {
+                if !text.trim().is_empty() {
+                    sources.push(LyricsSource { kind: "cache".into(), text, path: Some(cp.to_string_lossy().into_owned()) });
+                }
+            }
+        }
+    }
+    let player_uses = sources.first().map(|s| s.kind.clone());
+    LyricsRead { sources, player_uses }
+}
+
+fn write_text_atomic(target: &Path, text: &str) -> Result<(), String> {
+    let name = target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "lyrics".into());
+    let tmp = target.with_file_name(format!(".{name}.melo-lrc.tmp"));
+    std::fs::write(&tmp, text.as_bytes()).map_err(|e| format!("Could not write the lyrics file (read-only folder?): {e}"))?;
+    if let Err(e) = std::fs::rename(&tmp, target) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Could not replace the lyrics file: {e}"));
+    }
+    Ok(())
+}
+
+/// Writes (non-empty text) or deletes (empty text) lyrics in ONE place.
+/// kind: "sidecar" (.lrc next to the track) | "cache" | "embedded" (tag).
+#[tauri::command]
+fn lyrics_write(app: tauri::AppHandle, track_path: String, kind: String, text: String) -> Result<(), String> {
+    let p = Path::new(&track_path);
+    let delete = text.trim().is_empty();
+    match kind.as_str() {
+        "sidecar" | "cache" => {
+            let target = if kind == "sidecar" {
+                p.with_extension("lrc")
+            } else {
+                let cp = cached_lrc_path(&app, p).ok_or_else(|| "Could not resolve the lyrics cache directory".to_string())?;
+                if let Some(parent) = cp.parent() { let _ = std::fs::create_dir_all(parent); }
+                cp
+            };
+            if delete {
+                if target.exists() { std::fs::remove_file(&target).map_err(|e| format!("Could not delete the lyrics file: {e}"))?; }
+                Ok(())
+            } else {
+                write_text_atomic(&target, &text)
+            }
+        }
+        "embedded" => {
+            let mut tagged = library_db::read_tagged_tolerant(p)?;
+            tag_edit::set_lyrics(&mut tagged, &text)?;
+            tag_edit::write_safely(p, &tagged)
+        }
+        other => Err(format!("Unknown lyrics location: {other}")),
+    }
 }
 
 #[tauri::command]
@@ -576,7 +691,7 @@ fn get_track_lyrics(path: String) -> Option<String> {
     // 1. Check for .lrc file next to the audio file
     let lrc_path = p.with_extension("lrc");
     if lrc_path.exists() && lrc_path.is_file() {
-        if let Ok(content) = std::fs::read_to_string(&lrc_path) {
+        if let Ok(content) = read_lyrics_file(&lrc_path) {
             if !content.trim().is_empty() {
                 return Some(content);
             }
@@ -975,6 +1090,7 @@ fn main() {
             library_db::tag_write,
             library_db::tag_cover_read,
             library_db::tag_write_each,
+            library_db::tag_info,
             library_db::playlist_track_index,
             library_db::insert_queue_after,
             library_db::replace_queue_tracks,
@@ -1006,6 +1122,8 @@ fn main() {
             get_cli_tracks,
             get_waveform_peaks,
             get_track_lyrics,
+            lyrics_read,
+            lyrics_write,
             get_cached_lyrics,
             save_lyrics_lrc,
             list_installed_skins,
@@ -1099,4 +1217,22 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod lyrics_decode_tests {
+    use super::decode_lyrics_bytes;
+
+    #[test]
+    fn decodes_utf8_bom_utf16_and_legacy_persian() {
+        assert_eq!(decode_lyrics_bytes("[00:01.00]سلام".as_bytes()), "[00:01.00]سلام");
+        let mut bom = vec![0xEF, 0xBB, 0xBF];
+        bom.extend_from_slice("abc".as_bytes());
+        assert_eq!(decode_lyrics_bytes(&bom), "abc");
+        let mut u16: Vec<u8> = vec![0xFF, 0xFE];
+        for c in "hi سلام".encode_utf16() { u16.extend_from_slice(&c.to_le_bytes()); }
+        assert_eq!(decode_lyrics_bytes(&u16), "hi سلام");
+        // "سلام" in Windows-1256 (not valid UTF-8)
+        assert_eq!(decode_lyrics_bytes(&[0xD3, 0xE1, 0xC7, 0xE3]), "سلام");
+    }
 }
