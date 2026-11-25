@@ -692,7 +692,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     for (const b of [contextPlayNext, contextAddToQueue, contextOpenFolder, contextRemoveTrack, contextRemoveGroup]) b.hidden = true;
     contextEditTags.hidden = false;
     contextEditTags.textContent = entryIds.length > 1 ? `Edit tags of ${entryIds.length} tracks…` : "Edit tags…";
-    showContextRate(() => trackIdsOfEntries(entryIds));
+    showContextRate(null); // no star row in the playlist / queue menu
     positionLibraryContextMenu(event);
   }
   contextEditTags.onclick = async event => {

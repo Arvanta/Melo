@@ -180,8 +180,9 @@ width/height; drop it again on mouseup. */
   /* Bottom padding 14 -> 19: the +5px window height lives here */
   padding: 12px 20px 19px 20px;
   position: relative;
-  min-height: 245px;
-  height: 245px;
+  /* 245 -> 269: the star-rating row of the track info (24px: 20 + 4) */
+  min-height: 269px;
+  height: 269px;
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -3091,7 +3092,7 @@ select.te-input { padding-right: 4px; }
 .te-stars.dirty .te-star.on { filter: drop-shadow(0 0 2px var(--accent, #f5b301)); }
 .te-ratinghint { margin-left: 10px; font-size: 12px; color: var(--text-muted); }
 .track-rating { display: flex; gap: 1px; margin-top: 4px; min-height: 20px; }
-.track-rating[hidden] { display: none; }
+.track-rating[hidden] { display: flex; visibility: hidden; } /* keep the row's space: no jump when a track loads */
 .track-rating .rate-star { font-size: 17px; }
 .ctx-rate { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 12px; }
 .ctx-rate[hidden] { display: none; }

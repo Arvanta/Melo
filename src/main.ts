@@ -1051,7 +1051,7 @@ if (isTauri && !urlPanel) {
     // - custom skin with a declared target size: resize to it, then apply bounds
     // - custom skin with only min/max bounds: keep current size, apply bounds
     // - custom skin without geometry: keep current size, free to resize
-    // - default skin: 960×245, resizable (650 floor, 260 max height)
+    // - default skin: 960×269, resizable (650 floor, 284 max height)
     const getTargetSize = () => {
       const activeSkin = localStorage.getItem("melo-active-skin-id") || "default";
       if (activeSkin !== "default") {
@@ -1076,7 +1076,7 @@ if (isTauri && !urlPanel) {
         }
         return { w: 0, h: 0, resizable: true, fixed: false, custom: true, force: false, minW: undefined, minH: undefined, maxW: undefined, maxH: undefined };
       }
-      return { w: 960, h: 245, resizable: true, fixed: false, custom: false, force: true, minW: 650, minH: 135, maxW: 10000, maxH: 260 }; // +5 bottom space
+      return { w: 960, h: 269, resizable: true, fixed: false, custom: false, force: true, minW: 650, minH: 135, maxW: 10000, maxH: 284 }; // +5 bottom space, +24 star-rating row
     };
 
     const applySizeConstraints = async (sz: { fixed: boolean; custom: boolean; resizable: boolean; minW?: number; minH?: number; maxW?: number; maxH?: number; w: number; h: number }) => {

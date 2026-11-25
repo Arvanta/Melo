@@ -57,3 +57,19 @@ test("rating is wired end to end", () => {
   assert.match(db, /rating_dirty/);
   assert.match(db, /CASE WHEN tracks\.rating_dirty=1 THEN tracks\.rating ELSE excluded\.rating END/);
 });
+
+test("default skin height includes the star row (245 + 24) everywhere it is encoded", () => {
+  const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
+  const win = conf.app.windows[0];
+  assert.equal(win.height, 269);
+  assert.equal(win.minHeight, 254);
+  assert.match(read("src/app.css"), /min-height: 269px;\s*height: 269px;/);
+  assert.match(read("src/main.ts"), /w: 960, h: 269,[^}]*maxH: 284/);
+  assert.match(read("src/app.css"), /\.track-rating\[hidden\] \{ display: flex; visibility: hidden; \}/);
+});
+
+test("no star row in the playlist / queue context menu", () => {
+  const lib = read("src/library.ts");
+  const i = lib.indexOf("function showEntryContextMenu");
+  assert.match(lib.slice(i, i + 900), /showContextRate\(null\)/);
+});
