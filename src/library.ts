@@ -2157,6 +2157,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   type BestOfArtist = { tracks: HomeTrack[]; albums: HomeGroup[] };
   let homeBestLast: BestOfArtist | null = null;
   let homeBestToken = 0;
+  // Last painted heights of the two async Home blocks: the placeholder reserves
+  // them so the content below does not jump when the data arrives.
+  let homeStatsH = 0;
+  let homeBestH = 0;
   let homeBestPickerOpen = false;
 
   // Section order / visibility (Customize panel). New sections are appended.
@@ -2375,6 +2379,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       homeStatsLast = stats;
       host.innerHTML = homeStatsBodyHtml(stats, id);
       bindLazyArtwork(host);
+      host.style.minHeight = "";
+      homeStatsH = Math.round(host.getBoundingClientRect().height) || homeStatsH;
     } catch {
       if (token === homeStatsToken && host.isConnected) host.innerHTML = `<div class="home-stats-empty">Statistics are unavailable right now.</div>`;
     }
@@ -2487,7 +2493,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       <button type="button" class="home-best-pick" id="homeBestPick" aria-expanded="${homeBestPickerOpen}" title="Choose an artist"><span>${esc(name || "Choose an artist")}</span>${svgIcon('<path d="m6 9 6 6 6-6"/>', 12)}</button>
       <span class="home-seg" role="group" aria-label="Rank by">${seg("time", "Time", "Rank by listening time")}${seg("plays", "Plays", "Rank by number of plays")}</span></div>
       <div class="home-best-picker" id="homeBestPicker" ${homeBestPickerOpen ? "" : "hidden"}><input type="text" id="homeBestSearch" placeholder="Search artists…" autocomplete="off" spellcheck="false"><div class="home-best-results" id="homeBestResults"></div></div>
-      <div class="home-ranks" id="homeBestBody"><div class="home-stats-empty">${name ? "Loading…" : "Pick an artist to see their best tracks and albums."}</div></div></section>`;
+      <div class="home-ranks" id="homeBestBody"${homeBestH && name ? ` style="min-height:${homeBestH}px"` : ""}><div class="home-stats-empty">${name ? "Loading…" : "Pick an artist to see their best tracks and albums."}</div></div></section>`;
   }
   function homeBestBodyHtml(best: BestOfArtist): string {
     const by = readBestBy();
@@ -2520,6 +2526,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       if (token !== homeBestToken || !host.isConnected) return;
       homeBestLast = best;
       host.innerHTML = homeBestBodyHtml(best);
+      host.style.minHeight = "";
+      homeBestH = Math.round(host.getBoundingClientRect().height) || homeBestH;
       bindLazyArtwork(host);
     } catch {
       if (token === homeBestToken && host.isConnected) host.innerHTML = `<div class="home-stats-empty">This list is unavailable right now.</div>`;
@@ -2741,7 +2749,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     const range = readHomeRange();
     out.stats = `<section class="home-section"><div class="home-stats-head"><h2 class="home-h2">Listening time</h2>
         <div class="home-ranges" role="tablist" aria-label="Period">${HOME_RANGES.map(r => `<button type="button" class="home-range${r.id === range ? " active" : ""}" data-home-range="${r.id}" role="tab" aria-selected="${r.id === range}">${esc(r.label)}</button>`).join("")}</div></div>
-        <div class="home-stats-card" id="homeStatsBody"><div class="home-stats-empty">Loading…</div></div></section>`;
+        <div class="home-stats-card" id="homeStatsBody"${homeStatsH ? ` style="min-height:${homeStatsH}px"` : ""}><div class="home-stats-empty">Loading…</div></div></section>`;
     out.recentlyPlayed = homeRecentShelfHtml(data.recentlyPlayedTracks);
     out.recentlyAdded = homeShelfHtml("Recently added", data.recentlyAdded, "recentlyAdded");
     out.ranks = (data.topArtists.length || data.topAlbums.length)
@@ -4248,6 +4256,10 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Breakpoint — not on every pixel of a resize drag — so widening the
   // Library window reflows the track list into a grid once there's room.
   function maybeReflowLibrary() {
+    // Home and Playlists lay themselves out with CSS; re-rendering them on a
+    // resize repainted Home in a loop (the stats card grows -> scrollbar -> width
+    // change -> repaint). Nothing here applies to them.
+    if (libTab === "home" || libTab === "playlists") return;
     const cols = libraryColumns();
     // Tiles: the cover (and so the row height) follows the column width, so a
     // width change that keeps the column count still needs a re-render.

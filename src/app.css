@@ -2671,7 +2671,7 @@ few-px band where scrolled rows peek through. */
 .lib-toolbar-row.is-home .lib-side-switch,
 .lib-toolbar-row.is-home #libLayoutSwitch,
 .lib-toolbar-row.is-home #libViewSwitch { visibility: hidden; }
-#trackList[data-home] { padding: 0; }
+#trackList[data-home] { padding: 0; scrollbar-gutter: stable; }
 .home { display: flex; flex-direction: column; gap: 26px; padding: 18px 18px 26px; max-width: 1100px; margin: 0 auto; }
 .home-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .home-h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); }
@@ -2790,7 +2790,7 @@ few-px band where scrolled rows peek through. */
 .home-range { border: 1px solid var(--border, rgba(255,255,255,0.12)); background: transparent; color: var(--text-muted); font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
 .home-range:hover { color: var(--text); }
 .home-range.active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.home-stats-card { border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 12px; padding: 14px; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.home-stats-card { box-sizing: border-box; border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 12px; padding: 14px; background: color-mix(in srgb, var(--text) 4%, transparent); }
 .home-stats-empty { font-size: 12px; color: var(--text-muted); padding: 14px 4px; text-align: center; }
 .home-stats-main { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; }
 .home-stats-total { min-width: 150px; }
