@@ -136,3 +136,96 @@ fn common_fields_mark_mixed() {
     assert_eq!(c.has_cover, Some(false));
     assert!(TagEdit::default().is_empty());
 }
+
+// ───────── star rating (round 125) ─────────
+
+fn rating_of(p: &Path) -> u8 { read_fields_at(p, &parse(p)).rating }
+fn set_stars(p: &Path, n: u8) {
+    let e = TagEdit { rating: Some(n), ..Default::default() };
+    let mut t = parse(p);
+    apply_edit(&mut t, &e, None).unwrap();
+    write_safely_rated(p, &t, e.rating).unwrap();
+}
+
+#[test]
+fn rating_roundtrips_in_every_format_and_keeps_other_fields() {
+    for ext in ["mp3", "flac", "m4a", "ogg"] {
+        let p = fixture(&format!("base.{ext}"), &format!("rate-{ext}"));
+        assert_eq!(rating_of(&p), 0, "{ext}");
+        for n in [4u8, 1, 5, 2, 3] {
+            set_stars(&p, n);
+            assert_eq!(rating_of(&p), n, "{ext} {n}");
+        }
+        let f = read_fields_at(&p, &parse(&p));
+        assert_eq!(f.title, "Old Title", "{ext}");
+        assert_eq!(f.album, "Old Album", "{ext}");
+        assert_eq!(f.track, 3, "{ext}");
+        set_stars(&p, 0);
+        assert_eq!(rating_of(&p), 0, "{ext} cleared");
+    }
+}
+
+#[test]
+fn rating_edit_together_with_other_fields_in_one_write() {
+    let p = fixture("base.mp3", "rate-combo");
+    let e = TagEdit { rating: Some(4), title: Some("Combo".into()), ..Default::default() };
+    let mut t = parse(&p);
+    apply_edit(&mut t, &e, None).unwrap();
+    write_safely_rated(&p, &t, e.rating).unwrap();
+    let f = read_fields_at(&p, &parse(&p));
+    assert_eq!((f.title.as_str(), f.rating), ("Combo", 4));
+}
+
+fn popm_frames(p: &Path) -> Vec<(String, u8, u64)> {
+    use lofty::config::ParseOptions;
+    use lofty::id3::v2::Frame;
+    use lofty::mpeg::MpegFile;
+    let mut f = fs::File::open(p).unwrap();
+    let file = MpegFile::read_from(&mut f, ParseOptions::new()).unwrap();
+    (&*file.id3v2().unwrap()).into_iter().filter_map(|fr| match fr { Frame::Popularimeter(x) => Some((x.email.clone(), x.rating, x.counter)), _ => None }).collect()
+}
+
+#[test]
+fn id3_keeps_the_existing_popm_email_and_counter() {
+    use lofty::config::{ParseOptions, WriteOptions};
+    use lofty::id3::v2::{Frame, PopularimeterFrame};
+    use lofty::mpeg::MpegFile;
+    let p = fixture("base.mp3", "rate-popm");
+    // 1. A frame like the one JRiver wrote: no email, rating 192, no counter.
+    let mut f = fs::File::open(&p).unwrap();
+    let mut file = MpegFile::read_from(&mut f, ParseOptions::new()).unwrap();
+    drop(f);
+    file.id3v2_mut().unwrap().insert(Frame::Popularimeter(PopularimeterFrame::new(String::new(), 192, 0)));
+    file.save_to_path(&p, WriteOptions::default()).unwrap();
+    assert_eq!(rating_of(&p), 4);
+    set_stars(&p, 5);
+    assert_eq!(popm_frames(&p), vec![(String::new(), 255, 0)]);
+    // 2. A frame with an email and a counter keeps both.
+    let mut f = fs::File::open(&p).unwrap();
+    let mut file = MpegFile::read_from(&mut f, ParseOptions::new()).unwrap();
+    drop(f);
+    let tag = file.id3v2_mut().unwrap();
+    tag.retain(|fr| !matches!(fr, Frame::Popularimeter(_)));
+    tag.insert(Frame::Popularimeter(PopularimeterFrame::new("someone@example.com".into(), 255, 7)));
+    file.save_to_path(&p, WriteOptions::default()).unwrap();
+    assert_eq!(rating_of(&p), 5);
+    set_stars(&p, 2);
+    assert_eq!(popm_frames(&p), vec![("someone@example.com".to_string(), 64, 7)]);
+    // 3. Clearing keeps the frame (rating byte 0) and reads as no rating.
+    set_stars(&p, 0);
+    assert_eq!(rating_of(&p), 0);
+    assert_eq!(popm_frames(&p).len(), 1);
+}
+
+#[test]
+fn a_new_id3_rating_uses_the_windows_media_player_email() {
+    let p = fixture("base.mp3", "rate-new");
+    set_stars(&p, 3);
+    assert_eq!(popm_frames(&p), vec![("Windows Media Player 9 Series".to_string(), 128, 0)]);
+}
+
+#[test]
+fn star_mapping_ranges_and_text_scales() {
+    assert_eq!([0u8, 1, 31, 32, 95, 96, 159, 160, 192, 223, 224, 255].map(stars_from_popm), [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5, 5]);
+    for s in 0..=5u8 { assert_eq!(stars_from_popm(popm_from_stars(s)), s); }
+}

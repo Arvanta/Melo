@@ -1,5 +1,7 @@
 import type { Track } from "./types";
 import { busEmit, busOn, isTauri } from "./bus";
+import { nextStars, starsHtml } from "./rating";
+import { rateTracks, ratingsOf } from "./rating-ui";
 
 const role = new URLSearchParams(location.search).get("panel") || "main";
 
@@ -510,6 +512,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   libraryContextMenu.innerHTML = `
     <button class="ctx-item" id="ctxPlayNext">Play next</button>
     <button class="ctx-item" id="ctxAddToQueue">Add to end of queue</button>
+    <div class="ctx-rate" id="ctxRate" hidden><span class="ctx-rate-label">Rate</span><span class="ctx-rate-stars" id="ctxRateStars"></span></div>
     <button class="ctx-item" id="ctxEditTags">Edit tags…</button>
     <button class="ctx-item" id="ctxOpenTrackFolder">Open containing folder</button>
     <button class="ctx-item danger" id="ctxRemoveLibraryTrack">Remove from Library</button>
@@ -533,6 +536,36 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const contextPlayNext = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxPlayNext")!;
   const contextAddToQueue = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxAddToQueue")!;
   const contextEditTags = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxEditTags")!;
+  const contextRate = libraryContextMenu.querySelector<HTMLElement>("#ctxRate")!;
+  const contextRateStars = libraryContextMenu.querySelector<HTMLElement>("#ctxRateStars")!;
+  // Stars row of the context menu. `resolveIds` yields the tracks the menu acts
+  // on; with exactly one track its current rating is shown, with several the
+  // click sets them all (an unknown current value never "toggles off").
+  let contextRateIds: (() => Promise<string[]>) | null = null;
+  let contextRateValue = -1;
+  function showContextRate(resolveIds: (() => Promise<string[]>) | null) {
+    contextRateIds = resolveIds;
+    contextRate.hidden = !resolveIds;
+    contextRateValue = -1;
+    contextRateStars.innerHTML = starsHtml(0);
+    if (!resolveIds) return;
+    void resolveIds().then(async ids => {
+      if (contextRateIds !== resolveIds || ids.length !== 1) return;
+      const r = (await ratingsOf(ids)).get(ids[0]);
+      if (contextRateIds !== resolveIds) return;
+      contextRateValue = r?.rating ?? 0;
+      contextRateStars.innerHTML = starsHtml(contextRateValue);
+    }).catch(() => {});
+  }
+  contextRateStars.addEventListener("click", async event => {
+    const b = (event.target as HTMLElement).closest<HTMLElement>("[data-star]");
+    const resolve = contextRateIds;
+    if (!b || !resolve) return;
+    event.stopPropagation();
+    libraryContextMenu.style.display = "none";
+    try { await rateTracks(await resolve(), nextStars(contextRateValue, Number(b.dataset.star))); }
+    catch (e) { toast("Couldn't set the rating — " + String(e)); }
+  });
   const contextOpenFolder = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxOpenTrackFolder")!;
   const contextRemoveTrack = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxRemoveLibraryTrack")!;
   const contextRemoveGroup = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxRemoveLibraryGroup")!;
@@ -566,6 +599,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     contextOpenFolder.hidden = false;
     contextRemoveTrack.hidden = false;
     contextRemoveGroup.hidden = true;
+    const rateIds = contextQueueIds.slice();
+    showContextRate(async () => rateIds);
     positionLibraryContextMenu(event);
   }
   function showGroupContextMenu(event: MouseEvent, group: ContextLibraryGroup) {
@@ -580,6 +615,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     contextRemoveTrack.hidden = true;
     contextRemoveGroup.hidden = false;
     contextRemoveGroup.textContent = `Remove ${group.album ? "Album" : group.albumArtist ? "Album Artist" : "Artist"} from Library`;
+    showContextRate(null);
     positionLibraryContextMenu(event);
   }
 
@@ -656,6 +692,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     for (const b of [contextPlayNext, contextAddToQueue, contextOpenFolder, contextRemoveTrack, contextRemoveGroup]) b.hidden = true;
     contextEditTags.hidden = false;
     contextEditTags.textContent = entryIds.length > 1 ? `Edit tags of ${entryIds.length} tracks…` : "Edit tags…";
+    showContextRate(() => trackIdsOfEntries(entryIds));
     positionLibraryContextMenu(event);
   }
   contextEditTags.onclick = async event => {

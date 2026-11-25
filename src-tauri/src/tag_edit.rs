@@ -10,7 +10,7 @@
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
-use lofty::tag::{Accessor, ItemKey, Tag};
+use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,6 +36,8 @@ pub struct TagFields {
     pub disc: u32,
     pub disc_total: u32,
     pub has_cover: bool,
+    /// Star rating 0..=5 (0 = none).
+    pub rating: u8,
 }
 
 /// A partial edit: `None` = leave the field alone, `Some("")` / `Some(0)` =
@@ -55,6 +57,8 @@ pub struct TagEdit {
     pub track_total: Option<u32>,
     pub disc: Option<u32>,
     pub disc_total: Option<u32>,
+    /// 0 clears the rating, 1..=5 sets it.
+    pub rating: Option<u8>,
     pub cover: Option<CoverEdit>,
 }
 
@@ -82,6 +86,7 @@ impl TagEdit {
             && self.track_total.is_none()
             && self.disc.is_none()
             && self.disc_total.is_none()
+            && self.rating.is_none()
             && self.cover.is_none()
     }
 }
@@ -109,7 +114,15 @@ pub fn read_fields(tagged: &TaggedFile) -> TagFields {
         disc: tag.disk().unwrap_or(0),
         disc_total: tag.disk_total().unwrap_or(0),
         has_cover: !tag.pictures().is_empty(),
+        rating: read_rating(tag),
     }
+}
+
+/// `read_fields` plus the MP3 rating, which needs the file itself.
+pub fn read_fields_at(path: &Path, tagged: &TaggedFile) -> TagFields {
+    let mut f = read_fields(tagged);
+    if is_mpeg(tagged) { f.rating = read_rating_mpeg(path); }
+    f
 }
 
 /// The embedded cover (front cover preferred, else the first picture) as
@@ -229,6 +242,10 @@ pub fn apply_edit(tagged: &mut TaggedFile, edit: &TagEdit, cover: Option<&CoverI
         if n == 0 { tag.remove_disk_total(); } else { tag.set_disk_total(n); }
     }
 
+    if let Some(n) = edit.rating {
+        set_rating(tag, n.min(5));
+    }
+
     match (&edit.cover, cover) {
         (Some(CoverEdit::Remove), _) => {
             while !tag.pictures().is_empty() {
@@ -250,6 +267,115 @@ pub fn apply_edit(tagged: &mut TaggedFile, edit: &TagEdit, cover: Option<&CoverI
     Ok(())
 }
 
+
+// ───────────────────────── star rating (round 125) ─────────────────────────
+//
+// MP3 (ID3v2): POPM frame(s) — email, rating byte 0..255, play counter. The
+// byte is mapped to 1..5 stars with the usual ranges (1-31, 32-95, 96-159,
+// 160-223, 224-255); 0 = unrated. A star is WRITTEN as 1/64/128/196/255 (the
+// Windows Media Player / MusicBee convention). An existing POPM frame keeps its
+// email and counter; only its rating byte changes. When the file has none, one
+// with the "Windows Media Player 9 Series" email is added (the address the
+// widest range of players read).
+// Vorbis / MP4 / others: a text value (RATING / rate). 1..5 = stars, larger
+// numbers are a 0..100 scale (stars = value / 20, rounded). Written as 0..100.
+
+const WMP_EMAIL: &str = "Windows Media Player 9 Series";
+
+pub fn stars_from_popm(byte: u8) -> u8 {
+    match byte {
+        0 => 0,
+        1..=31 => 1,
+        32..=95 => 2,
+        96..=159 => 3,
+        160..=223 => 4,
+        _ => 5,
+    }
+}
+
+pub fn popm_from_stars(stars: u8) -> u8 {
+    [0u8, 1, 64, 128, 196, 255][stars.min(5) as usize]
+}
+
+fn stars_from_text(raw: &str) -> u8 {
+    let v: f64 = raw.trim().replace(',', ".").parse().unwrap_or(0.0);
+    if !v.is_finite() || v <= 0.0 { return 0; }
+    if v <= 5.0 { return v.round() as u8; }
+    ((v / 20.0).round() as u8).clamp(1, 5)
+}
+
+/// Rating of the generic (non-ID3) tag: Vorbis RATING, MP4 rate, ...
+/// lofty does not hand POPM frames to the generic tag, so MP3 goes through
+/// `read_rating_mpeg`.
+pub fn read_rating(tag: &Tag) -> u8 {
+    if tag.tag_type() == TagType::Id3v2 { return 0; }
+    tag.get_string(&ItemKey::Popularimeter).map(stars_from_text).unwrap_or(0)
+}
+
+/// Sets the rating on a generic non-ID3 tag. ID3 is written by
+/// `set_rating_mpeg` after the main save (typed POPM frame).
+pub fn set_rating(tag: &mut Tag, stars: u8) {
+    if tag.tag_type() == TagType::Id3v2 { return; }
+    let stars = stars.min(5);
+    tag.remove_key(&ItemKey::Popularimeter);
+    if stars > 0 {
+        tag.push(TagItem::new(ItemKey::Popularimeter, ItemValue::Text((stars as u32 * 20).to_string())));
+    }
+}
+
+pub fn is_mpeg(tagged: &TaggedFile) -> bool {
+    tagged.file_type() == lofty::file::FileType::Mpeg
+}
+
+fn preferred_popm(frames: &[&lofty::id3::v2::PopularimeterFrame<'_>]) -> Option<usize> {
+    frames.iter().position(|f| f.email.is_empty() || f.email == WMP_EMAIL).or(if frames.is_empty() { None } else { Some(0) })
+}
+
+/// Reads the star rating of an MP3's ID3v2 tag (POPM). Missing tag = 0.
+pub fn read_rating_mpeg(path: &Path) -> u8 {
+    use lofty::config::ParseOptions;
+    use lofty::id3::v2::Frame;
+    use lofty::mpeg::MpegFile;
+    let Ok(mut f) = fs::File::open(path) else { return 0 };
+    let Ok(file) = MpegFile::read_from(&mut f, ParseOptions::new().read_properties(false)) else { return 0 };
+    let Some(tag) = file.id3v2() else { return 0 };
+    let frames: Vec<&lofty::id3::v2::PopularimeterFrame<'_>> = (&*tag).into_iter().filter_map(|fr| match fr { Frame::Popularimeter(p) => Some(p), _ => None }).collect();
+    preferred_popm(&frames).map(|i| stars_from_popm(frames[i].rating)).unwrap_or(0)
+}
+
+/// Writes the star rating into an MP3's ID3v2 POPM frame, keeping the frame's
+/// email and play counter. 0 sets the rating byte to 0 (unrated) and never
+/// creates a frame.
+pub fn set_rating_mpeg(path: &Path, stars: u8) -> Result<(), String> {
+    use lofty::config::ParseOptions;
+    use lofty::id3::v2::{Frame, Id3v2Tag, PopularimeterFrame};
+    use lofty::mpeg::MpegFile;
+    let stars = stars.min(5);
+    let mut f = fs::File::open(path).map_err(|e| format!("Cannot open the file: {e}"))?;
+    let mut file = MpegFile::read_from(&mut f, ParseOptions::new()).map_err(|e| format!("Cannot read the file: {e}"))?;
+    drop(f);
+    if file.id3v2().is_none() {
+        if stars == 0 { return Ok(()); }
+        file.set_id3v2(Id3v2Tag::new());
+    }
+    let tag = file.id3v2_mut().ok_or_else(|| "This file has no ID3v2 tag".to_string())?;
+    let existing: Vec<PopularimeterFrame<'static>> = (&*tag).into_iter().filter_map(|fr| match fr { Frame::Popularimeter(p) => Some(p.clone()), _ => None }).collect();
+    let refs: Vec<&PopularimeterFrame<'_>> = existing.iter().collect();
+    match preferred_popm(&refs) {
+        Some(i) => {
+            let mut p = existing[i].clone();
+            p.rating = popm_from_stars(stars);
+            tag.insert(Frame::Popularimeter(p));
+        }
+        None if stars == 0 => return Ok(()),
+        None => {
+            tag.insert(Frame::Popularimeter(PopularimeterFrame::new(WMP_EMAIL.to_string(), popm_from_stars(stars), 0)));
+        }
+    }
+    use lofty::file::AudioFile as _;
+    file.save_to_path(path, WriteOptions::default()).map_err(|e| format!("Writing the rating failed: {e}"))
+}
+
 fn temp_path_for(path: &Path) -> PathBuf {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "track".into());
     path.with_file_name(format!(".{name}.melo-tag.tmp"))
@@ -258,6 +384,12 @@ fn temp_path_for(path: &Path) -> PathBuf {
 /// Writes the parsed (and edited) tags to `path` via a temp copy + rename.
 /// The original is untouched unless every step succeeded.
 pub fn write_safely(path: &Path, tagged: &TaggedFile) -> Result<(), String> {
+    write_safely_rated(path, tagged, None)
+}
+
+/// Like `write_safely`; `mp3_rating` is applied to the temp copy of an MP3
+/// before it replaces the original (one atomic replace).
+pub fn write_safely_rated(path: &Path, tagged: &TaggedFile, mp3_rating: Option<u8>) -> Result<(), String> {
     let meta = fs::metadata(path).map_err(|e| format!("Cannot open the file: {e}"))?;
     if meta.permissions().readonly() {
         return Err("The file is read-only".into());
@@ -271,6 +403,11 @@ pub fn write_safely(path: &Path, tagged: &TaggedFile) -> Result<(), String> {
     };
     if let Err(e) = tagged.save_to_path(&tmp, WriteOptions::default()) {
         return cleanup(format!("Writing the tags failed: {e}"));
+    }
+    if let (Some(stars), true) = (mp3_rating, is_mpeg(tagged)) {
+        if let Err(e) = set_rating_mpeg(&tmp, stars) {
+            return cleanup(e);
+        }
     }
     // Flush the copy to disk before it replaces the original.
     match fs::OpenOptions::new().write(true).open(&tmp) {
@@ -306,6 +443,7 @@ pub struct CommonFields {
     pub disc_total: Option<u32>,
     /// true = every file has a cover, false = none has, None = mixed.
     pub has_cover: Option<bool>,
+    pub rating: Option<u8>,
 }
 
 fn common<T: PartialEq + Clone>(values: impl Iterator<Item = T>) -> Option<T> {
@@ -329,5 +467,6 @@ pub fn common_fields(all: &[TagFields]) -> CommonFields {
         disc: common(all.iter().map(|f| f.disc)),
         disc_total: common(all.iter().map(|f| f.disc_total)),
         has_cover: common(all.iter().map(|f| f.has_cover)),
+        rating: common(all.iter().map(|f| f.rating)),
     }
 }

@@ -5,6 +5,7 @@ import { setupEqualizer } from "./equalizer";
 import { setupVisualizer, VIZ_MODES } from "./visualizer";
 import { setupLyrics } from "./lyrics";
 import { setupTagEditor, TAGEDIT_IDS_KEY } from "./tag-editor";
+import { setupRating } from "./rating-ui";
 import { setupSkinLyricLine } from "./lyric-line";
 import { setupWaveformSeek } from "./waveform";
 import { setupSkinEngine, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry, getSkinCapabilities, clearSkinCapabilityCache, type SkinCapabilities } from "./skin";
@@ -731,6 +732,7 @@ app.innerHTML = `
           <div class="track-title" id="trackTitle">No track loaded</div>
           <div class="track-artist" id="trackArtist">Add music to start playing</div>
           <div class="track-album" id="trackAlbum"></div>
+          <div class="track-rating" id="trackRating" role="radiogroup" aria-label="Rating" hidden></div>
           <div class="track-format">
             <span class="badge-flac" id="trackCodec">—</span>
             <span id="trackSpecs"></span>
@@ -2964,7 +2966,7 @@ function attachEmbeddedPanels() {
 // Keyed on the ?panel= contract alone: a panel document initializes ONLY
 // Its own panel, regardless of runtime Tauri detection.
 if (urlPanel) {
-  if (urlPanel === "library" || urlPanel === "playlist") setupLibrary(audio, showToast);
+  if (urlPanel === "library" || urlPanel === "playlist") { setupRating(showToast, false); setupLibrary(audio, showToast); }
   else if (urlPanel === "equalizer") setupEqualizer(audio, showToast, { remote: true });
   else if (urlPanel === "lyrics") setupLyrics(audio, showToast);
   else if (urlPanel === "tagedit") setupTagEditor(showToast);
@@ -2981,6 +2983,7 @@ if (urlPanel) {
     }
   } catch {}
   setupPlayer(audio, showToast);
+  setupRating(showToast, true);
   setupLibrary(audio, showToast);
   setupEqualizer(audio, showToast);
   setupVisualizer(audio);

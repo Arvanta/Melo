@@ -50,6 +50,10 @@ pub struct DbTrack {
     // command leaves it None and the field disappears from the JSON.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub play_count: Option<i64>,
+    // Star rating 0..=5 read from the file's tag while scanning (round 125).
+    // Internal only: the UI asks `ratings_of` instead.
+    #[serde(skip)]
+    pub rating: u8,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -475,6 +479,16 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    // Round 125: star rating. `rating_dirty` = the new value is in the database
+    // but not yet written to the file's tag (deferred for the playing track, or
+    // a failed write); a dirty value always wins over what a scan reads.
+    if !table_has_column(conn, "tracks", "rating")? {
+        conn.execute_batch("ALTER TABLE tracks ADD COLUMN rating INTEGER NOT NULL DEFAULT 0;").map_err(|e| e.to_string())?;
+    }
+    if !table_has_column(conn, "tracks", "rating_dirty")? {
+        conn.execute_batch("ALTER TABLE tracks ADD COLUMN rating_dirty INTEGER NOT NULL DEFAULT 0;").map_err(|e| e.to_string())?;
+    }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_tracks_rating ON tracks(library_owned, rating);").map_err(|e| e.to_string())?;
     // One-time (round 119b): drop listen_log rows left behind by tracks removed
     // before deletes purged them, so a re-added file does not resurrect them.
     let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
@@ -550,6 +564,7 @@ impl LibraryState {
             // picked files from, nothing below it.
             let _ = app.asset_protocol_scope().allow_directory(Path::new(&dir), false);
         }
+        spawn_rating_startup(db_path.clone());
         Ok(Self {
             db_path,
             artwork_dir,
@@ -772,6 +787,7 @@ fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) ->
             replay_gain: None,
             playlist_entry_id: None,
             play_count: None,
+            rating: 0,
         };
         return Some((track, file_size, modified_at));
     }
@@ -824,6 +840,7 @@ fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) ->
     } else {
         None
     };
+    let rating = if crate::tag_edit::is_mpeg(&tagged) { crate::tag_edit::read_rating_mpeg(path) } else { tag.map(crate::tag_edit::read_rating).unwrap_or(0) };
     let p = path.to_string_lossy().to_string();
     Some((
         DbTrack {
@@ -842,6 +859,7 @@ fn parse_track_cached(path: &Path, artwork_dir: &Path, extract_artwork: bool) ->
             replay_gain,
             playlist_entry_id: None,
             play_count: None,
+            rating,
         },
         file_size,
         modified_at,
@@ -868,6 +886,7 @@ fn row_track_with_entries(
         replay_gain: row.get(12)?,
         playlist_entry_id,
         play_count: None,
+        rating: 0,
     })
 }
 
@@ -900,15 +919,16 @@ fn upsert_track(
     library_owned: bool,
 ) -> Result<(), String> {
     conn.execute(
-        r#"INSERT INTO tracks(id,path,title,artist,album_artist,album,genre,year,duration,codec,specs,replay_gain,artwork_path,file_size,modified_at,added_at,last_seen_scan,library_owned)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+        r#"INSERT INTO tracks(id,path,title,artist,album_artist,album,genre,year,duration,codec,specs,replay_gain,artwork_path,file_size,modified_at,added_at,last_seen_scan,library_owned,rating)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
         ON CONFLICT(path) DO UPDATE SET
           title=excluded.title,artist=excluded.artist,album_artist=excluded.album_artist,album=excluded.album,genre=excluded.genre,
           year=excluded.year,duration=excluded.duration,codec=excluded.codec,specs=excluded.specs,
           replay_gain=excluded.replay_gain,
           artwork_path=COALESCE(excluded.artwork_path,tracks.artwork_path),
           file_size=excluded.file_size,modified_at=excluded.modified_at,last_seen_scan=excluded.last_seen_scan,
-          library_owned=MAX(tracks.library_owned,excluded.library_owned)"#,
+          library_owned=MAX(tracks.library_owned,excluded.library_owned),
+          rating=CASE WHEN tracks.rating_dirty=1 THEN tracks.rating ELSE excluded.rating END"#,
         params![
             track.id,
             track.path,
@@ -927,7 +947,8 @@ fn upsert_track(
             modified,
             now_ms(),
             scan_id,
-            if library_owned {1} else {0}
+            if library_owned {1} else {0},
+            track.rating as i64
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -4551,7 +4572,11 @@ pub async fn tag_read(track_ids: Vec<String>, state: State<'_, LibraryState>) ->
             }
             match read_tagged_tolerant(p) {
                 Ok(tagged) => {
-                    let fields = crate::tag_edit::read_fields(&tagged);
+                    let mut fields = crate::tag_edit::read_fields_at(p, &tagged);
+                    // A rating still waiting to be written to the file is the real one.
+                    if let Ok(Some((r, true))) = conn.query_row("SELECT rating,rating_dirty FROM tracks WHERE id=?1", params![id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? == 1))).optional().map(|o| o) {
+                        fields.rating = r.clamp(0, 5) as u8;
+                    }
                     readable.push(fields.clone());
                     files.push(TagFileInfo { id, path, file_name, fields: Some(fields), error: None });
                 }
@@ -4573,8 +4598,8 @@ fn refresh_track_row(conn: &Connection, id: &str, path: &str, artwork_dir: &Path
         return Ok(());
     };
     conn.execute(
-        "UPDATE tracks SET title=?2,artist=?3,album_artist=?4,album=?5,genre=?6,year=?7,duration=?8,replay_gain=?9,artwork_path=?10,file_size=?11,modified_at=?12 WHERE id=?1",
-        params![id, t.title, t.artist, t.album_artist, t.album, t.genre, t.year as i64, t.duration, t.replay_gain, t.cover, size as i64, modified],
+        "UPDATE tracks SET title=?2,artist=?3,album_artist=?4,album=?5,genre=?6,year=?7,duration=?8,replay_gain=?9,artwork_path=?10,file_size=?11,modified_at=?12,rating=CASE WHEN rating_dirty=1 THEN rating ELSE ?13 END WHERE id=?1",
+        params![id, t.title, t.artist, t.album_artist, t.album, t.genre, t.year as i64, t.duration, t.replay_gain, t.cover, size as i64, modified, t.rating as i64],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -4873,7 +4898,7 @@ async fn write_tag_items(items: Vec<(String, crate::tag_edit::TagEdit)>, state: 
             } else {
                 read_tagged_tolerant(p).and_then(|mut tagged| {
                     crate::tag_edit::apply_edit(&mut tagged, &edit, cover)?;
-                    crate::tag_edit::write_safely(p, &tagged)
+                    crate::tag_edit::write_safely_rated(p, &tagged, edit.rating)
                 })
             };
             match result {
@@ -4881,6 +4906,10 @@ async fn write_tag_items(items: Vec<(String, crate::tag_edit::TagEdit)>, state: 
                     // The file is already changed: a row refresh problem must not
                     // turn this into a reported failure (the next scan repairs it).
                     let _ = refresh_track_row(&conn, &id, &path, &artwork_dir);
+                    if let Some(n) = edit.rating {
+                        // The file now carries this rating: nothing is pending any more.
+                        let _ = conn.execute("UPDATE tracks SET rating=?2,rating_dirty=0 WHERE id=?1", params![id, n.min(5) as i64]);
+                    }
                     if let Ok(mut cache) = art_cache.lock() {
                         cache.remove(&id);
                     }
@@ -4908,6 +4937,187 @@ pub async fn tag_write(track_ids: Vec<String>, edit: crate::tag_edit::TagEdit, s
 #[tauri::command]
 pub async fn tag_write_each(items: Vec<TagWriteItem>, state: State<'_, LibraryState>) -> Result<TagWriteResult, String> {
     write_tag_items(items.into_iter().map(|i| (i.track_id, i.edit)).collect(), &state).await
+}
+
+// ───────────────────────── star ratings (round 125) ─────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RatingItem {
+    pub track_id: String,
+    pub stars: u8,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RatingState {
+    pub id: String,
+    pub rating: u8,
+    /// True while the value is only in the database (not yet in the file's tag).
+    pub pending: bool,
+}
+
+#[derive(Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RatingSetResult {
+    /// Written to the file's tag.
+    pub written: Vec<String>,
+    /// Saved in the database; the file write waits (playing track).
+    pub pending: Vec<String>,
+    /// Saved in the database; writing the file failed (will be retried).
+    pub failed: Vec<TagWriteFailure>,
+}
+
+/// Writes only the rating into the file's tag (one atomic replace).
+fn write_rating_file(path: &Path, stars: u8) -> Result<(), String> {
+    if is_mka(path) { return Ok(()); }
+    let mut tagged = read_tagged_tolerant(path)?;
+    let edit = crate::tag_edit::TagEdit { rating: Some(stars), ..Default::default() };
+    crate::tag_edit::apply_edit(&mut tagged, &edit, None)?;
+    crate::tag_edit::write_safely_rated(path, &tagged, Some(stars))
+}
+
+/// After a successful file write: nothing pending any more, and the stored
+/// size / modified time follow the file so the next scan does not re-read it.
+/// Only when the rating was not changed again in the meantime.
+fn mark_rating_written(conn: &Connection, id: &str, path: &Path, stars: u8) {
+    let Ok(meta) = std::fs::metadata(path) else { return };
+    let modified = meta.modified().ok().and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0);
+    let _ = conn.execute(
+        "UPDATE tracks SET rating_dirty=0,file_size=?3,modified_at=?4 WHERE id=?1 AND rating=?2",
+        params![id, stars as i64, meta.len() as i64, modified],
+    );
+}
+
+/// Database first (always instant), then the files. Paths in `defer` (the
+/// track that is playing) are only marked pending.
+pub fn set_ratings_blocking(db_path: &Path, items: Vec<RatingItem>, defer: &[String]) -> Result<RatingSetResult, String> {
+    let mut conn = open_db(db_path)?;
+    {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        for it in &items {
+            tx.execute(
+                "UPDATE tracks SET rating=?2,rating_dirty=CASE WHEN lower(path) LIKE '%.mka' THEN 0 ELSE 1 END WHERE id=?1",
+                params![it.track_id, it.stars.min(5) as i64],
+            ).map_err(|e| e.to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+    let mut out = RatingSetResult::default();
+    for it in items {
+        let stars = it.stars.min(5);
+        let Some(path) = track_path_of(&conn, &it.track_id)? else { continue };
+        if is_mka(Path::new(&path)) { out.written.push(it.track_id); continue; }
+        if defer.iter().any(|d| d == &path) { out.pending.push(it.track_id); continue; }
+        match write_rating_file(Path::new(&path), stars) {
+            Ok(()) => { mark_rating_written(&conn, &it.track_id, Path::new(&path), stars); out.written.push(it.track_id); }
+            Err(error) => out.failed.push(TagWriteFailure { id: it.track_id, path, error }),
+        }
+    }
+    Ok(out)
+}
+
+/// Writes every pending rating except for the paths in `avoid`.
+pub fn flush_ratings_blocking(db_path: &Path, avoid: &[String]) -> Result<RatingSetResult, String> {
+    let conn = open_db(db_path)?;
+    let rows: Vec<(String, String, i64)> = {
+        let mut stmt = conn.prepare("SELECT id,path,rating FROM tracks WHERE rating_dirty=1").map_err(|e| e.to_string())?;
+        let mapped = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(|e| e.to_string())?;
+        mapped.filter_map(log_skipped).collect()
+    };
+    let mut out = RatingSetResult::default();
+    for (id, path, rating) in rows {
+        if avoid.iter().any(|a| a == &path) { out.pending.push(id); continue; }
+        let stars = rating.clamp(0, 5) as u8;
+        match write_rating_file(Path::new(&path), stars) {
+            Ok(()) => { mark_rating_written(&conn, &id, Path::new(&path), stars); out.written.push(id); }
+            Err(error) => out.failed.push(TagWriteFailure { id, path, error }),
+        }
+    }
+    Ok(out)
+}
+
+/// Rating of a file without reading its audio properties.
+fn read_rating_of_file(path: &Path) -> u8 {
+    if is_mka(path) { return 0; }
+    use lofty::config::ParseOptions;
+    use lofty::file::TaggedFileExt;
+    let Ok(probe) = lofty::probe::Probe::open(path) else { return 0 };
+    let Ok(tagged) = probe.options(ParseOptions::new().read_properties(false)).read() else { return 0 };
+    if crate::tag_edit::is_mpeg(&tagged) { return crate::tag_edit::read_rating_mpeg(path); }
+    tagged.primary_tag().or_else(|| tagged.first_tag()).map(crate::tag_edit::read_rating).unwrap_or(0)
+}
+
+/// One-time import of the ratings already stored in the files' tags (the scan
+/// only re-reads files that changed). Safe to interrupt: it simply runs again
+/// at the next start. Pending (dirty) ratings are never overwritten.
+pub fn backfill_ratings_blocking(db_path: &Path) -> Result<(), String> {
+    let mut conn = open_db(db_path)?;
+    let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if ver >= 2 { return Ok(()); }
+    let rows: Vec<(String, String)> = {
+        let mut stmt = conn.prepare("SELECT id,path FROM tracks WHERE rating_dirty=0").map_err(|e| e.to_string())?;
+        let mapped = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(|e| e.to_string())?;
+        mapped.filter_map(log_skipped).collect()
+    };
+    for chunk in rows.chunks(400) {
+        let found: Vec<(&String, u8)> = chunk.iter().map(|(id, path)| (id, read_rating_of_file(Path::new(path)))).collect();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        for (id, stars) in found {
+            if stars > 0 {
+                tx.execute("UPDATE tracks SET rating=?2 WHERE id=?1 AND rating_dirty=0", params![id, stars as i64]).map_err(|e| e.to_string())?;
+            }
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+    conn.execute_batch("PRAGMA user_version = 2;").map_err(|e| e.to_string())
+}
+
+/// Background work at start-up: import existing ratings once, then write the
+/// ratings that were still pending when the app last closed.
+pub fn spawn_rating_startup(db_path: PathBuf) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let _ = backfill_ratings_blocking(&db_path);
+        let _ = flush_ratings_blocking(&db_path, &[]);
+    });
+}
+
+/// Stars for the given tracks (pending = not yet in the file).
+#[tauri::command]
+pub async fn ratings_of(track_ids: Vec<String>, state: State<'_, LibraryState>) -> Result<Vec<RatingState>, String> {
+    let conn = locked_db(&state)?;
+    let mut out = Vec::with_capacity(track_ids.len());
+    for id in track_ids {
+        let row: Option<(i64, i64)> = conn
+            .query_row("SELECT rating,rating_dirty FROM tracks WHERE id=?1", params![id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if let Some((r, d)) = row {
+            out.push(RatingState { id, rating: r.clamp(0, 5) as u8, pending: d == 1 });
+        }
+    }
+    Ok(out)
+}
+
+/// Sets the stars of one or many tracks. `defer_paths`: files that must not be
+/// rewritten right now (the one that is playing).
+#[tauri::command]
+pub async fn rating_set(items: Vec<RatingItem>, defer_paths: Vec<String>, state: State<'_, LibraryState>) -> Result<RatingSetResult, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || set_ratings_blocking(&db_path, items, &defer_paths))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Writes the ratings that are still pending (called when the playing track
+/// changes). `avoid_paths` are skipped.
+#[tauri::command]
+pub async fn rating_flush(avoid_paths: Vec<String>, state: State<'_, LibraryState>) -> Result<RatingSetResult, String> {
+    let db_path = state.db_path.clone();
+    tauri::async_runtime::spawn_blocking(move || flush_ratings_blocking(&db_path, &avoid_paths))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
@@ -5044,5 +5254,149 @@ mod rename_row_tests {
         drop(tx);
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM tracks WHERE id='/m/a.mp3'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
+    }
+}
+
+#[cfg(test)]
+mod rating_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static N: AtomicUsize = AtomicUsize::new(0);
+    const MP3: &[u8] = include_bytes!("../../tools/tag-edit-test/fixtures/base.mp3");
+    const FLAC: &[u8] = include_bytes!("../../tools/tag-edit-test/fixtures/base.flac");
+
+    struct Env { dir: PathBuf, db: PathBuf, art: PathBuf }
+    fn env() -> Env {
+        let dir = std::env::temp_dir().join(format!("melo-rating-test-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("library.db");
+        let conn = open_db(&db).unwrap();
+        init_schema(&conn).unwrap();
+        Env { art: dir.join("art"), dir, db }
+    }
+    fn add(e: &Env, name: &str, bytes: &[u8]) -> String {
+        let p = e.dir.join(name);
+        std::fs::write(&p, bytes).unwrap();
+        let conn = open_db(&e.db).unwrap();
+        let (t, size, modified) = parse_track_cached(&p, &e.art, false).unwrap();
+        upsert_track(&conn, &t, size, modified, None, true).unwrap();
+        t.id
+    }
+    fn db_rating(e: &Env, id: &str) -> (i64, i64) {
+        open_db(&e.db).unwrap().query_row("SELECT rating,rating_dirty FROM tracks WHERE id=?1", params![id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
+    }
+    fn file_rating(id: &str) -> u8 {
+        let t = read_tagged_tolerant(Path::new(id)).unwrap();
+        crate::tag_edit::read_fields_at(Path::new(id), &t).rating
+    }
+    fn item(id: &str, stars: u8) -> Vec<RatingItem> { vec![RatingItem { track_id: id.into(), stars }] }
+
+    #[test]
+    fn setting_a_rating_writes_the_file_and_clears_the_pending_flag() {
+        let e = env();
+        for (name, bytes) in [("a.mp3", MP3), ("a.flac", FLAC)] {
+            let id = add(&e, name, bytes);
+            assert_eq!(db_rating(&e, &id), (0, 0));
+            let r = set_ratings_blocking(&e.db, item(&id, 4), &[]).unwrap();
+            assert_eq!(r.written, vec![id.clone()], "{name}");
+            assert_eq!(db_rating(&e, &id), (4, 0), "{name}");
+            assert_eq!(file_rating(&id), 4, "{name}");
+            // the stored stamp follows the file, so a scan skips it
+            let conn = open_db(&e.db).unwrap();
+            assert!(unchanged(&conn, Path::new(&id), std::fs::metadata(&id).unwrap().len(), std::fs::metadata(&id).unwrap().modified().unwrap().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64), "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn the_playing_track_is_deferred_then_flushed() {
+        let e = env();
+        let id = add(&e, "p.mp3", MP3);
+        let r = set_ratings_blocking(&e.db, item(&id, 5), &[id.clone()]).unwrap();
+        assert_eq!(r.pending, vec![id.clone()]);
+        assert_eq!(db_rating(&e, &id), (5, 1));
+        assert_eq!(file_rating(&id), 0, "file untouched while deferred");
+        // still playing: nothing happens
+        let r = flush_ratings_blocking(&e.db, &[id.clone()]).unwrap();
+        assert_eq!(r.pending, vec![id.clone()]);
+        assert_eq!(db_rating(&e, &id), (5, 1));
+        // track changed: written
+        let r = flush_ratings_blocking(&e.db, &[]).unwrap();
+        assert_eq!(r.written, vec![id.clone()]);
+        assert_eq!(db_rating(&e, &id), (5, 0));
+        assert_eq!(file_rating(&id), 5);
+        let _ = std::fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn a_pending_rating_survives_a_scan_but_a_clean_one_follows_the_file() {
+        let e = env();
+        let id = add(&e, "s.mp3", MP3);
+        set_ratings_blocking(&e.db, item(&id, 3), &[id.clone()]).unwrap(); // pending
+        // another program changes the file (rating 1) -> the scan re-reads it
+        let mut t = read_tagged_tolerant(Path::new(&id)).unwrap();
+        let edit = crate::tag_edit::TagEdit { rating: Some(1), ..Default::default() };
+        crate::tag_edit::apply_edit(&mut t, &edit, None).unwrap();
+        crate::tag_edit::write_safely_rated(Path::new(&id), &t, Some(1)).unwrap();
+        let conn = open_db(&e.db).unwrap();
+        let (tr, size, modified) = parse_track_cached(Path::new(&id), &e.art, false).unwrap();
+        assert_eq!(tr.rating, 1);
+        upsert_track(&conn, &tr, size, modified, None, true).unwrap();
+        assert_eq!(db_rating(&e, &id), (3, 1), "pending value wins over the scan");
+        // once written, the file is the truth again: an external change is imported
+        flush_ratings_blocking(&e.db, &[]).unwrap();
+        assert_eq!(db_rating(&e, &id), (3, 0));
+        let mut t = read_tagged_tolerant(Path::new(&id)).unwrap();
+        let edit = crate::tag_edit::TagEdit { rating: Some(2), ..Default::default() };
+        crate::tag_edit::apply_edit(&mut t, &edit, None).unwrap();
+        crate::tag_edit::write_safely_rated(Path::new(&id), &t, Some(2)).unwrap();
+        let (tr, size, modified) = parse_track_cached(Path::new(&id), &e.art, false).unwrap();
+        upsert_track(&conn, &tr, size, modified, None, true).unwrap();
+        assert_eq!(db_rating(&e, &id), (2, 0));
+        let _ = std::fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn a_failed_file_write_keeps_the_rating_pending() {
+        let e = env();
+        let id = add(&e, "f.mp3", MP3);
+        std::fs::remove_file(&id).unwrap(); // the file vanished
+        let r = set_ratings_blocking(&e.db, item(&id, 4), &[]).unwrap();
+        assert_eq!(r.failed.len(), 1);
+        assert_eq!(db_rating(&e, &id), (4, 1), "database value kept, retried later");
+        let _ = std::fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn a_newer_click_is_not_marked_written_by_an_older_write() {
+        let e = env();
+        let id = add(&e, "n.mp3", MP3);
+        set_ratings_blocking(&e.db, item(&id, 2), &[id.clone()]).unwrap();
+        set_ratings_blocking(&e.db, item(&id, 5), &[id.clone()]).unwrap();
+        let conn = open_db(&e.db).unwrap();
+        mark_rating_written(&conn, &id, Path::new(&id), 2); // an old write finishing late
+        assert_eq!(db_rating(&e, &id), (5, 1));
+        let _ = std::fs::remove_dir_all(&e.dir);
+    }
+
+    #[test]
+    fn backfill_imports_existing_ratings_once() {
+        let e = env();
+        let id = add(&e, "b.mp3", MP3);
+        // give the file a rating behind the database's back, and reset the version
+        let mut t = read_tagged_tolerant(Path::new(&id)).unwrap();
+        let edit = crate::tag_edit::TagEdit { rating: Some(4), ..Default::default() };
+        crate::tag_edit::apply_edit(&mut t, &edit, None).unwrap();
+        crate::tag_edit::write_safely_rated(Path::new(&id), &t, Some(4)).unwrap();
+        let conn = open_db(&e.db).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        assert_eq!(db_rating(&e, &id), (0, 0));
+        backfill_ratings_blocking(&e.db).unwrap();
+        assert_eq!(db_rating(&e, &id), (4, 0));
+        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(ver, 2);
+        let _ = std::fs::remove_dir_all(&e.dir);
     }
 }

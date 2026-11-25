@@ -595,7 +595,10 @@ test("rust static: every tag READ goes through the tolerant reader; tag WRITE st
   assert.match(db, /pub fn read_tagged_tolerant\(path: &Path\)/);
   assert.match(db, /ParsingMode::Relaxed/, "relaxed parsing first");
   assert.match(db, /props_only\.read_tags\(false\)/, "properties-only fallback (filename metadata)");
-  assert.equal((db.match(/Probe::open/g) || []).length, 2, "only the helper opens files in library_db");
+  // The helper (2 opens) + the properties-free rating import (`read_rating_of_file`,
+  // round 125), which never fails: an unreadable file simply has no rating.
+  assert.equal((db.match(/Probe::open/g) || []).length, 3, "only the helper and the rating import open files in library_db");
+  assert.match(db, /fn read_rating_of_file[\s\S]{0,500}Probe::open\(path\) else \{ return 0 \}/, "rating import tolerates unreadable files");
   assert.doesNotMatch(main.slice(0, main.indexOf("fn write_tags")), /Probe::open/, "no strict reads before write_tags");
   assert.match(main, /let mut tagged = lofty::probe::Probe::open\(p\)/, "write_tags is still strict");
 });

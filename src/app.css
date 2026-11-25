@@ -3081,3 +3081,19 @@ select.te-input { padding-right: 4px; }
 .te-rename { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--card-border); }
 .te-renamerow { display: flex; gap: 6px; align-items: center; }
 .te-ext { color: var(--muted, #888); font-size: 12.5px; flex: none; }
+
+/* Star rating (round 125) */
+.te-stars { display: inline-flex; gap: 2px; }
+.te-star, .rate-star { background: none; border: 0; padding: 0 1px; font-size: 20px; line-height: 1; cursor: pointer; color: var(--text-muted); opacity: .45; }
+.te-star.on, .rate-star.on { color: var(--accent, #f5b301); opacity: 1; }
+.te-star:hover, .rate-star:hover { opacity: 1; }
+.te-stars.mixed .te-star { opacity: .3; }
+.te-stars.dirty .te-star.on { filter: drop-shadow(0 0 2px var(--accent, #f5b301)); }
+.te-ratinghint { margin-left: 10px; font-size: 12px; color: var(--text-muted); }
+.track-rating { display: flex; gap: 1px; margin-top: 4px; min-height: 20px; }
+.track-rating[hidden] { display: none; }
+.track-rating .rate-star { font-size: 17px; }
+.ctx-rate { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 12px; }
+.ctx-rate[hidden] { display: none; }
+.ctx-rate-label { font-size: 12.5px; color: var(--text-soft); }
+.ctx-rate .rate-star { font-size: 18px; }

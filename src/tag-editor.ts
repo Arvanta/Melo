@@ -19,6 +19,7 @@ import {
   type FieldKey, type FileRef, type PerFile,
 } from "./tag-tools";
 import { splitFileName, stemProblem } from "./file-rename";
+import { clampStars, nextStars, starsHtml, starsLabel } from "./rating";
 import {
   allowedTargets, defaultTarget, infoRows, KIND_LABEL, planLyricWrites, slotOf,
   type Info, type LyricDraft, type LyricKind, type LyricSlot, type LyricSource,
@@ -27,13 +28,13 @@ import {
 type Fields = {
   title: string; artist: string; albumArtist: string; album: string; genre: string;
   composer: string; comment: string; year: number; track: number; trackTotal: number;
-  disc: number; discTotal: number; hasCover: boolean;
+  disc: number; discTotal: number; hasCover: boolean; rating: number;
 };
 type Common = {
   title: string | null; artist: string | null; albumArtist: string | null; album: string | null;
   genre: string | null; composer: string | null; comment: string | null;
   year: number | null; track: number | null; trackTotal: number | null;
-  disc: number | null; discTotal: number | null; hasCover: boolean | null;
+  disc: number | null; discTotal: number | null; hasCover: boolean | null; rating: number | null;
 };
 type FileInfo = { id: string; path: string; fileName: string; fields: Fields | null; error: string | null };
 type ReadResult = { files: FileInfo[]; common: Common };
@@ -98,6 +99,8 @@ export function setupTagEditor(toast: (m: string) => void) {
   const dirty = new Map<FieldKey, string>();
   // Per-file values produced by the batch tools (layered over `dirty`).
   const perFile: PerFile = new Map();
+  // New star rating for every selected file (null = untouched, 0 = clear).
+  let ratingDraft: number | null = null;
   let cover: { action: "set"; path: string } | { action: "remove" } | null = null;
   let coverPreview: string | null = null;
   let busy = false;
@@ -248,6 +251,7 @@ export function setupTagEditor(toast: (m: string) => void) {
     const targets = editable();
     if (!perFile.size) {
       const { edit, errors } = buildEdit(dirty, cover);
+      if (ratingDraft !== null) edit.rating = ratingDraft;
       return { mode: "shared", targets: Object.keys(edit).length ? targets : [], edit, errors };
     }
     const items: { trackId: string; edit: Record<string, unknown> }[] = [];
@@ -257,6 +261,7 @@ export function setupTagEditor(toast: (m: string) => void) {
       const m = new Map(dirty);
       for (const [k, v] of perFile.get(f.id) || []) m.set(k, v);
       const r = buildEdit(m, cover);
+      if (ratingDraft !== null) r.edit.rating = ratingDraft;
       for (const e of r.errors) { const msg = `${f.fileName}: ${e}`; if (!errors.includes(msg)) errors.push(msg); }
       if (Object.keys(r.edit).length) { items.push({ trackId: f.id, edit: r.edit }); used.push(f); }
     }
@@ -282,7 +287,9 @@ export function setupTagEditor(toast: (m: string) => void) {
         <div class="te-pair"><span class="te-label">Track</span><span class="te-pairrow">${fieldHtml("track", "No.", { narrow: true })}<span class="te-of">of</span>${fieldHtml("trackTotal", "Total", { narrow: true })}</span></div>
         <div class="te-pair"><span class="te-label">Disc</span><span class="te-pairrow">${fieldHtml("disc", "No.", { narrow: true })}<span class="te-of">of</span>${fieldHtml("discTotal", "Total", { narrow: true })}</span></div>
       </div>` +
+      `<div class="te-field te-ratingrow" data-field="rating"><span class="te-label">Rating</span><span class="te-inputrow"><span class="te-stars" id="teStars" role="radiogroup" aria-label="Rating"></span><span class="te-ratinghint" id="teRatingHint"></span></span></div>` +
       fieldHtml("comment", "Comment", { area: true });
+    renderRatingRow();
     formEl.querySelectorAll<HTMLElement>(".te-input").forEach(el => {
       const key = el.dataset.key as FieldKey;
       applyInput(el as HTMLInputElement, key);
@@ -301,6 +308,26 @@ export function setupTagEditor(toast: (m: string) => void) {
         const el = formEl.querySelector<HTMLInputElement>(`.te-input[data-key="${key}"]`)!;
         el.value = "";
         markDirty(el, key);
+        renderPreview();
+      };
+    });
+  }
+
+  function renderRatingRow() {
+    const box = formEl.querySelector<HTMLElement>("#teStars");
+    const hint = formEl.querySelector<HTMLElement>("#teRatingHint");
+    if (!box || !hint) return;
+    const orig = common?.rating ?? null; // null = the files disagree
+    const shown = ratingDraft ?? orig;
+    box.innerHTML = starsHtml(shown ?? 0, "te-star");
+    box.classList.toggle("dirty", ratingDraft !== null);
+    box.classList.toggle("mixed", shown === null);
+    hint.textContent = shown === null ? "<mixed> — click a star to set all" : starsLabel(shown);
+    box.querySelectorAll<HTMLButtonElement>("[data-star]").forEach(b => {
+      b.onclick = () => {
+        const next = nextStars(shown ?? -1, Number(b.dataset.star));
+        ratingDraft = next === orig ? null : clampStars(next);
+        renderRatingRow();
         renderPreview();
       };
     });
@@ -367,6 +394,10 @@ export function setupTagEditor(toast: (m: string) => void) {
       const prev = before === null ? "<mixed>" : before === "" ? "(empty)" : before;
       lines.push(`<div class="te-pl"><b>${esc(LABELS[key])}</b> ${esc(prev)} → <i>${esc(shown(sharedEdit[key]))}</i></div>`);
     }
+    if (ratingDraft !== null) {
+      const before = common?.rating;
+      lines.push(`<div class="te-pl"><b>Rating</b> ${esc(before == null ? "<mixed>" : starsLabel(before))} → <i>${esc(starsLabel(ratingDraft))}</i></div>`);
+    }
     if (cover?.action === "set") lines.push(`<div class="te-pl"><b>Cover</b> → new image</div>`);
     if (cover?.action === "remove") lines.push(`<div class="te-pl"><b>Cover</b> → removed</div>`);
     // Per-file rows from the batch tools: one line per file, only changed fields.
@@ -396,7 +427,7 @@ export function setupTagEditor(toast: (m: string) => void) {
       previewEl.innerHTML = `<div class="te-ph">${heading}</div>` + lines.join("");
     }
     saveBtn.disabled = busy || (!count && !lp.writes.length) || plan.errors.length > 0 || lp.errors.length > 0;
-    revertBtn.disabled = busy || (!dirty.size && !cover && !perFile.size && !Object.keys(lyrDrafts).length);
+    revertBtn.disabled = busy || (ratingDraft === null && !dirty.size && !cover && !perFile.size && !Object.keys(lyrDrafts).length);
     tabBatchBtn.style.display = n() ? "" : "none";
     tabLyricsBtn.style.display = n() === 1 ? "" : "none";
     if (activeTab === "lyrics" && n() !== 1) showTab("tags");
@@ -425,6 +456,7 @@ export function setupTagEditor(toast: (m: string) => void) {
     const gen = ++loadGen;
     dirty.clear();
     perFile.clear();
+    ratingDraft = null;
     infos = null; lyr = null; lyrDrafts = {}; lyrChosen.plain = undefined; lyrChosen.synced = undefined;
     cover = null;
     coverPreview = null;
@@ -528,7 +560,7 @@ export function setupTagEditor(toast: (m: string) => void) {
   }
 
   // ── Rename the file (one track; the folder and the extension never change) ──
-  function hasUnsaved() { return dirty.size > 0 || perFile.size > 0 || !!cover || Object.keys(lyrDrafts).length > 0; }
+  function hasUnsaved() { return ratingDraft !== null || dirty.size > 0 || perFile.size > 0 || !!cover || Object.keys(lyrDrafts).length > 0; }
   function wireRename(f: FileInfo, sp: { stem: string; ext: string }) {
     const input = infoEl.querySelector<HTMLInputElement>("#teRenameInput")!;
     const btn = infoEl.querySelector<HTMLButtonElement>("#teRenameBtn")!;
@@ -724,7 +756,7 @@ export function setupTagEditor(toast: (m: string) => void) {
 
   revertBtn.onclick = () => {
     if (busy) return;
-    dirty.clear(); perFile.clear(); cover = null; coverPreview = null;
+    dirty.clear(); perFile.clear(); cover = null; coverPreview = null; ratingDraft = null;
     lyrDrafts = {};
     toolMsg.textContent = "";
     if (activeTab === "lyrics") renderLyricsTab();

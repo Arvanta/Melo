@@ -135,6 +135,7 @@ finds them by role, not by position.
 | `album` | Album name |
 | `codec` | Codec label (e.g. FLAC) |
 | `specs` | Sample rate / bit depth |
+| `rating` | **Optional.** An empty element (e.g. `<div data-melo="rating"></div>`); Melo fills it with five clickable `★` buttons (`.rate-star`, `.on` = filled) for the playing track. Keys 0–5 rate the playing track whether or not a skin has this slot. |
 
 ### 5.3 Seek, volume, time
 
@@ -394,7 +395,7 @@ Skins written for older Melo versions use hard-coded `id`s instead of
 `btnPlay`, `iconPlay`, `iconPause`, `btnPrev`, `btnNext`, `btnStop`,
 `btnShuffle`, `btnRepeat`, `seekBar`, `volBar`, `volIcon`, `volPct`,
 `curTime`, `durTime`, `trackTitle`, `trackArtist`, `trackAlbum`,
-`trackCodec`, `trackSpecs`, `coverImg`, `coverFallback`, `vizBars`,
+`trackCodec`, `trackSpecs`, `trackRating`, `coverImg`, `coverFallback`, `vizBars`,
 `btnToggleLibrary`, `btnTogglePlaylist`, `btnToggleEq`, `btnToggleLyrics`,
 `btnOpenSettings`, `btnAddFiles`, `btnAddFolder`, `btnThemeToggle`,
 `btnAbout`, and — for the current-lyric slot of §5.7 —
