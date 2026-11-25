@@ -3098,3 +3098,22 @@ select.te-input { padding-right: 4px; }
 .ctx-rate[hidden] { display: none; }
 .ctx-rate-label { font-size: 12.5px; color: var(--text-soft); }
 .ctx-rate .rate-star { font-size: 18px; }
+
+/* Round 126: smart playlists */
+.library-playlist-sidebar-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.library-smart-new { height: 20px; padding: 0 6px; font-size: 10px; }
+.library-playlist-smart { color: var(--accent); opacity: 1; }
+.library-playlist-item.active .library-playlist-smart { color: inherit; }
+.library-playlist-content-head .library-smart-rules { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.library-smart-edit { margin-left: auto; height: 22px; padding: 0 8px; font-size: 11px; flex: 0 0 auto; }
+.smart-dialog { width: min(460px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 8px; }
+.smart-dialog select, .smart-dialog .smart-limit { background: var(--card-bg, transparent); color: inherit; border: 1px solid var(--card-border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; }
+.smart-dialog .smart-limit { width: 76px; }
+.smart-match, .smart-row2, .smart-hint { font-size: 12px; }
+.smart-hint { color: var(--text-muted); font-size: 11px; }
+.smart-row2 { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.smart-rules { display: flex; flex-direction: column; gap: 6px; }
+.smart-rule { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.smart-rule .smart-field { min-width: 44px; color: var(--text-muted); }
+.smart-add { align-self: flex-start; }
+.smart-error { min-height: 14px; color: #e5484d; font-size: 11px; }

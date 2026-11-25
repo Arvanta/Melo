@@ -2,12 +2,13 @@ import type { Track } from "./types";
 import { busEmit, busOn, isTauri } from "./bus";
 import { nextStars, starsHtml } from "./rating";
 import { rateTracks, ratingsOf } from "./rating-ui";
+import { SMART_OPS, SMART_SORTS, MAX_SMART_RULES, defaultSmartRules, describeRules, normalizeSmartRules, type SmartRules, type SmartRule, type SmartOp, type SmartSort } from "./smart-rules";
 
 const role = new URLSearchParams(location.search).get("panel") || "main";
 
 type Page<T> = { items: T[]; total: number; limit: number; offset: number };
 type GroupRow = { key: string; name: string; subtitle: string; count: number; cover?: string; artworkTrackId?: string };
-type PlaylistRow = { id: string; name: string; createdAt: number; trackCount: number; kind: "manual" | "auto" };
+type PlaylistRow = { id: string; name: string; createdAt: number; trackCount: number; kind: "manual" | "auto" | "smart" };
 type LibraryRoot = { path: string; addedAt: number };
 type Stats = { tracks: number; artists: number; albums: number; genres: number };
 type BackupHeader = {
@@ -131,6 +132,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // Broadcast and on every remote decision we apply.
   let playlistSyncRev = 0;
   let playlists: PlaylistRow[] = [];
+  // Round 126: automatic AND smart playlists are computed — their tracks can't
+  // be added, removed or reordered by hand.
+  const isReadOnlyPlaylist = (p?: PlaylistRow | null) => !!p && (p.kind === "auto" || p.kind === "smart");
   let activeScanId: string | null = null;
   let ownedScanId: string | null = null;
   // Guards the explicit orphan-data cleanup against double-triggering.
@@ -529,6 +533,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     <div class="pl-ctx-title" style="padding:6px 10px 4px; font-size:11px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px;"></div>
     <button class="ctx-item" id="plCtxRename" role="menuitem">Rename…</button>
     <button class="ctx-item" id="plCtxDuplicate" role="menuitem">Duplicate</button>
+    <button class="ctx-item" id="plCtxEditRules" role="menuitem">Edit rules…</button>
     <button class="ctx-item" id="plCtxSweep" role="menuitem">Remove missing files…</button>
     <div style="height:1px; margin:4px 6px; background:var(--card-border);"></div>
     <button class="ctx-item danger" id="plCtxDelete" role="menuitem">Delete playlist…</button>`;
@@ -828,8 +833,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           toast("Select a playlist in the Playlist window first — the play queue takes tracks via Play, not Add");
           return;
         }
-        if (playlists.find(p => p.id === currentPlaylistId)?.kind === "auto") {
-          toast("Automatic playlists are read-only");
+        if (isReadOnlyPlaylist(playlists.find(p => p.id === currentPlaylistId))) {
+          toast("Automatic and smart playlists are read-only");
           return;
         }
         try {
@@ -895,7 +900,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       onClick: async () => {
         if (!invoke || !playlistSelectedEntryIds.size) return;
         const ids = Array.from(playlistSelectedEntryIds);
-        if (playlists.find(p => p.id === currentPlaylistId)?.kind === "auto") {
+        if (isReadOnlyPlaylist(playlists.find(p => p.id === currentPlaylistId))) {
           toast("Automatic playlists are read-only");
           return;
         }
@@ -1199,6 +1204,123 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       input.focus();
       input.select();
     });
+  }
+
+  // Round 126: smart-playlist dialog (name + rating rules). Resolves null on
+  // Cancel, else the cleaned name + rules. The backend validates again.
+  function showSmartPlaylistDialog(title: string, initialName: string, initial: SmartRules, okLabel: string): Promise<{ name: string; rules: SmartRules } | null> {
+    return new Promise(resolve => {
+      const state: SmartRules = JSON.parse(JSON.stringify(initial));
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `<div class="confirm-dialog smart-dialog" role="dialog" aria-modal="true" aria-labelledby="smartDialogTitle">
+        <div id="smartDialogTitle" class="confirm-title">${esc(title)}</div>
+        <input class="confirm-input smart-name" type="text" placeholder="Playlist name" maxlength="120" />
+        <div class="smart-match">Match <select class="smart-matchall"><option value="all">all</option><option value="any">any</option></select> of the following rules:</div>
+        <div class="smart-rules"></div>
+        <button type="button" class="btn small ghost smart-add">+ Add rule</button>
+        <div class="smart-row2"><label>Sort by <select class="smart-sort">${SMART_SORTS.map(o => `<option value="${o.id}">${esc(o.label)}</option>`).join("")}</select></label>
+          <label>Limit <input class="smart-limit" type="number" min="0" max="100000" placeholder="none" /> tracks</label></div>
+        <div class="smart-hint">Tracks follow the rules automatically. “Unrated” means 0 stars.</div>
+        <div class="smart-error" role="alert"></div>
+        <div class="confirm-actions"><button class="btn small" data-confirm="cancel">Cancel</button><button class="btn small primary" data-confirm="ok">${esc(okLabel)}</button></div>
+      </div>`;
+      document.body.appendChild(overlay);
+      const nameInput = overlay.querySelector<HTMLInputElement>(".smart-name")!;
+      const matchSel = overlay.querySelector<HTMLSelectElement>(".smart-matchall")!;
+      const sortSel = overlay.querySelector<HTMLSelectElement>(".smart-sort")!;
+      const limitInput = overlay.querySelector<HTMLInputElement>(".smart-limit")!;
+      const rulesBox = overlay.querySelector<HTMLElement>(".smart-rules")!;
+      const addBtn = overlay.querySelector<HTMLButtonElement>(".smart-add")!;
+      const errBox = overlay.querySelector<HTMLElement>(".smart-error")!;
+      nameInput.value = initialName;
+      matchSel.value = state.matchAll ? "all" : "any";
+      sortSel.value = state.sort;
+      limitInput.value = state.limit ? String(state.limit) : "";
+      const starOptions = (v: number) => [0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${n === v ? "selected" : ""}>${n === 0 ? "Unrated" : "★".repeat(n)}</option>`).join("");
+      const paint = () => {
+        rulesBox.innerHTML = state.rules.map((r, i) => `<div class="smart-rule" data-i="${i}">
+          <span class="smart-field">Rating</span>
+          <select data-k="op">${SMART_OPS.map(o => `<option value="${o.id}" ${o.id === r.op ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select>
+          <select data-k="value">${starOptions(r.value)}</select>
+          ${r.op === "between" ? `<span>and</span><select data-k="value2">${starOptions(r.value2)}</select>` : ""}
+          <button type="button" class="btn small ghost" data-del="${i}" aria-label="Remove rule" ${state.rules.length <= 1 ? "disabled" : ""}>×</button>
+        </div>`).join("");
+        addBtn.disabled = state.rules.length >= MAX_SMART_RULES;
+        rulesBox.querySelectorAll<HTMLSelectElement>("select").forEach(sel => {
+          sel.onchange = () => {
+            const row = sel.closest<HTMLElement>(".smart-rule")!;
+            const rule = state.rules[Number(row.dataset.i)];
+            const key = sel.dataset.k as "op" | "value" | "value2";
+            if (key === "op") { rule.op = sel.value as SmartOp; paint(); }
+            else rule[key] = Number(sel.value);
+          };
+        });
+        rulesBox.querySelectorAll<HTMLButtonElement>("[data-del]").forEach(b => {
+          b.onclick = () => { state.rules.splice(Number(b.dataset.del), 1); paint(); };
+        });
+      };
+      paint();
+      addBtn.onclick = () => {
+        const rule: SmartRule = { field: "rating", op: "is", value: 0, value2: 0 };
+        state.rules.push(rule);
+        paint();
+      };
+      const finish = (value: { name: string; rules: SmartRules } | null) => { document.removeEventListener("keydown", onKey); overlay.remove(); resolve(value); };
+      const submit = () => {
+        const name = nameInput.value.trim();
+        if (!name) { errBox.textContent = "Give the playlist a name."; nameInput.focus(); return; }
+        const limitText = limitInput.value.trim();
+        const result = normalizeSmartRules({
+          rules: state.rules, matchAll: matchSel.value === "all",
+          sort: sortSel.value as SmartSort, limit: limitText ? Number(limitText) : null,
+        });
+        if ("error" in result) { errBox.textContent = result.error; return; }
+        finish({ name, rules: result.ok });
+      };
+      overlay.querySelector<HTMLElement>("[data-confirm='cancel']")!.onclick = () => finish(null);
+      overlay.querySelector<HTMLElement>("[data-confirm='ok']")!.onclick = submit;
+      overlay.onclick = event => { if (event.target === overlay) finish(null); };
+      const onKey = (event: KeyboardEvent) => {
+        if (event.key === "Escape") finish(null);
+        else if (event.key === "Enter" && (event.target as HTMLElement)?.tagName === "INPUT") submit();
+      };
+      document.addEventListener("keydown", onKey);
+      nameInput.focus();
+      nameInput.select();
+    });
+  }
+
+  async function createSmartPlaylist() {
+    if (!invoke) return;
+    const answer = await showSmartPlaylistDialog("New Smart Playlist", "Top rated", defaultSmartRules(), "Create");
+    if (!answer) return;
+    let created: PlaylistRow | null = null;
+    try { created = await invoke<PlaylistRow>("create_smart_playlist", { name: answer.name, rules: answer.rules }); }
+    catch (e) { toast(`Couldn't create the smart playlist — ${String(e)}`); return; }
+    if (created) selectedLibraryPlaylistId = created.id;
+    persistLibraryNavigation();
+    await refreshPlaylists();
+    renderPlaylistVirtual(true);
+    renderEmbeddedPlaylist();
+    busEmit("melo:playlist-changed", { playlistId: created?.id });
+    if (libTab === "playlists") await renderLibraryPlaylists(true);
+  }
+
+  async function editSmartPlaylist(pl: PlaylistRow | undefined) {
+    if (!invoke || !pl || pl.kind !== "smart") return;
+    let rules: SmartRules | null = null;
+    try { rules = await invoke<SmartRules | null>("smart_playlist_rules", { playlistId: pl.id }); }
+    catch (e) { toast(`Couldn't read the rules — ${String(e)}`); return; }
+    const answer = await showSmartPlaylistDialog("Edit Smart Playlist", pl.name, rules ?? defaultSmartRules(), "Save");
+    if (!answer) return;
+    try { await invoke("update_smart_playlist", { playlistId: pl.id, name: answer.name, rules: answer.rules }); }
+    catch (e) { toast(`Couldn't save the rules — ${String(e)}`); return; }
+    await refreshPlaylists();
+    renderPlaylistVirtual(true);
+    renderEmbeddedPlaylist();
+    busEmit("melo:playlist-changed", { playlistId: pl.id });
+    if (libTab === "playlists") await renderLibraryPlaylists(true);
   }
 
   function setManageLabel(text = "Manage") {
@@ -2129,16 +2251,25 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           ${libPlaysBadge(track)}<span class="t-dur">${fmtDur(track.duration)}</span>
         </div>`;
       }).join("");
+      let smartSummary = "";
+      if (selected.kind === "smart") {
+        try {
+          const sr = await invoke<SmartRules | null>("smart_playlist_rules", { playlistId: selected.id });
+          if (sr) smartSummary = describeRules(sr);
+        } catch { /* the playlist still renders; only the summary is missing */ }
+      }
       const left = playlists.map(p => `<button type="button" class="library-playlist-item ${p.id === selected.id ? "active" : ""}" data-library-playlist="${esc(p.id)}" aria-selected="${p.id === selected.id}">
-        <span class="library-playlist-item-name">${esc(p.name)}</span><span class="library-playlist-item-count">${p.trackCount}</span>${p.kind === "auto" ? `<span class="library-playlist-auto">AUTO</span>` : ""}
+        <span class="library-playlist-item-name">${esc(p.name)}</span><span class="library-playlist-item-count">${p.trackCount}</span>${p.kind === "auto" ? `<span class="library-playlist-auto">AUTO</span>` : p.kind === "smart" ? `<span class="library-playlist-auto library-playlist-smart">SMART</span>` : ""}
       </button>`).join("");
       trackList.style.display = "block";
       trackList.style.position = "relative";
       trackList.style.overflow = "hidden";
       trackList.innerHTML = `<div class="library-playlist-split">
-        <aside class="library-playlist-sidebar" aria-label="Playlists"><div class="library-playlist-sidebar-title">PLAYLISTS</div>${left}</aside>
-        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b>${librarySearch ? `<span>matching “${esc(librarySearch)}”</span>` : ""}</div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
+        <aside class="library-playlist-sidebar" aria-label="Playlists"><div class="library-playlist-sidebar-title"><span>PLAYLISTS</span><button type="button" class="btn small ghost library-smart-new" id="libNewSmart" title="New smart playlist (rules based on star rating)">+ Smart</button></div>${left}</aside>
+        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b>${selected.kind === "smart" ? `<span class="library-smart-rules" title="${esc(smartSummary)}">${esc(smartSummary)}</span><button type="button" class="btn small ghost library-smart-edit" id="libEditSmart">Edit rules…</button>` : ""}${librarySearch ? `<span>matching “${esc(librarySearch)}”</span>` : ""}</div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
       </div>`;
+      trackList.querySelector<HTMLButtonElement>("#libNewSmart")?.addEventListener("click", () => { void createSmartPlaylist(); });
+      trackList.querySelector<HTMLButtonElement>("#libEditSmart")?.addEventListener("click", () => { void editSmartPlaylist(selected); });
       trackList.querySelectorAll<HTMLButtonElement>("[data-library-playlist]").forEach(button => {
         button.onclick = () => {
           selectedLibraryPlaylistId = button.dataset.libraryPlaylist || null;
@@ -4370,7 +4501,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // the queue itself is never re-laid-out or subset.
   function syncPlaylistChrome() {
     const viewingQueue = currentPlaylistId === QUEUE_ID;
-    const viewingAutoPlaylist = !!playlists.find(p => p.id === currentPlaylistId && p.kind === "auto");
+    const viewingAutoPlaylist = isReadOnlyPlaylist(playlists.find(p => p.id === currentPlaylistId));
     if (playlistSort) {
       // Sorting the QUEUE persists the new play order (DB + player stay in
       // Sync via melo:queue-reordered), unlike stored playlists where sort is
@@ -4437,6 +4568,11 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   const plCtxRename = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxRename")!;
   const plCtxDuplicate = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxDuplicate")!;
   const plCtxSweep = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxSweep")!;
+  const plCtxEditRules = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxEditRules")!;
+  plCtxEditRules.onclick = () => {
+    closePlaylistMenu();
+    void editSmartPlaylist(playlists.find(p => p.id === currentPlaylistId));
+  };
   const plCtxDelete = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxDelete")!;
 
   function closePlaylistMenu() { playlistContextMenu.style.display = "none"; }
@@ -4453,6 +4589,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
     if (!pl) return;
     plCtxTitle.textContent = pl.name;
+    // Smart playlists: rules instead of manual cleanup.
+    plCtxEditRules.style.display = pl.kind === "smart" ? "" : "none";
+    plCtxSweep.style.display = pl.kind === "smart" ? "none" : "";
     playlistContextMenu.style.display = "block";
     const rect = playlistContextMenu.getBoundingClientRect();
     playlistContextMenu.style.left = `${Math.max(6, Math.min(x, window.innerWidth - rect.width - 6))}px`;
@@ -4643,7 +4782,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       textEl.textContent = text;
       if (hintEl) {
         const sorted = (playlistSort?.value || "default") !== "default";
-        const auto = !!playlists.find(p => p.id === currentPlaylistId && p.kind === "auto");
+        const auto = isReadOnlyPlaylist(playlists.find(p => p.id === currentPlaylistId));
         hintEl.textContent = sorted && !auto && totals.count > 1 ? "Sorted · set Default to drag-reorder" : "";
       }
     } catch {
@@ -4721,7 +4860,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // Position — drag is disabled there. Covers the QUEUE view too (moves go
     // Through move_queue_track; the player follows via
     // Melo:queue-reordered).
-    const viewingAutoPlaylist = !!playlists.find(p => p.id === currentPlaylistId && p.kind === "auto");
+    const viewingAutoPlaylist = isReadOnlyPlaylist(playlists.find(p => p.id === currentPlaylistId));
     // Round 73: Most Played shows each track's play count left of its time —
     // the list is ordered by that number, so seeing it explains the ranking.
     // `playlist_tracks` is the only backend command that carries playCount
@@ -5511,7 +5650,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // Where drag-reorder is on, a drag from a ROW reorders; Ctrl+drag (or a
     // drag from empty space) selects instead.
     fromRow: e => e.ctrlKey || e.metaKey || e.shiftKey || !(
-      !playlists.find(p => p.id === currentPlaylistId && p.kind === "auto")
+      !isReadOnlyPlaylist(playlists.find(p => p.id === currentPlaylistId))
       && !playlistSearchQuery()
       && (playlistSort?.value || "default") === "default"
     ),
@@ -5611,8 +5750,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // Naming the playlist and its size (no undo by design — the dialog is
     // The safety net).
     const pl = playlists.find(p => p.id === currentPlaylistId);
-    if (pl?.kind === "auto") {
-      toast("Automatic playlists are read-only");
+    if (isReadOnlyPlaylist(pl)) {
+      toast("Automatic and smart playlists are read-only");
       return;
     }
     if (!await confirmDanger(
@@ -5881,6 +6020,18 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       renderLibraryVirtual();
       renderPlaylistVirtual();
     }, 500);
+  });
+  // Round 126: a star change can move tracks in or out of a smart playlist.
+  let ratingsRefreshTimer = 0;
+  busOn("melo:ratings-changed", () => {
+    if (!playlists.some(p => p.kind === "smart")) return;
+    window.clearTimeout(ratingsRefreshTimer);
+    ratingsRefreshTimer = window.setTimeout(() => {
+      refreshPlaylists();
+      renderPlaylistVirtual();
+      renderEmbeddedPlaylist();
+      if (libTab === "playlists") void renderLibraryPlaylists();
+    }, 400);
   });
   busOn("melo:playlist-changed", () => {
     refreshPlaylists();

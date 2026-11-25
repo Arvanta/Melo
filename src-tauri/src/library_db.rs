@@ -479,6 +479,10 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    // Round 126: smart playlists keep their rules (JSON) on the playlist row.
+    if !table_has_column(conn, "playlists", "rules")? {
+        conn.execute_batch("ALTER TABLE playlists ADD COLUMN rules TEXT;").map_err(|e| e.to_string())?;
+    }
     // Round 125: star rating. `rating_dirty` = the new value is in the database
     // but not yet written to the file's tag (deferred for the playing track, or
     // a failed write); a dirty value always wins over what a scan reads.
@@ -2571,7 +2575,8 @@ pub async fn touch_track_last_played(track_id: String, state: State<'_, LibraryS
 pub async fn list_playlists(state: State<'_, LibraryState>) -> Result<Vec<PlaylistRow>, String> {
     let conn = locked_db(&state)?;
     ensure_auto_playlists(&conn)?;
-    let mut stmt = conn.prepare("SELECT p.id,p.name,p.created_at,COUNT(pt.track_id),p.kind FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id GROUP BY p.id ORDER BY CASE p.id WHEN '__auto_most_played__' THEN 0 WHEN '__auto_recently_played__' THEN 1 WHEN '__auto_recently_added__' THEN 2 ELSE 3 END,p.created_at").map_err(|e| e.to_string())?;
+    refresh_all_smart(&conn)?;
+    let mut stmt = conn.prepare("SELECT p.id,p.name,p.created_at,COUNT(pt.track_id),p.kind FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id GROUP BY p.id ORDER BY CASE p.id WHEN '__auto_most_played__' THEN 0 WHEN '__auto_recently_played__' THEN 1 WHEN '__auto_recently_added__' THEN 2 ELSE CASE p.kind WHEN 'smart' THEN 3 ELSE 4 END END,p.created_at").map_err(|e| e.to_string())?;
     let mapped = stmt.query_map([], |r| Ok(PlaylistRow{id:r.get(0)?,name:r.get(1)?,created_at:r.get(2)?,track_count:r.get(3)?,kind:r.get(4)?})).map_err(|e|e.to_string())?;
     let rows = mapped.filter_map(log_skipped).collect();
     Ok(rows)
@@ -2602,6 +2607,23 @@ fn validate_playlist_name(name: &str) -> Result<String, String> {
 /// names ("Name (2)", case-insensitive); rename is explicit user intent
 /// and rejects collisions instead.
 fn ensure_manual_playlist(conn: &Connection, playlist_id: &str) -> Result<(), String> {
+    let kind: String = conn
+        .query_row("SELECT kind FROM playlists WHERE id=?1", params![playlist_id], |r| r.get(0))
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Playlist no longer exists".to_string())?;
+    if kind == "auto" {
+        return Err("Automatic playlists are read-only".into());
+    }
+    if kind == "smart" {
+        return Err("The tracks of a smart playlist follow its rules — edit the rules, or duplicate it to get a normal playlist".into());
+    }
+    Ok(())
+}
+
+/// Rename / duplicate: a smart playlist may be renamed and copied (the copy is
+/// a normal playlist), automatic ones may not.
+fn ensure_not_auto(conn: &Connection, playlist_id: &str) -> Result<(), String> {
     let kind: String = conn
         .query_row("SELECT kind FROM playlists WHERE id=?1", params![playlist_id], |r| r.get(0))
         .optional()
@@ -2646,7 +2668,7 @@ pub async fn create_playlist(name: String, state: State<'_, LibraryState>) -> Re
 pub async fn rename_playlist(playlist_id: String, name: String, state: State<'_, LibraryState>) -> Result<PlaylistRow, String> {
     let name = validate_playlist_name(&name)?;
     let conn = locked_db(&state)?;
-    ensure_manual_playlist(&conn, &playlist_id)?;
+    ensure_not_auto(&conn, &playlist_id)?;
     // Explicit user intent: report a collision instead of silently
     // suffixing (the generative flows auto-suffix instead).
     let collision = conn
@@ -2683,7 +2705,8 @@ pub async fn delete_playlist(playlist_id: String, state: State<'_, LibraryState>
 #[tauri::command]
 pub async fn duplicate_playlist(playlist_id: String, name: Option<String>, state: State<'_, LibraryState>) -> Result<PlaylistRow, String> {
     let mut conn = locked_db(&state)?;
-    ensure_manual_playlist(&conn, &playlist_id)?;
+    ensure_not_auto(&conn, &playlist_id)?;
+    refresh_if_smart(&conn, &playlist_id)?;
     let source_name: String = conn
         .query_row("SELECT name FROM playlists WHERE id=?1", params![playlist_id], |r| r.get(0))
         .optional()
@@ -2974,6 +2997,9 @@ pub async fn import_m3u_file(path: String, state: State<'_, LibraryState>) -> Re
 #[tauri::command]
 pub async fn playlist_tracks(playlist_id: String, search: Option<String>, sort: Option<String>, limit: usize, offset: usize, state: State<'_, LibraryState>) -> Result<Page<DbTrack>, String> {
     let conn = locked_db(&state)?;
+    // A smart playlist is re-evaluated whenever its first page is requested
+    // (unchanged results keep their entry ids, so scrolling stays stable).
+    if offset == 0 { refresh_if_smart(&conn, &playlist_id)?; }
     let limit = limit.clamp(1, 5000);
     let q = search_pattern(&search.unwrap_or_default());
     let total:i64=conn.query_row("SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id WHERE pt.playlist_id=?1 AND (t.title LIKE ?2 ESCAPE '$' OR t.artist LIKE ?2 ESCAPE '$' OR t.album LIKE ?2 ESCAPE '$')",params![playlist_id,q],|r|r.get(0)).map_err(|e|e.to_string())?;
@@ -4939,6 +4965,221 @@ pub async fn tag_write_each(items: Vec<TagWriteItem>, state: State<'_, LibrarySt
     write_tag_items(items.into_iter().map(|i| (i.track_id, i.edit)).collect(), &state).await
 }
 
+// ───────────────────────── smart playlists (round 126) ─────────────────────────
+//
+// A smart playlist is a playlist row (kind 'smart') with its rules as JSON.
+// Its tracks are MATERIALISED into `playlist_tracks` like the automatic ones,
+// so paging, search, sorting, totals, play / queue and M3U export all work
+// unchanged. They are re-evaluated when the playlist list is read and when the
+// first page of the playlist is requested; if the result is identical nothing
+// is written (entry ids stay stable).
+
+const MAX_SMART_RULES: usize = 10;
+const MAX_SMART_LIMIT: u32 = 100_000;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartRule {
+    /// Only "rating" for now; the structure leaves room for more fields.
+    pub field: String,
+    /// is | isNot | atLeast | atMost | between
+    pub op: String,
+    pub value: i64,
+    #[serde(default)]
+    pub value2: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartRules {
+    pub rules: Vec<SmartRule>,
+    /// true: every rule must match; false: any rule.
+    #[serde(default = "smart_default_match_all")]
+    pub match_all: bool,
+    /// title | artist | rating-desc | added-desc | plays-desc
+    #[serde(default = "smart_default_sort")]
+    pub sort: String,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+fn smart_default_match_all() -> bool { true }
+fn smart_default_sort() -> String { "title".into() }
+
+/// Checks and normalises rules from the UI (values are inserted into SQL as
+/// integers, so everything is range-checked here).
+pub fn validate_smart_rules(input: &SmartRules) -> Result<SmartRules, String> {
+    if input.rules.is_empty() {
+        return Err("Add at least one rule".into());
+    }
+    if input.rules.len() > MAX_SMART_RULES {
+        return Err(format!("A smart playlist can have at most {MAX_SMART_RULES} rules"));
+    }
+    let mut rules = Vec::new();
+    for r in &input.rules {
+        if r.field != "rating" {
+            return Err(format!("Unknown rule field \"{}\"", r.field));
+        }
+        if !matches!(r.op.as_str(), "is" | "isNot" | "atLeast" | "atMost" | "between") {
+            return Err(format!("Unknown rule \"{}\"", r.op));
+        }
+        if !(0..=5).contains(&r.value) || !(0..=5).contains(&r.value2) {
+            return Err("Stars must be between 0 and 5".into());
+        }
+        let mut rule = r.clone();
+        if rule.op == "between" {
+            if rule.value > rule.value2 { std::mem::swap(&mut rule.value, &mut rule.value2); }
+        } else {
+            rule.value2 = 0;
+        }
+        rules.push(rule);
+    }
+    let sort = match input.sort.as_str() {
+        "title" | "artist" | "rating-desc" | "added-desc" | "plays-desc" => input.sort.clone(),
+        other => return Err(format!("Unknown sort \"{other}\"")),
+    };
+    let limit = match input.limit {
+        Some(0) | None => None,
+        Some(n) if n <= MAX_SMART_LIMIT => Some(n),
+        Some(_) => return Err(format!("The limit can be at most {MAX_SMART_LIMIT} tracks")),
+    };
+    Ok(SmartRules { rules, match_all: input.match_all, sort, limit })
+}
+
+fn smart_condition(r: &SmartRule) -> String {
+    match r.op.as_str() {
+        "is" => format!("rating = {}", r.value),
+        "isNot" => format!("rating <> {}", r.value),
+        "atLeast" => format!("rating >= {}", r.value),
+        "atMost" => format!("rating <= {}", r.value),
+        _ => format!("rating BETWEEN {} AND {}", r.value, r.value2),
+    }
+}
+
+/// `SELECT id ...` for already validated rules.
+fn smart_select_sql(rules: &SmartRules) -> String {
+    let glue = if rules.match_all { " AND " } else { " OR " };
+    let cond = rules.rules.iter().map(|r| format!("({})", smart_condition(r))).collect::<Vec<_>>().join(glue);
+    let order = match rules.sort.as_str() {
+        "artist" => "artist COLLATE NOCASE, album COLLATE NOCASE, title COLLATE NOCASE, id",
+        "rating-desc" => "rating DESC, title COLLATE NOCASE, id",
+        "added-desc" => "added_at DESC, id",
+        "plays-desc" => "play_count DESC, title COLLATE NOCASE, id",
+        _ => "title COLLATE NOCASE, artist COLLATE NOCASE, id",
+    };
+    let limit = rules.limit.map(|n| format!(" LIMIT {n}")).unwrap_or_default();
+    format!("SELECT id FROM tracks WHERE library_owned=1 AND ({cond}) ORDER BY {order}{limit}")
+}
+
+fn read_smart_rules(conn: &Connection, playlist_id: &str) -> Result<Option<SmartRules>, String> {
+    let row: Option<(String, Option<String>)> = conn
+        .query_row("SELECT kind,rules FROM playlists WHERE id=?1", params![playlist_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()
+        .map_err(|e| e.to_string())?;
+    match row {
+        Some((kind, Some(json))) if kind == "smart" => serde_json::from_str::<SmartRules>(&json).map(Some).map_err(|e| format!("The smart playlist's rules are damaged: {e}")),
+        _ => Ok(None),
+    }
+}
+
+/// Re-evaluates one smart playlist; writes only when the result changed.
+fn refresh_smart_playlist(conn: &Connection, playlist_id: &str, rules: &SmartRules) -> Result<(), String> {
+    let wanted: Vec<String> = {
+        let mut stmt = conn.prepare(&smart_select_sql(rules)).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        rows.filter_map(log_skipped).collect()
+    };
+    let current: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id=?1 ORDER BY position,entry_id").map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![playlist_id], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        rows.filter_map(log_skipped).collect()
+    };
+    if wanted == current { return Ok(()); }
+    conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        conn.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", params![playlist_id]).map_err(|e| e.to_string())?;
+        let mut ins = conn.prepare("INSERT INTO playlist_tracks(playlist_id,track_id,position) VALUES(?1,?2,?3)").map_err(|e| e.to_string())?;
+        for (i, id) in wanted.iter().enumerate() {
+            ins.execute(params![playlist_id, id, i as i64]).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string()),
+        Err(e) => { let _ = conn.execute_batch("ROLLBACK"); Err(e) }
+    }
+}
+
+fn refresh_if_smart(conn: &Connection, playlist_id: &str) -> Result<(), String> {
+    match read_smart_rules(conn, playlist_id)? {
+        Some(rules) => refresh_smart_playlist(conn, playlist_id, &rules),
+        None => Ok(()),
+    }
+}
+
+fn refresh_all_smart(conn: &Connection) -> Result<(), String> {
+    let ids: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT id FROM playlists WHERE kind='smart'").map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        rows.filter_map(log_skipped).collect()
+    };
+    for id in ids {
+        // One damaged playlist must not hide all the others.
+        if let Err(e) = refresh_if_smart(conn, &id) { eprintln!("smart playlist {id}: {e}"); }
+    }
+    Ok(())
+}
+
+fn playlist_row_of(conn: &Connection, playlist_id: &str) -> Result<PlaylistRow, String> {
+    conn.query_row(
+        "SELECT p.id,p.name,p.created_at,COUNT(pt.track_id),p.kind FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id WHERE p.id=?1 GROUP BY p.id",
+        params![playlist_id],
+        |r| Ok(PlaylistRow { id: r.get(0)?, name: r.get(1)?, created_at: r.get(2)?, track_count: r.get(3)?, kind: r.get(4)? }),
+    ).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_smart_playlist(name: String, rules: SmartRules, state: State<'_, LibraryState>) -> Result<PlaylistRow, String> {
+    let rules = validate_smart_rules(&rules)?;
+    let conn = locked_db(&state)?;
+    let name = unique_playlist_name(&conn, &validate_playlist_name(&name)?)?;
+    let id = new_playlist_id();
+    let json = serde_json::to_string(&rules).map_err(|e| e.to_string())?;
+    conn.execute("INSERT INTO playlists(id,name,created_at,kind,rules) VALUES(?1,?2,?3,'smart',?4)", params![id, name, now_ms(), json]).map_err(|e| e.to_string())?;
+    refresh_smart_playlist(&conn, &id, &rules)?;
+    playlist_row_of(&conn, &id)
+}
+
+#[tauri::command]
+pub async fn update_smart_playlist(playlist_id: String, name: String, rules: SmartRules, state: State<'_, LibraryState>) -> Result<PlaylistRow, String> {
+    let rules = validate_smart_rules(&rules)?;
+    let name = validate_playlist_name(&name)?;
+    let conn = locked_db(&state)?;
+    let kind: Option<String> = conn.query_row("SELECT kind FROM playlists WHERE id=?1", params![playlist_id], |r| r.get(0)).optional().map_err(|e| e.to_string())?;
+    if kind.as_deref() != Some("smart") {
+        return Err("This is not a smart playlist".into());
+    }
+    let collision = conn
+        .query_row("SELECT 1 FROM playlists WHERE name=?1 COLLATE NOCASE AND id<>?2", params![name, playlist_id], |_| Ok(()))
+        .optional()
+        .map_err(|e| e.to_string())?
+        .is_some();
+    if collision {
+        return Err("Another playlist already has this name".into());
+    }
+    let json = serde_json::to_string(&rules).map_err(|e| e.to_string())?;
+    conn.execute("UPDATE playlists SET name=?2,rules=?3 WHERE id=?1", params![playlist_id, name, json]).map_err(|e| e.to_string())?;
+    refresh_smart_playlist(&conn, &playlist_id, &rules)?;
+    playlist_row_of(&conn, &playlist_id)
+}
+
+/// The rules of a smart playlist (for the edit dialog).
+#[tauri::command]
+pub async fn smart_playlist_rules(playlist_id: String, state: State<'_, LibraryState>) -> Result<Option<SmartRules>, String> {
+    let conn = locked_db(&state)?;
+    read_smart_rules(&conn, &playlist_id)
+}
+
 // ───────────────────────── star ratings (round 125) ─────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -5402,5 +5643,131 @@ mod rating_tests {
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(ver, 2);
         let _ = std::fs::remove_dir_all(&e.dir);
+    }
+}
+
+#[cfg(test)]
+mod smart_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static N: AtomicUsize = AtomicUsize::new(0);
+    const MP3: &[u8] = include_bytes!("../../tools/tag-edit-test/fixtures/base.mp3");
+
+    fn db() -> (PathBuf, Connection) {
+        let dir = std::env::temp_dir().join(format!("melo-smart-test-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let conn = open_db(&dir.join("library.db")).unwrap();
+        init_schema(&conn).unwrap();
+        (dir, conn)
+    }
+    /// One real file per (title, rating); a row per call.
+    fn add(dir: &Path, conn: &Connection, title: &str, rating: i64, owned: bool) -> String {
+        let p = dir.join(format!("{title}.mp3"));
+        std::fs::write(&p, MP3).unwrap();
+        let (t, size, modified) = parse_track_cached(&p, &dir.join("art"), false).unwrap();
+        upsert_track(conn, &t, size, modified, None, owned).unwrap();
+        conn.execute("UPDATE tracks SET title=?2,rating=?3 WHERE id=?1", params![t.id, title, rating]).unwrap();
+        t.id
+    }
+    fn rule(op: &str, a: i64, b: i64) -> SmartRule { SmartRule { field: "rating".into(), op: op.into(), value: a, value2: b } }
+    fn rules(rs: Vec<SmartRule>, all: bool, sort: &str, limit: Option<u32>) -> SmartRules { SmartRules { rules: rs, match_all: all, sort: sort.into(), limit } }
+    fn ids(conn: &Connection, r: &SmartRules) -> Vec<String> {
+        let v = validate_smart_rules(r).unwrap();
+        let mut stmt = conn.prepare(&smart_select_sql(&v)).unwrap();
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+        rows.map(|x| x.unwrap()).collect()
+    }
+    fn titles(conn: &Connection, r: &SmartRules) -> Vec<String> {
+        ids(conn, r).iter().map(|id| conn.query_row("SELECT title FROM tracks WHERE id=?1", params![id], |x| x.get::<_, String>(0)).unwrap()).collect()
+    }
+
+    #[test]
+    fn rules_are_validated() {
+        let ok = rules(vec![rule("between", 5, 3)], true, "title", Some(0));
+        let v = validate_smart_rules(&ok).unwrap();
+        assert_eq!((v.rules[0].value, v.rules[0].value2, v.limit), (3, 5, None), "between is ordered, 0 limit = none");
+        assert!(validate_smart_rules(&rules(vec![], true, "title", None)).is_err());
+        assert!(validate_smart_rules(&rules(vec![rule("is", 6, 0)], true, "title", None)).is_err());
+        assert!(validate_smart_rules(&rules(vec![rule("is", -1, 0)], true, "title", None)).is_err());
+        assert!(validate_smart_rules(&rules(vec![rule("like", 1, 0)], true, "title", None)).is_err());
+        let mut bad_field = rule("is", 1, 0); bad_field.field = "title; DROP TABLE tracks".into();
+        assert!(validate_smart_rules(&rules(vec![bad_field], true, "title", None)).is_err());
+        assert!(validate_smart_rules(&rules(vec![rule("is", 1, 0)], true, "random", None)).is_err());
+        assert!(validate_smart_rules(&rules(vec![rule("is", 1, 0)], true, "title", Some(MAX_SMART_LIMIT + 1))).is_err());
+        assert!(validate_smart_rules(&rules((0..11).map(|_| rule("is", 1, 0)).collect(), true, "title", None)).is_err());
+    }
+
+    #[test]
+    fn rules_select_the_right_tracks() {
+        let (dir, conn) = db();
+        for (t, r) in [("a0", 0), ("b1", 1), ("c2", 2), ("d3", 3), ("e4", 4), ("f5", 5)] { add(&dir, &conn, t, r, true); }
+        add(&dir, &conn, "gone5", 5, false); // removed from the library: never listed
+        let t = |rs: Vec<SmartRule>, all| titles(&conn, &rules(rs, all, "title", None));
+        assert_eq!(t(vec![rule("is", 5, 0)], true), ["f5"]);
+        assert_eq!(t(vec![rule("is", 0, 0)], true), ["a0"], "0 = unrated");
+        assert_eq!(t(vec![rule("isNot", 0, 0)], true), ["b1", "c2", "d3", "e4", "f5"]);
+        assert_eq!(t(vec![rule("atLeast", 4, 0)], true), ["e4", "f5"]);
+        assert_eq!(t(vec![rule("atMost", 1, 0)], true), ["a0", "b1"]);
+        assert_eq!(t(vec![rule("between", 3, 5)], true), ["d3", "e4", "f5"]);
+        assert_eq!(t(vec![rule("is", 1, 0), rule("is", 5, 0)], false), ["b1", "f5"], "any");
+        assert_eq!(t(vec![rule("atLeast", 2, 0), rule("atMost", 3, 0)], true), ["c2", "d3"], "all");
+        assert_eq!(t(vec![rule("is", 1, 0), rule("is", 5, 0)], true), Vec::<String>::new(), "all of two exclusive rules");
+        // sort and limit
+        assert_eq!(titles(&conn, &rules(vec![rule("atLeast", 1, 0)], true, "rating-desc", Some(3))), ["f5", "e4", "d3"]);
+        assert_eq!(titles(&conn, &rules(vec![rule("atLeast", 1, 0)], true, "title", Some(2))), ["b1", "c2"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_smart_playlist_is_materialised_and_kept_fresh_without_churn() {
+        let (dir, conn) = db();
+        let a = add(&dir, &conn, "a", 5, true);
+        let b = add(&dir, &conn, "b", 2, true);
+        let r = validate_smart_rules(&rules(vec![rule("atLeast", 4, 0)], true, "title", None)).unwrap();
+        conn.execute("INSERT INTO playlists(id,name,created_at,kind,rules) VALUES('s1','Top',1,'smart',?1)", params![serde_json::to_string(&r).unwrap()]).unwrap();
+        let members = |c: &Connection| -> Vec<(String, i64)> {
+            let mut stmt = c.prepare("SELECT track_id,entry_id FROM playlist_tracks WHERE playlist_id='s1' ORDER BY position").unwrap();
+            let rows = stmt.query_map([], |x| Ok((x.get(0)?, x.get(1)?))).unwrap();
+            rows.map(|x| x.unwrap()).collect()
+        };
+        refresh_all_smart(&conn).unwrap();
+        let first = members(&conn);
+        assert_eq!(first.iter().map(|m| m.0.clone()).collect::<Vec<_>>(), vec![a.clone()]);
+        // nothing changed -> not rewritten: entry ids stay
+        refresh_all_smart(&conn).unwrap();
+        assert_eq!(members(&conn), first);
+        // a rating changes -> the playlist follows
+        conn.execute("UPDATE tracks SET rating=4 WHERE id=?1", params![b]).unwrap();
+        refresh_if_smart(&conn, "s1").unwrap();
+        assert_eq!(members(&conn).iter().map(|m| m.0.clone()).collect::<Vec<_>>(), vec![a.clone(), b.clone()]);
+        conn.execute("UPDATE tracks SET rating=0 WHERE id=?1", params![a]).unwrap();
+        refresh_if_smart(&conn, "s1").unwrap();
+        assert_eq!(members(&conn).iter().map(|m| m.0.clone()).collect::<Vec<_>>(), vec![b.clone()]);
+        // a manual playlist is never touched by the refresh
+        conn.execute("INSERT INTO playlists(id,name,created_at,kind) VALUES('m1','Mine',2,'manual')", []).unwrap();
+        conn.execute("INSERT INTO playlist_tracks(playlist_id,track_id,position) VALUES('m1',?1,0)", params![a]).unwrap();
+        refresh_all_smart(&conn).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id='m1'", [], |x| x.get(0)).unwrap();
+        assert_eq!(n, 1);
+        // smart playlists refuse manual edits but may be renamed / duplicated
+        assert!(ensure_manual_playlist(&conn, "s1").unwrap_err().contains("smart playlist"));
+        assert!(ensure_not_auto(&conn, "s1").is_ok());
+        assert!(ensure_manual_playlist(&conn, "m1").is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_damaged_playlist_does_not_hide_the_others() {
+        let (dir, conn) = db();
+        add(&dir, &conn, "a", 5, true);
+        conn.execute("INSERT INTO playlists(id,name,created_at,kind,rules) VALUES('bad','Bad',1,'smart','not json')", []).unwrap();
+        let ok = validate_smart_rules(&rules(vec![rule("is", 5, 0)], true, "title", None)).unwrap();
+        conn.execute("INSERT INTO playlists(id,name,created_at,kind,rules) VALUES('good','Good',2,'smart',?1)", params![serde_json::to_string(&ok).unwrap()]).unwrap();
+        refresh_all_smart(&conn).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id='good'", [], |x| x.get(0)).unwrap();
+        assert_eq!(n, 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
