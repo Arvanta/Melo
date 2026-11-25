@@ -73,3 +73,12 @@ test("no star row in the playlist / queue context menu", () => {
   const i = lib.indexOf("function showEntryContextMenu");
   assert.match(lib.slice(i, i + 900), /showContextRate\(null\)/);
 });
+
+test("rating writes tell the player (stale WebView2 copy of a rewritten file)", () => {
+  const ui = read("src/rating-ui.ts");
+  assert.match(ui, /busEmit\("melo:tags-written", \{ ids: \[\], paths, released: \[\] \}\)/);
+  assert.match(ui, /announceWritten\(res\.paths\)/);
+  assert.match(ui, /announceWritten\(res\?\.paths\)/, "also after the deferred flush");
+  assert.match(ui, /busEmit\("melo:tags-will-write", \{ paths: willWrite \}\)/);
+  assert.match(read("src-tauri/src/library_db.rs"), /pub paths: Vec<String>/);
+});

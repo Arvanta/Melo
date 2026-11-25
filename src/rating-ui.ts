@@ -8,7 +8,7 @@ import { findHook } from "./skin";
 import { clampStars, nextStars, starsForKey, starsHtml, starsLabel } from "./rating";
 
 export type RatingState = { id: string; rating: number; pending: boolean };
-type RatingSetResult = { written: string[]; pending: string[]; failed: { id: string; path: string; error: string }[] };
+type RatingSetResult = { written: string[]; paths: string[]; pending: string[]; failed: { id: string; path: string; error: string }[] };
 
 let invokeFn: (<T = any>(cmd: string, args?: Record<string, unknown>) => Promise<T>) | null = null;
 let toastFn: (m: string) => void = () => {};
@@ -46,10 +46,21 @@ export async function rateTracks(ids: string[], stars: number): Promise<void> {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return;
   const value = clampStars(stars);
+  // Show it at once; the write below may take a moment.
+  if (current && unique.includes(current.id)) { currentRating = value; render(); }
   try {
     const invoke = await core();
-    const deferPaths = [playingPath()].filter((p): p is string => !!p);
+    const playing = playingPath();
+    const deferPaths = [playing].filter((p): p is string => !!p);
+    // Ids are file paths. A queued next track may already be preloaded (open);
+    // the player lets go of it before its file is replaced.
+    const willWrite = unique.filter(id => id !== playing);
+    if (willWrite.length) {
+      busEmit("melo:tags-will-write", { paths: willWrite });
+      await new Promise(r => window.setTimeout(r, 250));
+    }
     const res = await invoke<RatingSetResult>("rating_set", { items: unique.map(trackId => ({ trackId, stars: value })), deferPaths });
+    announceWritten(res.paths);
     if (res.failed.length) {
       toastFn(res.failed.length === unique.length
         ? "Rating saved in Melo, but the file couldn't be updated yet (in use?). It will be retried."
@@ -59,8 +70,12 @@ export async function rateTracks(ids: string[], stars: number): Promise<void> {
     toastFn("Couldn't save the rating — " + String(e));
     return;
   }
-  if (current && unique.includes(current.id)) { currentRating = value; render(); }
   busEmit("melo:ratings-changed", { ids: unique, stars: value });
+}
+
+/** The player keeps WebView2 from serving the old bytes of a rewritten file (cache-busting asset URL). */
+function announceWritten(paths: string[] | undefined) {
+  if (paths && paths.length) busEmit("melo:tags-written", { ids: [], paths, released: [] });
 }
 
 function hook(): HTMLElement | null {
@@ -90,7 +105,8 @@ function scheduleFlush() {
   flushTimer = window.setTimeout(async () => {
     try {
       const invoke = await core();
-      await invoke("rating_flush", { avoidPaths: current ? [current.path] : [] });
+      const res = await invoke<RatingSetResult>("rating_flush", { avoidPaths: current ? [current.path] : [] });
+      announceWritten(res?.paths);
     } catch {}
   }, 1500);
 }

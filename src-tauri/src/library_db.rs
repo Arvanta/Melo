@@ -4962,6 +4962,8 @@ pub struct RatingState {
 pub struct RatingSetResult {
     /// Written to the file's tag.
     pub written: Vec<String>,
+    /// File paths of `written` (the player drops its cached copies of them).
+    pub paths: Vec<String>,
     /// Saved in the database; the file write waits (playing track).
     pub pending: Vec<String>,
     /// Saved in the database; writing the file failed (will be retried).
@@ -5010,7 +5012,7 @@ pub fn set_ratings_blocking(db_path: &Path, items: Vec<RatingItem>, defer: &[Str
         if is_mka(Path::new(&path)) { out.written.push(it.track_id); continue; }
         if defer.iter().any(|d| d == &path) { out.pending.push(it.track_id); continue; }
         match write_rating_file(Path::new(&path), stars) {
-            Ok(()) => { mark_rating_written(&conn, &it.track_id, Path::new(&path), stars); out.written.push(it.track_id); }
+            Ok(()) => { mark_rating_written(&conn, &it.track_id, Path::new(&path), stars); out.paths.push(path); out.written.push(it.track_id); }
             Err(error) => out.failed.push(TagWriteFailure { id: it.track_id, path, error }),
         }
     }
@@ -5030,7 +5032,7 @@ pub fn flush_ratings_blocking(db_path: &Path, avoid: &[String]) -> Result<Rating
         if avoid.iter().any(|a| a == &path) { out.pending.push(id); continue; }
         let stars = rating.clamp(0, 5) as u8;
         match write_rating_file(Path::new(&path), stars) {
-            Ok(()) => { mark_rating_written(&conn, &id, Path::new(&path), stars); out.written.push(id); }
+            Ok(()) => { mark_rating_written(&conn, &id, Path::new(&path), stars); out.paths.push(path); out.written.push(id); }
             Err(error) => out.failed.push(TagWriteFailure { id, path, error }),
         }
     }
@@ -5301,6 +5303,7 @@ mod rating_tests {
             assert_eq!(db_rating(&e, &id), (0, 0));
             let r = set_ratings_blocking(&e.db, item(&id, 4), &[]).unwrap();
             assert_eq!(r.written, vec![id.clone()], "{name}");
+            assert_eq!(r.paths, vec![id.clone()], "{name}: written paths are reported for the player");
             assert_eq!(db_rating(&e, &id), (4, 0), "{name}");
             assert_eq!(file_rating(&id), 4, "{name}");
             // the stored stamp follows the file, so a scan skips it
@@ -5325,6 +5328,7 @@ mod rating_tests {
         // track changed: written
         let r = flush_ratings_blocking(&e.db, &[]).unwrap();
         assert_eq!(r.written, vec![id.clone()]);
+        assert_eq!(r.paths, vec![id.clone()]);
         assert_eq!(db_rating(&e, &id), (5, 0));
         assert_eq!(file_rating(&id), 5);
         let _ = std::fs::remove_dir_all(&e.dir);
