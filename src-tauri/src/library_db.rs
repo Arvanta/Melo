@@ -439,6 +439,15 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_lib_album_artist_album ON tracks(album_artist COLLATE NOCASE, album COLLATE NOCASE) WHERE library_owned=1;
         CREATE INDEX IF NOT EXISTS idx_lib_genre ON tracks(genre COLLATE NOCASE) WHERE library_owned=1;
         CREATE INDEX IF NOT EXISTS idx_lib_year ON tracks(year) WHERE library_owned=1;
+        -- Round 129: the per-row cover lookups of the Library lists
+        -- (`SELECT id,artwork_path ... ORDER BY id LIMIT 1`) are answered from
+        -- these covering indexes alone — without them each lookup read every
+        -- track row of the group from the table (790 albums took ~3.5 s on a
+        -- cold connection). `id` comes right after the group columns, so the
+        -- smallest id with artwork is the first index entry (no sort).
+        CREATE INDEX IF NOT EXISTS idx_cov_album_artist_album ON tracks(album_artist COLLATE NOCASE, album COLLATE NOCASE, id, artwork_path) WHERE library_owned=1 AND artwork_path IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_cov_artist_album ON tracks(artist COLLATE NOCASE, album COLLATE NOCASE, id, artwork_path) WHERE library_owned=1 AND artwork_path IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_cov_genre ON tracks(genre COLLATE NOCASE, id, artwork_path) WHERE library_owned=1 AND artwork_path IS NOT NULL;
 
         -- Round 116: one row per listening segment (written by the player at
         -- track boundaries). Powers the Home statistics; rows of tracks that
@@ -2527,14 +2536,22 @@ fn ensure_auto_playlists(conn: &Connection) -> Result<(), String> {
         (AUTO_RECENTLY_PLAYED_ID, "Recently Played", "ORDER BY last_played_at DESC, id"),
     ];
     for (id, name, order) in definitions {
-        conn.execute(
-            "INSERT OR IGNORE INTO playlists(id,name,created_at,kind) VALUES(?1,?2,?3,'auto')",
-            params![id, name, now_ms()],
-        ).map_err(|e| e.to_string())?;
-        // Keep names stable after upgrading an existing clean-reset database.
-        conn.execute("UPDATE playlists SET name=?2,kind='auto',source_path=NULL WHERE id=?1", params![id, name])
+        // Round 129: this runs on every list_playlists / play. It used to
+        // delete and re-insert all three lists each time (a dozen separate
+        // commits = a dozen disk syncs, 30-100 ms on Windows). Now it only
+        // READS unless something really changed.
+        let row_ok: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlists WHERE id=?1 AND name=?2 AND kind='auto' AND source_path IS NULL", params![id, name], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", params![id]).map_err(|e| e.to_string())?;
+        if row_ok != 1 {
+            conn.execute(
+                "INSERT OR IGNORE INTO playlists(id,name,created_at,kind) VALUES(?1,?2,?3,'auto')",
+                params![id, name, now_ms()],
+            ).map_err(|e| e.to_string())?;
+            // Keep names stable after upgrading an existing clean-reset database.
+            conn.execute("UPDATE playlists SET name=?2,kind='auto',source_path=NULL WHERE id=?1", params![id, name])
+                .map_err(|e| e.to_string())?;
+        }
         let filter = if id == AUTO_MOST_PLAYED_ID {
             " AND play_count >= 1"
         } else if id == AUTO_RECENTLY_PLAYED_ID {
@@ -2542,13 +2559,41 @@ fn ensure_auto_playlists(conn: &Connection) -> Result<(), String> {
         } else {
             ""
         };
-        let sql = format!(
-            "INSERT INTO playlist_tracks(playlist_id,track_id,position) SELECT ?1,id,ROW_NUMBER() OVER ({})-1 FROM tracks WHERE library_owned=1{} LIMIT 100",
-            order, filter
-        );
-        conn.execute(&sql, params![id]).map_err(|e| e.to_string())?;
+        let wanted: Vec<String> = {
+            let mut stmt = conn
+                .prepare(&format!("SELECT id FROM tracks WHERE library_owned=1{} {} LIMIT 100", filter, order))
+                .map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+            rows.filter_map(log_skipped).collect()
+        };
+        sync_playlist_entries(conn, id, &wanted)?;
     }
     Ok(())
+}
+
+/// Makes the stored entries of `playlist_id` equal `wanted` (in that order).
+/// Writes NOTHING when they already match (stable entry ids, no disk sync);
+/// otherwise one transaction.
+fn sync_playlist_entries(conn: &Connection, playlist_id: &str, wanted: &[String]) -> Result<(), String> {
+    let current: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id=?1 ORDER BY position,entry_id").map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![playlist_id], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        rows.filter_map(log_skipped).collect()
+    };
+    if wanted == current.as_slice() { return Ok(()); }
+    conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        conn.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", params![playlist_id]).map_err(|e| e.to_string())?;
+        let mut ins = conn.prepare("INSERT INTO playlist_tracks(playlist_id,track_id,position) VALUES(?1,?2,?3)").map_err(|e| e.to_string())?;
+        for (i, id) in wanted.iter().enumerate() {
+            ins.execute(params![playlist_id, id, i as i64]).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string()),
+        Err(e) => { let _ = conn.execute_batch("ROLLBACK"); Err(e) }
+    }
 }
 
 /// Round 76: this counts a LISTEN, nothing else. The player fires it only
@@ -5154,25 +5199,7 @@ fn refresh_smart_playlist(conn: &Connection, playlist_id: &str, rules: &SmartRul
         let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
         rows.filter_map(log_skipped).collect()
     };
-    let current: Vec<String> = {
-        let mut stmt = conn.prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id=?1 ORDER BY position,entry_id").map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![playlist_id], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
-        rows.filter_map(log_skipped).collect()
-    };
-    if wanted == current { return Ok(()); }
-    conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
-    let result = (|| -> Result<(), String> {
-        conn.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", params![playlist_id]).map_err(|e| e.to_string())?;
-        let mut ins = conn.prepare("INSERT INTO playlist_tracks(playlist_id,track_id,position) VALUES(?1,?2,?3)").map_err(|e| e.to_string())?;
-        for (i, id) in wanted.iter().enumerate() {
-            ins.execute(params![playlist_id, id, i as i64]).map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    })();
-    match result {
-        Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string()),
-        Err(e) => { let _ = conn.execute_batch("ROLLBACK"); Err(e) }
-    }
+    sync_playlist_entries(conn, playlist_id, &wanted)
 }
 
 fn refresh_if_smart(conn: &Connection, playlist_id: &str) -> Result<(), String> {
@@ -5746,6 +5773,45 @@ mod smart_tests {
     }
     fn titles(conn: &Connection, r: &SmartRules) -> Vec<String> {
         ids(conn, r).iter().map(|id| conn.query_row("SELECT title FROM tracks WHERE id=?1", params![id], |x| x.get::<_, String>(0)).unwrap()).collect()
+    }
+
+    #[test]
+    fn auto_playlists_are_not_rewritten_when_nothing_changed() {
+        let (dir, conn) = db();
+        add(&dir, &conn, "one", 0, true);
+        add(&dir, &conn, "two", 0, true);
+        ensure_auto_playlists(&conn).unwrap();
+        let entries = |c: &Connection| -> Vec<(i64, String)> {
+            let mut st = c.prepare("SELECT entry_id,playlist_id FROM playlist_tracks ORDER BY entry_id").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|x| x.unwrap()).collect()
+        };
+        let before = entries(&conn);
+        assert!(!before.is_empty(), "Recently Added is filled");
+        let total = |c: &Connection| -> i64 { c.query_row("SELECT total_changes()", [], |r| r.get(0)).unwrap() };
+        let changes = total(&conn);
+        ensure_auto_playlists(&conn).unwrap();
+        assert_eq!(total(&conn), changes, "a second run must not write at all");
+        assert_eq!(entries(&conn), before, "entry ids stay stable");
+        // A real change is picked up.
+        conn.execute("UPDATE tracks SET play_count=3 WHERE title='one'", []).unwrap();
+        ensure_auto_playlists(&conn).unwrap();
+        let most: i64 = conn.query_row("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id=?1", params![AUTO_MOST_PLAYED_ID], |r| r.get(0)).unwrap();
+        assert_eq!(most, 1);
+    }
+
+    #[test]
+    fn cover_lookups_use_covering_indexes() {
+        let (_dir, conn) = db();
+        for (kind, sql, idx) in [
+            ("albums", "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND album_artist=?1 COLLATE NOCASE AND album=?2 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1", "idx_cov_album_artist_album"),
+            ("artist-albums", "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=?1 COLLATE NOCASE AND album=?2 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1", "idx_cov_artist_album"),
+            ("genres", "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND genre=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1", "idx_cov_genre"),
+        ] {
+            let mut st = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            let args: Vec<&str> = vec!["a"; st.parameter_count()];
+            let plan: Vec<String> = st.query_map(params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().map(|x| x.unwrap()).collect();
+            assert!(plan.iter().any(|l| l.contains("COVERING INDEX") && l.contains(idx)), "{kind}: {plan:?}");
+        }
     }
 
     #[test]
