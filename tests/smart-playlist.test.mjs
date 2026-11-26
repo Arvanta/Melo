@@ -97,3 +97,10 @@ test("round 130 static pins: coalesced refresh, player diagnostics, README ratin
   const readme = read("skins/README.md");
   for (const k of ["5.3b", "pv-add", "pv-remove", "track-rating", "Everything else (one-line index)", "--accent-2"]) assert.ok(readme.includes(k), k);
 });
+
+test("round 131 static pins: stable gutter, no re-render on re-click", () => {
+  assert.match(read("src/app.css"), /\.panel-library #trackList \{ scrollbar-gutter: stable; \}/);
+  const lib = read("src/library.ts");
+  assert.match(lib, /clicking the tab you are already on, at its root/);
+  assert.match(lib, /!selectedArtist && !selectedAlbum && !selectedGenre\) \{\s*if \(trackList\) trackList\.scrollTop = 0;\s*return;/);
+});

@@ -5529,6 +5529,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   syncLibraryTabButton();
   tabs?.querySelectorAll<HTMLButtonElement>("button[data-libtab]").forEach(tab => {
     tab.onclick = () => {
+      // Round 131: clicking the tab you are already on, at its root, used to
+      // reset and re-render everything (and flash the layout). Now it only
+      // scrolls back to the top; inside an artist/album/genre it still returns
+      // to the tab's root as before.
+      if (libTab === ((tab.dataset.libtab || "artists") as typeof libTab) && !selectedArtist && !selectedAlbum && !selectedGenre) {
+        if (trackList) trackList.scrollTop = 0;
+        return;
+      }
       tabs.querySelectorAll("button[data-libtab]").forEach(x => x.classList.remove("active"));
       tab.classList.add("active");
       libTab = (tab.dataset.libtab || "artists") as typeof libTab;

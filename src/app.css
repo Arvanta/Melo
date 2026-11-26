@@ -3142,3 +3142,8 @@ select.te-input { padding-right: 4px; }
    pv-remove = a click would empty it (a filled star shown dimmed). Skins may restyle both. */
 .te-star.pv-add, .rate-star.pv-add, .te-star.pv-add:hover, .rate-star.pv-add:hover { color: var(--accent, #f5b301); opacity: .5; }
 .te-star.pv-remove, .rate-star.pv-remove, .te-star.pv-remove:hover, .rate-star.pv-remove:hover { opacity: .4; }
+
+/* Round 131: the Library lists size their cards from trackList.clientWidth; without a reserved
+   gutter the first measurement (no scrollbar yet) is ~13px too wide and the cards visibly
+   re-flow a frame later when the scrollbar appears. Reserve the gutter so the width never changes. */
+.panel-library #trackList { scrollbar-gutter: stable; }
