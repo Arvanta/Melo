@@ -19,9 +19,9 @@ import {
   type FieldKey, type FileRef, type PerFile,
 } from "./tag-tools";
 import { splitFileName, stemProblem } from "./file-rename";
-import { clampStars, nextStars, starsHtml, starsLabel } from "./rating";
+import { bindStarPreview, clampStars, nextStars, starsHtml, starsLabel } from "./rating";
 import {
-  allowedTargets, defaultTarget, infoRows, KIND_LABEL, planLyricWrites, slotOf,
+  allowedTargets, cleanPath, defaultTarget, infoRows, KIND_LABEL, planLyricWrites, slotOf,
   type Info, type LyricDraft, type LyricKind, type LyricSlot, type LyricSource,
 } from "./tag-info";
 
@@ -320,6 +320,7 @@ export function setupTagEditor(toast: (m: string) => void) {
     const orig = common?.rating ?? null; // null = the files disagree
     const shown = ratingDraft ?? orig;
     box.innerHTML = starsHtml(shown ?? 0, "te-star");
+    bindStarPreview(box, () => shown ?? -1);
     box.classList.toggle("dirty", ratingDraft !== null);
     box.classList.toggle("mixed", shown === null);
     hint.textContent = shown === null ? "<mixed> — click a star to set all" : starsLabel(shown);
@@ -355,7 +356,7 @@ export function setupTagEditor(toast: (m: string) => void) {
     if (!total) { summaryEl.textContent = "No tracks selected."; return; }
     if (total === 1) {
       summaryEl.textContent = files[0].fileName || "1 track";
-      summaryEl.title = files[0].path;
+      summaryEl.title = cleanPath(files[0].path);
     } else {
       summaryEl.textContent = `${ok} tracks selected` + (bad ? ` · ${bad} cannot be edited` : "");
       summaryEl.title = "";

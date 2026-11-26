@@ -135,7 +135,7 @@ finds them by role, not by position.
 | `album` | Album name |
 | `codec` | Codec label (e.g. FLAC) |
 | `specs` | Sample rate / bit depth |
-| `rating` | **Optional.** An empty element (e.g. `<div data-melo="rating"></div>`); Melo fills it with five clickable `★` buttons (`.rate-star`, `.on` = filled) for the playing track. Keys 0–5 rate the playing track whether or not a skin has this slot. |
+| `rating` | **Optional.** An empty element (e.g. `<div data-melo="rating"></div>`); Melo fills it with five clickable `★` buttons (`.rate-star`, `.on` = filled) for the playing track. While the pointer is over a star, the stars a click would fill get `.pv-add` and the ones it would empty get `.pv-remove` (style both freely; the default is lighter / dimmed). Keys 0–5 rate the playing track whether or not a skin has this slot. |
 
 ### 5.3 Seek, volume, time
 

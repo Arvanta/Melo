@@ -1,6 +1,6 @@
 import type { Track } from "./types";
 import { busEmit, busOn, isTauri } from "./bus";
-import { nextStars, starsHtml } from "./rating";
+import { bindStarPreview, nextStars, starsHtml } from "./rating";
 import { rateTracks, ratingsOf } from "./rating-ui";
 import { SMART_OPS, SMART_SORTS, MAX_SMART_RULES, defaultSmartRules, describeRules, normalizeSmartRules, type SmartRules, type SmartRule, type SmartOp, type SmartSort } from "./smart-rules";
 
@@ -562,6 +562,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       contextRateStars.innerHTML = starsHtml(contextRateValue);
     }).catch(() => {});
   }
+  bindStarPreview(contextRateStars, () => contextRateValue);
   contextRateStars.addEventListener("click", async event => {
     const b = (event.target as HTMLElement).closest<HTMLElement>("[data-star]");
     const resolve = contextRateIds;
@@ -2883,11 +2884,22 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
 
+  // Round 127: after a move arrow, the moved row pulses green and the row it
+  // swapped with pulses red (so a multi-step move can be followed by eye). The
+  // animation start is back-dated on repaints so a repaint doesn't restart it.
+  let homeMoveFlash: { moved: string; swapped: string; at: number } | null = null;
+  const HOME_FLASH_MS = 1100;
+  function homeFlashAttrs(id: string): string {
+    const f = homeMoveFlash;
+    if (!f || Date.now() - f.at >= HOME_FLASH_MS) return "";
+    const kind = id === f.moved ? "ok" : id === f.swapped ? "swap" : "";
+    return kind ? ` cz-flash-${kind}" style="animation-delay:-${Date.now() - f.at}ms` : "";
+  }
   function homeCustomizeHtml(layout: HomeLayout): string {
     const rows = layout.order.map((id, i) => {
       const label = HOME_SECTIONS.find(s => s.id === id)?.label || id;
       const shown = !layout.hidden.includes(id);
-      return `<div class="home-cz-row"><label class="home-cz-label"><input type="checkbox" data-cz-toggle="${id}" ${shown ? "checked" : ""}><span>${esc(label)}</span></label>
+      return `<div class="home-cz-row${homeFlashAttrs(id)}" data-cz-row="${id}"><label class="home-cz-label"><input type="checkbox" data-cz-toggle="${id}" ${shown ? "checked" : ""}><span>${esc(label)}</span></label>
         <button type="button" class="home-cz-move" data-cz-move="${id}" data-cz-dir="-1" ${i === 0 ? "disabled" : ""} aria-label="Move ${esc(label)} up" title="Move up">↑</button>
         <button type="button" class="home-cz-move" data-cz-move="${id}" data-cz-dir="1" ${i === layout.order.length - 1 ? "disabled" : ""} aria-label="Move ${esc(label)} down" title="Move down">↓</button></div>`;
     }).join("");
@@ -3115,9 +3127,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         const i = layout.order.indexOf(id);
         const j = i + dir;
         if (i >= 0 && j >= 0 && j < layout.order.length) {
+          const swapped = layout.order[j];
           [layout.order[i], layout.order[j]] = [layout.order[j], layout.order[i]];
           writeHomeLayout(layout);
+          homeMoveFlash = { moved: id, swapped, at: Date.now() };
           paintHome(data, stats); void fillHomeStats(); void fillHomeBest();
+          // The repaint replaced the button; keep keyboard focus on the same arrow.
+          trackList?.querySelector<HTMLElement>(`[data-cz-move="${id}"][data-cz-dir="${dir}"]:not(:disabled)`)?.focus({ preventScroll: true });
         }
         return;
       }

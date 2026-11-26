@@ -2824,7 +2824,7 @@ few-px band where scrolled rows peek through. */
 .home-otd-year { flex: 0 0 44px; font-weight: 800; color: var(--accent); font-size: 13px; }
 .home-cz { border: 1px solid var(--border, rgba(255,255,255,0.12)); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; background: color-mix(in srgb, var(--text) 4%, transparent); }
 .home-cz-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
-.home-cz-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.home-cz-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; margin: 0 -6px; border-radius: 8px; }
 .home-cz-label { flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
 .home-cz-move { width: 26px; height: 24px; border-radius: 6px; border: 1px solid var(--border, rgba(255,255,255,0.12)); background: transparent; color: var(--text); cursor: pointer; }
 .home-cz-move:disabled { opacity: .3; cursor: default; }
@@ -3117,3 +3117,18 @@ select.te-input { padding-right: 4px; }
 .smart-rule .smart-field { min-width: 44px; color: var(--text-muted); }
 .smart-add { align-self: flex-start; }
 .smart-error { min-height: 14px; color: #e5484d; font-size: 11px; }
+
+/* Round 127: Home → Customize: moved row pulses green, the row it swapped with pulses red */
+@keyframes czFlashOk { 0%, 100% { background: transparent; } 12%, 46%, 80% { background: rgba(46, 204, 113, .30); } 29%, 63% { background: rgba(46, 204, 113, .08); } }
+@keyframes czFlashSwap { 0%, 100% { background: transparent; } 12%, 46%, 80% { background: rgba(229, 72, 77, .28); } 29%, 63% { background: rgba(229, 72, 77, .07); } }
+.home-cz-row.cz-flash-ok { animation: czFlashOk 1.1s ease-in-out both; }
+.home-cz-row.cz-flash-swap { animation: czFlashSwap 1.1s ease-in-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .home-cz-row.cz-flash-ok { animation: none; background: rgba(46, 204, 113, .22); }
+  .home-cz-row.cz-flash-swap { animation: none; background: rgba(229, 72, 77, .2); }
+}
+
+/* Round 127: star hover preview. pv-add = a click would fill it (lighter than a real star),
+   pv-remove = a click would empty it (a filled star shown dimmed). Skins may restyle both. */
+.te-star.pv-add, .rate-star.pv-add, .te-star.pv-add:hover, .rate-star.pv-add:hover { color: var(--accent, #f5b301); opacity: .5; }
+.te-star.pv-remove, .rate-star.pv-remove, .te-star.pv-remove:hover, .rate-star.pv-remove:hover { opacity: .4; }

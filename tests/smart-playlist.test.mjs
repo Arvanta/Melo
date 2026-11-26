@@ -39,3 +39,32 @@ test("library.ts treats smart playlists as read-only and offers the dialog", () 
   const main = read("src-tauri/src/main.rs");
   for (const cmd of ["create_smart_playlist", "update_smart_playlist", "smart_playlist_rules"]) assert.ok(main.includes(`library_db::${cmd}`), cmd);
 });
+
+// ── round 127 ──
+const R = await (async () => {
+  const code = transformSync(read("src/rating.ts"), { loader: "ts", format: "esm" }).code;
+  return import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
+})();
+test("star hover preview: unrated, rated above, rated below, same", () => {
+  assert.deepEqual(R.previewStars(0, 3), ["add", "add", "add", "", ""]);
+  assert.deepEqual(R.previewStars(3, 4), ["", "", "", "add", ""]);
+  assert.deepEqual(R.previewStars(3, 1), ["", "remove", "remove", "", ""]);
+  assert.deepEqual(R.previewStars(3, 3), ["", "", "", "", ""]);
+  assert.deepEqual(R.previewStars(-1, 2), ["add", "add", "", "", ""]);
+});
+test("round 127 static pins", () => {
+  const ui = read("src/rating-ui.ts"), rt = read("src/rating.ts"), lib = read("src/library.ts");
+  assert.ok(!/title="\$\{i\} star/.test(rt), "no per-star tooltip");
+  assert.match(ui, /removeAttribute\("title"\)/);
+  assert.match(ui, /observe\(card, \{ childList: true \}\)/);
+  assert.match(read("src/tag-editor.ts"), /bindStarPreview\(box/);
+  assert.match(lib, /cz-flash-/);
+  assert.match(read("src/tag-info.ts"), /export function cleanPath/);
+});
+test("cleanPath strips the extended-length prefix", async () => {
+  const code = transformSync(read("src/tag-info.ts"), { loader: "ts", format: "esm" }).code;
+  const T = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
+  assert.equal(T.cleanPath("\\\\?\\E:\\Music\\a.mp3"), "E:\\Music\\a.mp3");
+  assert.equal(T.cleanPath("\\\\?\\UNC\\srv\\share\\a.mp3"), "\\\\srv\\share\\a.mp3");
+  assert.equal(T.cleanPath("E:\\a.mp3"), "E:\\a.mp3");
+});

@@ -5,7 +5,7 @@
 // replace an open file) — that one is written when the track changes.
 import { busEmit, busOn } from "./bus";
 import { findHook } from "./skin";
-import { clampStars, nextStars, starsForKey, starsHtml, starsLabel } from "./rating";
+import { bindStarPreview, clampStars, nextStars, starsForKey, starsHtml, starsLabel } from "./rating";
 
 export type RatingState = { id: string; rating: number; pending: boolean };
 type RatingSetResult = { written: string[]; paths: string[]; pending: string[]; failed: { id: string; path: string; error: string }[] };
@@ -88,7 +88,8 @@ function render() {
   el.hidden = !current;
   el.classList.add("track-rating");
   el.innerHTML = current ? starsHtml(currentRating) : "";
-  el.title = current ? starsLabel(currentRating) + " — click a star, or press 0–5" : "";
+  el.removeAttribute("title"); // no tooltip over the star row
+  if (current) bindStarPreview(el, () => currentRating);
 }
 
 async function refreshCurrent() {
@@ -134,6 +135,15 @@ export function setupRating(toast: (m: string) => void, owner: boolean) {
   busOn("melo:ratings-changed", () => { void refreshCurrent(); });
   busOn("melo:tags-written", () => { void refreshCurrent(); });
   busOn("melo:skin-changed", () => window.setTimeout(render, 50));
+  // A skin switch or a dark/light switch inside a custom skin re-creates the
+  // card's markup — the new (empty) hook must be filled again. The skin loads
+  // asynchronously, so the event can arrive before the markup exists; watching
+  // the card's direct children is immune to that ordering (same approach as
+  // lyric-line.ts). render() only touches the hook's own children.
+  busOn("melo:theme", () => { window.setTimeout(render, 80); window.setTimeout(render, 400); });
+  const card = document.getElementById("playerCard");
+  const MO = (window as any).MutationObserver as typeof MutationObserver | undefined;
+  if (card && MO) new MO(() => window.setTimeout(render, 30)).observe(card, { childList: true });
   if (!owner) return;
   document.addEventListener("click", e => {
     const b = (e.target as HTMLElement | null)?.closest?.("#trackRating [data-star], [data-melo=\"rating\"] [data-star]") as HTMLElement | null;

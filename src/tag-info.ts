@@ -36,10 +36,23 @@ function common<T>(values: T[]): T | null | undefined {
   return values.every(v => v === values[0]) ? values[0] : null;
 }
 
+/** Windows' extended-length prefix (\\?\ and \\?\UNC\) is an API artifact — never show it. */
+export function cleanPath(path: string): string {
+  let p = path;
+  for (;;) {
+    if (p.startsWith("\\\\?\\UNC\\")) { p = "\\" + p.slice(7); break; }
+    if (p.startsWith("\\\\?\\")) { p = p.slice(4); continue; }
+    if (p.startsWith("\\?\\")) { p = p.slice(3); continue; }
+    break;
+  }
+  return p;
+}
+
 function folderOf(path: string): string {
-  const p = path.replace(/\\/g, "/");
+  const clean = cleanPath(path);
+  const p = clean.replace(/\\/g, "/");
   const i = p.lastIndexOf("/");
-  return i < 0 ? "" : path.slice(0, i);
+  return i < 0 ? "" : clean.slice(0, i);
 }
 
 /** Rows for the Info tab. One file: every fact. Several: totals + shared values. */
@@ -64,7 +77,7 @@ export function infoRows(all: Info[]): [string, string][] {
     rows.push(["Date modified", fmtDate(i.modified)]);
     rows.push(["Last played", i.lastPlayedAt ? fmtDate(i.lastPlayedAt) : "Never"]);
     rows.push(["Play count", String(i.playCount ?? 0)]);
-    rows.push(["Location", i.path]);
+    rows.push(["Location", cleanPath(i.path)]);
     return rows;
   }
   rows.push(["Files", String(infos.length)]);
