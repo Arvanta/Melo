@@ -2337,8 +2337,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       trackList.style.position = "relative";
       trackList.style.overflow = "hidden";
       trackList.innerHTML = `<div class="library-playlist-split">
-        <aside class="library-playlist-sidebar" aria-label="Playlists"><div class="library-playlist-sidebar-title"><span>PLAYLISTS</span><button type="button" class="btn small ghost library-smart-new" id="libNewSmart" title="New smart playlist (rules based on star rating)">+ Smart</button></div>${left}</aside>
-        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b>${selected.kind === "smart" ? `<span class="library-smart-rules" title="${esc(smartSummary)}">${esc(smartSummary)}</span><button type="button" class="btn small ghost library-smart-edit" id="libEditSmart">Edit</button>` : ""}${librarySearch ? `<span>matching “${esc(librarySearch)}”</span>` : ""}</div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
+        <aside class="library-playlist-sidebar" aria-label="Playlists"><div class="library-playlist-sidebar-title"><span>PLAYLISTS</span><button type="button" class="library-smart-btn library-smart-new" id="libNewSmart" title="New smart playlist (rules based on star rating)">+ Smart</button></div>${left}</aside>
+        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b>${selected.kind === "smart" ? `<span class="library-smart-rules" title="${esc(smartSummary)}">${esc(smartSummary)}</span><button type="button" class="library-smart-btn library-smart-edit" id="libEditSmart">Edit</button>` : ""}${librarySearch ? `<span>matching “${esc(librarySearch)}”</span>` : ""}</div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
       </div>`;
       trackList.querySelector<HTMLButtonElement>("#libNewSmart")?.addEventListener("click", () => { void createSmartPlaylist(); });
       trackList.querySelector<HTMLButtonElement>("#libEditSmart")?.addEventListener("click", () => { void editSmartPlaylist(selected); });
@@ -4555,7 +4555,26 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     libraryResizeTimer = window.setTimeout(maybeReflowLibrary, 80);
   });
 
-  async function refreshPlaylists() {
+  // Round 130: bursts of refreshes (a track change fires several events) share
+  // work. At most one list_playlists runs at a time and ONE trailing run covers
+  // every call that arrived meanwhile — a caller that awaits after a change
+  // (create / rename / delete) therefore always gets a list read AFTER its call,
+  // never the result of a request that started earlier.
+  let playlistsRun: Promise<void> | null = null;
+  let playlistsNext: Promise<void> | null = null;
+  function refreshPlaylists(): Promise<void> {
+    const start = () => {
+      const run = doRefreshPlaylists().finally(() => { if (playlistsRun === run) playlistsRun = null; });
+      playlistsRun = run;
+      return run;
+    };
+    if (!playlistsRun) return start();
+    if (!playlistsNext) {
+      playlistsNext = playlistsRun.catch(() => {}).then(() => { playlistsNext = null; return start(); });
+    }
+    return playlistsNext;
+  }
+  async function doRefreshPlaylists() {
     if (!invoke) return;
     playlists = await invoke<PlaylistRow[]>("list_playlists");
     // The dropdown always offers "▶ Now Playing" first (the queue's

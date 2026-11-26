@@ -3,6 +3,7 @@ import { busEmit, busEmitPosition, busOn, isTauri } from "./bus";
 import { applyDynamicAmbientTheme } from "./cover";
 import { getAudioGraph } from "./audio-graph";
 import { findHook } from "./skin";
+import { dbQueueTotal, perfNote, perfProbeFile } from "./perf-log";
 
 export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) => void) {
   let btnPlay: HTMLButtonElement, iconPlay: HTMLElement, iconPause: HTMLElement;
@@ -174,6 +175,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
 
   (window as any).__LUMI_QUEUE__ = queue;
   (window as any).__LUMI_SET_QUEUE__ = (q: Track[]) => {
+    if (q.length !== queue.length) perfNote(`queue set: ${queue.length} -> ${q.length} tracks`);
     queue = q;
     (window as any).__LUMI_QUEUE__ = q;
   };
@@ -447,7 +449,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       deck.volume = computeVolumeFor(nextTrack);
       deck.muted = audio.muted;
       deck.addEventListener("canplay", () => { if (gaplessPrep === prep) prep.ready = true; }, { once: true });
-      deck.addEventListener("error", () => { if (gaplessPrep === prep) gaplessPrep = null; }, { once: true });
+      deck.addEventListener("error", () => { logPlaybackError(deck, "gapless preload"); if (gaplessPrep === prep) gaplessPrep = null; }, { once: true });
       deck.src = src;
       deck.load();
     } catch {
@@ -485,6 +487,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     cfTargetIndex = prep.nxt;
     incoming.addEventListener("error", () => {
       if (cfIncoming !== incoming) return;
+      logPlaybackError(incoming, "gapless start");
       const n = prep.nxt;
       cancelCrossfade();
       loadTrack(n, true);
@@ -863,6 +866,25 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
   }
 
+  // Round 130: "a track that isn't in the queue starts playing" — records, at every natural
+  // track end, what the player is about to do and whether its in-memory queue still equals the
+  // queue the views show (the database). Only mismatches and tiny queues are written.
+  function logAdvance() {
+    try {
+      // NOT computeNextIndex(): it reshuffles the queue at the end of a shuffled pass.
+      const len = queue.length, idx = currentIndex;
+      const nxt = repeatMode === "one" ? idx : idx + 1 < len ? idx + 1 : repeatMode === "all" ? 0 : null;
+      const mode = `repeat=${repeatMode} shuffle=${isShuffle}`;
+      void dbQueueTotal().then(db => {
+        const mismatch = db !== null && db !== len;
+        if (mismatch || len <= 3) {
+          const t: any = nxt != null ? queue[nxt] : null;
+          perfNote(`${mismatch ? "QUEUE MISMATCH " : ""}track ended: index=${idx}/${len} dbQueue=${db ?? "?"} ${mode} next=${nxt ?? "none"}${t ? ` (${String(t.path || t.id).slice(0, 160)})` : ""}`);
+        }
+      });
+    } catch { /* diagnostics only */ }
+  }
+
   function next() {
     if (!queue.length) return;
     cancelCrossfade();
@@ -1110,6 +1132,21 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // -------------------------------------------------------------------
   let consecutiveErrors = 0;
 
+  // Round 130: the toast is generic ("file may be missing or moved"); this records the real
+  // reason in melo-perf.log: MediaError code (1 aborted, 2 network/read, 3 decode, 4 source
+  // not supported/not found), the browser's message, and what the backend finds on disk.
+  function logPlaybackError(el: HTMLAudioElement, where: string) {
+    try {
+      const e = el.error;
+      const t: any = queue[currentIndex];
+      let src = "";
+      try { src = decodeURIComponent(el.currentSrc || el.src || ""); } catch { src = el.currentSrc || el.src || ""; }
+      perfNote(`playback error (${where}) code=${e?.code ?? "?"} message="${e?.message ?? ""}" networkState=${el.networkState} readyState=${el.readyState} index=${currentIndex}/${queue.length} src=${src.slice(0, 220)}`);
+      const path = t?.path || t?.id;
+      if (path) perfProbeFile(String(path));
+    } catch { /* diagnostics must never break playback */ }
+  }
+
   function handlePlaybackError() {
     const t = queue[currentIndex];
     consecutiveErrors++;
@@ -1159,6 +1196,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       // Repeat-one restarts without loadTrack(): give each loop a fresh
       // session so every full pass counts exactly once.
       if (repeatMode === "one" && queue[currentIndex]) playSession = newSession(queue[currentIndex]);
+      logAdvance();
       next();
     });
 
@@ -1195,6 +1233,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // uniform.
     el.addEventListener("error", () => {
       if (el !== audio) return;
+      logPlaybackError(el, "main deck");
       handlePlaybackError();
     });
   }
@@ -1355,6 +1394,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     const current = queue[currentIndex] || null;
     const currentGone = current != null && gone.has(keyOf(current) ?? "");
     const filtered = queue.filter(t => !gone.has(keyOf(t) ?? ""));
+    perfNote(`queue entries removed: asked ${gone.size}, removed ${queue.length - filtered.length}, runtime queue ${queue.length} -> ${filtered.length}`);
     if (filtered.length === queue.length) return; // nothing of ours was removed
     queue = filtered;
     if (currentGone) {
@@ -1483,6 +1523,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   // empty the player's queue: this handler resets the whole playback
   // state to the "No track loaded" boot state.
   busOn("melo:queue-cleared", () => {
+    perfNote(`queue cleared (runtime queue was ${queue.length})`);
     cancelCrossfade();
     queue = [];
     currentIndex = 0;

@@ -148,6 +148,38 @@ finds them by role, not by position.
 | `current-time` | text element | Elapsed time |
 | `duration` | text element | Total duration |
 
+### 5.3b Optional: star rating
+
+Add one empty element anywhere in the card and Melo turns it into the star
+rating of the playing track (0–5 stars, 0 = unrated):
+
+```html
+<div data-melo="rating" aria-label="Rating"></div>   <!-- classic id: #trackRating -->
+```
+
+| What | Detail |
+|---|---|
+| Markup Melo creates | five `<button class="rate-star" data-star="1…5">★</button>` inside your element; filled stars also have `.on`. Your element gets the class `.track-rating` and is `hidden` while no track is loaded. |
+| Clicking | click star *N* = N stars; click the star equal to the current rating = clear it. |
+| Hover preview | while the pointer is over a star, stars a click would **fill** get `.pv-add` and stars it would **empty** get `.pv-remove`. The default look is lighter / dimmed — restyle both freely (they are plain classes). Nothing is previewed when hovering the current rating. |
+| Keyboard | keys `0`–`5` rate the playing track **whether or not the skin has a rating slot** (so a skin without this element still works from the keyboard). |
+| Tooltips | none — the row never shows a title tooltip. |
+| Re-created automatically | when the skin, or the dark/light theme, changes the card's markup, Melo fills the slot again — you don't need any script. |
+| Where it is stored | in the audio file's tags (ID3 POPM for MP3, the Vorbis `RATING` field for FLAC/Ogg, `rate` for M4A) and in Melo's library. Rating a file that is playing is written when playback releases it. |
+
+Starter CSS (the stars use `currentColor` unless you override `color`):
+
+```css
+[data-melo="rating"] { display: flex; gap: 2px; }
+[data-melo="rating"] .rate-star { background: none; border: 0; padding: 0 1px; font-size: 16px; cursor: pointer; color: var(--text-muted); opacity: .55; }
+[data-melo="rating"] .rate-star.on { color: var(--accent); opacity: 1; }
+[data-melo="rating"] .rate-star.pv-add    { color: var(--accent); opacity: .5; }
+[data-melo="rating"] .rate-star.pv-remove { opacity: .4; }
+```
+
+Reserve the row's height in your layout if you want the card to stay the same
+size for tracks that have no stars (the built-in default skin does).
+
 ### 5.4 Cover art
 
 | Role | Element type | Notes |
@@ -440,6 +472,23 @@ skins that don't supply custom icons still get a consistent look.
 | `toggle-embedded-lyrics` | clickable | Switches the stage to `embedded-lyrics` (gets `.active`). |
 | `toggle-embedded-playlist` | clickable | Switches the stage to `embedded-playlist` (gets `.active`). |
 
+#### Everything else (one-line index)
+
+Every other `data-melo` value the runtime reads, with the section that explains it:
+
+| Value(s) | Section |
+|---|---|
+| `play` `play-icon` `pause-icon` `prev` `next` `stop` `shuffle` `repeat` | §5.1 |
+| `title` `artist` `album` `codec` `specs` | §5.2 |
+| `rating` (stars, hover classes `.pv-add` / `.pv-remove`) | §5.3b |
+| `seek` `volume` `volume-icon` `volume-pct` `current-time` `duration` | §5.3 |
+| `cover` `cover-fallback` | §5.4 |
+| `visualizer` (`data-bars`) | §5.5 |
+| `embedded-playlist` `embedded-lyrics` `toggle-embedded-*` | §5.6 |
+| `current-lyric` `next-lyric` (`data-melo-lyric-nav="off"`) | §5.7 |
+| `waveform` | §5.7b |
+| `add-files` `add-folder` `theme-toggle` `toggle-library` `toggle-playlist` `toggle-eq` `toggle-lyrics` `toggle-settings` `minimize` `close` | §5.8 |
+
 #### Current synced lyric (opt-in slot, audit #17 / #19)
 
 | Role | Element type | Notes |
@@ -463,6 +512,13 @@ The app exposes CSS custom properties you can use directly:
 | `--visualizer` | Visualizer color |
 | `--text`, `--text-soft`, `--text-muted` | Text colors |
 | `--card`, `--track-bg`, `--card-border` | Surface colors |
+| `--accent-2` | Hover/pressed variant of the accent |
+| `--bg`, `--bg-gradient` | Window background colour / gradient |
+| `--badge-bg`, `--badge-text` | Small badge colours |
+| `--visualizer-soft` | Softer visualizer colour (peaks, trails) |
+| `--radius`, `--radius-sm` | Corner radii used by the app's own controls |
+| `--shadow`, `--shadow-lg` | Elevation shadows |
+| `--scrollbar-track`, `--scrollbar-thumb`, `--scrollbar-thumb-hover` | Scrollbar colours |
 
 Also, the current theme is exposed as `data-theme` on `<html>`:
 

@@ -81,3 +81,19 @@ test("round 128 static pins: Edit/Delete dialog, timing log, softer flash", () =
   assert.match(lib, /HOME_FLASH_MS = 1800/);
   assert.match(css, /czFlashOk 1\.8s/);
 });
+
+test("round 130 static pins: coalesced refresh, player diagnostics, README rating", () => {
+  const lib = read("src/library.ts"), pl = read("src/player.ts"), rs = read("src-tauri/src/library_db.rs");
+  assert.match(lib, /let playlistsNext: Promise<void> \| null/);
+  assert.match(lib, /async function doRefreshPlaylists/);
+  assert.match(lib, /class="library-smart-btn library-smart-new"/);
+  assert.match(lib, /class="library-smart-btn library-smart-edit"/);
+  assert.match(read("src/app.css"), /\.library-smart-btn \{/);
+  for (const k of ["logPlaybackError", "logAdvance", "QUEUE MISMATCH", "perfProbeFile", "queue entries removed"]) assert.ok(pl.includes(k), k);
+  const body = pl.slice(pl.indexOf("function logAdvance"), pl.indexOf("function next()")).replace(/\/\/.*$/gm, "");
+  assert.ok(!body.includes("computeNextIndex("), "diagnostic must not call computeNextIndex (it reshuffles)");
+  assert.match(rs, /pub fn perf_probe_file/);
+  assert.ok(read("src-tauri/src/main.rs").includes("library_db::perf_probe_file"));
+  const readme = read("skins/README.md");
+  for (const k of ["5.3b", "pv-add", "pv-remove", "track-rating", "Everything else (one-line index)", "--accent-2"]) assert.ok(readme.includes(k), k);
+});
