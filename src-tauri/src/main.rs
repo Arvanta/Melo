@@ -1094,7 +1094,7 @@ fn main() {
             library_db::tag_info,
             library_db::entry_track_ids,
             library_db::rename_tracks,
-            library_db::create_smart_playlist,
+            library_db::create_smart_playlist, library_db::perf_log,
             library_db::update_smart_playlist,
             library_db::smart_playlist_rules,
             library_db::ratings_of,

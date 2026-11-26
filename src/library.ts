@@ -533,7 +533,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     <div class="pl-ctx-title" style="padding:6px 10px 4px; font-size:11px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px;"></div>
     <button class="ctx-item" id="plCtxRename" role="menuitem">Rename…</button>
     <button class="ctx-item" id="plCtxDuplicate" role="menuitem">Duplicate</button>
-    <button class="ctx-item" id="plCtxEditRules" role="menuitem">Edit rules…</button>
+    <button class="ctx-item" id="plCtxEditRules" role="menuitem">Edit</button>
     <button class="ctx-item" id="plCtxSweep" role="menuitem">Remove missing files…</button>
     <div style="height:1px; margin:4px 6px; background:var(--card-border);"></div>
     <button class="ctx-item danger" id="plCtxDelete" role="menuitem">Delete playlist…</button>`;
@@ -1209,7 +1209,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
 
   // Round 126: smart-playlist dialog (name + rating rules). Resolves null on
   // Cancel, else the cleaned name + rules. The backend validates again.
-  function showSmartPlaylistDialog(title: string, initialName: string, initial: SmartRules, okLabel: string): Promise<{ name: string; rules: SmartRules } | null> {
+  function showSmartPlaylistDialog(title: string, initialName: string, initial: SmartRules, okLabel: string, deleteName?: string): Promise<{ name: string; rules: SmartRules } | "delete" | null> {
     return new Promise(resolve => {
       const state: SmartRules = JSON.parse(JSON.stringify(initial));
       const overlay = document.createElement("div");
@@ -1224,7 +1224,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
           <label>Limit <input class="smart-limit" type="number" min="0" max="100000" placeholder="none" /> tracks</label></div>
         <div class="smart-hint">Tracks follow the rules automatically. “Unrated” means 0 stars.</div>
         <div class="smart-error" role="alert"></div>
-        <div class="confirm-actions"><button class="btn small" data-confirm="cancel">Cancel</button><button class="btn small primary" data-confirm="ok">${esc(okLabel)}</button></div>
+        <div class="confirm-actions">${deleteName !== undefined ? `<button class="btn small danger smart-delete" data-confirm="delete" style="margin-right:auto">Delete</button>` : ""}<button class="btn small" data-confirm="cancel">Cancel</button><button class="btn small primary" data-confirm="ok">${esc(okLabel)}</button></div>
       </div>`;
       document.body.appendChild(overlay);
       const nameInput = overlay.querySelector<HTMLInputElement>(".smart-name")!;
@@ -1267,7 +1267,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         state.rules.push(rule);
         paint();
       };
-      const finish = (value: { name: string; rules: SmartRules } | null) => { document.removeEventListener("keydown", onKey); overlay.remove(); resolve(value); };
+      let confirming = false;
+      const finish = (value: { name: string; rules: SmartRules } | "delete" | null) => { document.removeEventListener("keydown", onKey); overlay.remove(); resolve(value); };
       const submit = () => {
         const name = nameInput.value.trim();
         if (!name) { errBox.textContent = "Give the playlist a name."; nameInput.focus(); return; }
@@ -1280,9 +1281,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         finish({ name, rules: result.ok });
       };
       overlay.querySelector<HTMLElement>("[data-confirm='cancel']")!.onclick = () => finish(null);
+      const delBtn = overlay.querySelector<HTMLElement>("[data-confirm='delete']");
+      if (delBtn) delBtn.onclick = async () => {
+        confirming = true;
+        const yes = await confirmDanger("Delete Playlist?", `“${deleteName}” will be permanently deleted. The audio files on disk are not affected.`, "Delete Playlist");
+        confirming = false;
+        if (yes) finish("delete");
+      };
       overlay.querySelector<HTMLElement>("[data-confirm='ok']")!.onclick = submit;
-      overlay.onclick = event => { if (event.target === overlay) finish(null); };
+      overlay.onclick = event => { if (event.target === overlay && !confirming) finish(null); };
       const onKey = (event: KeyboardEvent) => {
+        if (confirming) return;
         if (event.key === "Escape") finish(null);
         else if (event.key === "Enter" && (event.target as HTMLElement)?.tagName === "INPUT") submit();
       };
@@ -1295,7 +1304,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   async function createSmartPlaylist() {
     if (!invoke) return;
     const answer = await showSmartPlaylistDialog("New Smart Playlist", "Top rated", defaultSmartRules(), "Create");
-    if (!answer) return;
+    if (!answer || answer === "delete") return;
     let created: PlaylistRow | null = null;
     try { created = await invoke<PlaylistRow>("create_smart_playlist", { name: answer.name, rules: answer.rules }); }
     catch (e) { toast(`Couldn't create the smart playlist — ${String(e)}`); return; }
@@ -1313,8 +1322,28 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     let rules: SmartRules | null = null;
     try { rules = await invoke<SmartRules | null>("smart_playlist_rules", { playlistId: pl.id }); }
     catch (e) { toast(`Couldn't read the rules — ${String(e)}`); return; }
-    const answer = await showSmartPlaylistDialog("Edit Smart Playlist", pl.name, rules ?? defaultSmartRules(), "Save");
+    const answer = await showSmartPlaylistDialog("Edit Smart Playlist", pl.name, rules ?? defaultSmartRules(), "Save", pl.name);
     if (!answer) return;
+    if (answer === "delete") {
+      try { await invoke("delete_playlist", { playlistId: pl.id }); }
+      catch (e) { toast(`Couldn't delete the playlist — ${String(e)}`); return; }
+      if (selectedLibraryPlaylistId === pl.id) selectedLibraryPlaylistId = null;
+      if (currentPlaylistId === pl.id) {
+        currentPlaylistId = QUEUE_ID;
+        localStorage.setItem("melo-currentPlaylist", currentPlaylistId);
+        syncPlaylistChrome();
+        clearPlaylistSelection();
+        broadcastCurrentPlaylist();
+      }
+      persistLibraryNavigation();
+      await refreshPlaylists();
+      renderPlaylistVirtual(true);
+      renderEmbeddedPlaylist();
+      busEmit("melo:playlist-changed", { playlistId: pl.id });
+      if (libTab === "playlists") await renderLibraryPlaylists(true);
+      toast(`Deleted “${pl.name}”`);
+      return;
+    }
     try { await invoke("update_smart_playlist", { playlistId: pl.id, name: answer.name, rules: answer.rules }); }
     catch (e) { toast(`Couldn't save the rules — ${String(e)}`); return; }
     await refreshPlaylists();
@@ -1322,6 +1351,38 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     renderEmbeddedPlaylist();
     busEmit("melo:playlist-changed", { playlistId: pl.id });
     if (libTab === "playlists") await renderLibraryPlaylists(true);
+  }
+
+  // ── Round 128: timing log ──
+  let perfQueue: string[] = [];
+  let perfTimer = 0;
+  let perfSend: ((c: string, a?: Record<string, unknown>) => Promise<any>) | null = null;
+  const perfWin = new URLSearchParams(location.search).get("panel") || "main";
+  function perfArgs(args?: Record<string, unknown>): string {
+    if (!args) return "";
+    const keep: string[] = [];
+    for (const k of ["kind", "limit", "offset", "playlistId", "sort"]) if (k in args) keep.push(`${k}=${String(args[k])}`);
+    if (typeof args.search === "string" && args.search) keep.push("search=yes");
+    return keep.join(" ");
+  }
+  function perfNote(line: string) {
+    if (perfQueue.length > 200) return;
+    perfQueue.push(`${perfWin}: ${line}`);
+    if (perfTimer || !perfSend) return;
+    perfTimer = window.setTimeout(() => {
+      perfTimer = 0;
+      const lines = perfQueue.splice(0, 50);
+      void perfSend?.("perf_log", { lines }).catch(() => {});
+    }, 1500);
+  }
+  function startPerfWatch(send: (c: string, a?: Record<string, unknown>) => Promise<any>) {
+    perfSend = send;
+    try {
+      const PO = (window as any).PerformanceObserver as typeof PerformanceObserver | undefined;
+      if (PO && (PO as any).supportedEntryTypes?.includes("longtask")) {
+        new PO(list => { for (const e of list.getEntries()) if (e.duration >= 80) perfNote(`ui stall ${Math.round(e.duration)} ms`); }).observe({ entryTypes: ["longtask"] });
+      }
+    } catch { /* optional */ }
   }
 
   function setManageLabel(text = "Manage") {
@@ -1904,7 +1965,17 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       return;
     }
     const core = await import("@tauri-apps/api/core");
-    invoke = core.invoke as typeof invoke;
+    // Round 128: slow round trips + UI stalls go to melo-perf.log (next to the database).
+    const rawInvoke = core.invoke as (c: string, a?: Record<string, unknown>) => Promise<any>;
+    invoke = ((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "perf_log") return rawInvoke(cmd, args);
+      const t = performance.now();
+      return rawInvoke(cmd, args).finally(() => {
+        const ms = performance.now() - t;
+        if (ms >= 40) perfNote(`ipc ${cmd} ${Math.round(ms)} ms ${perfArgs(args)}`);
+      });
+    }) as typeof invoke;
+    startPerfWatch(rawInvoke);
     toAsset = core.convertFileSrc;
     initialized = true;
     await Promise.all([refreshStats(), refreshPlaylists(), refreshLibraryRoots()]);
@@ -2267,7 +2338,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       trackList.style.overflow = "hidden";
       trackList.innerHTML = `<div class="library-playlist-split">
         <aside class="library-playlist-sidebar" aria-label="Playlists"><div class="library-playlist-sidebar-title"><span>PLAYLISTS</span><button type="button" class="btn small ghost library-smart-new" id="libNewSmart" title="New smart playlist (rules based on star rating)">+ Smart</button></div>${left}</aside>
-        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b>${selected.kind === "smart" ? `<span class="library-smart-rules" title="${esc(smartSummary)}">${esc(smartSummary)}</span><button type="button" class="btn small ghost library-smart-edit" id="libEditSmart">Edit rules…</button>` : ""}${librarySearch ? `<span>matching “${esc(librarySearch)}”</span>` : ""}</div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
+        <section class="library-playlist-content"><div class="library-playlist-content-head"><b>${esc(selected.name)}</b>${selected.kind === "smart" ? `<span class="library-smart-rules" title="${esc(smartSummary)}">${esc(smartSummary)}</span><button type="button" class="btn small ghost library-smart-edit" id="libEditSmart">Edit</button>` : ""}${librarySearch ? `<span>matching “${esc(librarySearch)}”</span>` : ""}</div><div class="library-playlist-track-list">${page.total ? rows : `<div class="library-playlists-empty">${librarySearch ? "No matching tracks." : "This playlist is empty."}</div>`}</div></section>
       </div>`;
       trackList.querySelector<HTMLButtonElement>("#libNewSmart")?.addEventListener("click", () => { void createSmartPlaylist(); });
       trackList.querySelector<HTMLButtonElement>("#libEditSmart")?.addEventListener("click", () => { void editSmartPlaylist(selected); });
@@ -2888,7 +2959,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   // swapped with pulses red (so a multi-step move can be followed by eye). The
   // animation start is back-dated on repaints so a repaint doesn't restart it.
   let homeMoveFlash: { moved: string; swapped: string; at: number } | null = null;
-  const HOME_FLASH_MS = 1100;
+  const HOME_FLASH_MS = 1800;
   function homeFlashAttrs(id: string): string {
     const f = homeMoveFlash;
     if (!f || Date.now() - f.at >= HOME_FLASH_MS) return "";
@@ -3909,6 +3980,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     list.dataset.busy = "1";
     const kind = libraryGroupKind();
     const gen = artistSidebarGen;
+    const sideT0 = performance.now();
     try {
       // v1.2.0: paged — the backend clamps every request to 5000 rows, so one shot
       // silently dropped artist #5001+ in big libraries. Pull 2000 at a time until
@@ -3924,6 +3996,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         if (items.length < PAGE) break;
       }
       artistSidebarCache = { kind, rows };
+      perfNote(`side panel data ${kind}: ${rows.length} rows fetched in ${Math.round(performance.now() - sideT0)} ms`);
     } catch {
       artistSidebarCache = { kind, rows: [] };
     } finally {
@@ -3931,7 +4004,9 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
     // The library changed while this fetch was running: its rows are already stale, fetch again.
     if (gen !== artistSidebarGen) { artistSidebarCache = null; void renderArtistSidebarData(); return; }
+    const paintT0 = performance.now();
     paintArtistSidebar();
+    perfNote(`side panel paint ${kind}: ${Math.round(performance.now() - paintT0)} ms (${Math.round(performance.now() - sideT0)} ms since load started)`);
   }
   // A–Z jump rail (built once) + quick-find wiring.
   (() => {

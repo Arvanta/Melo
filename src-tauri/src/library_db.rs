@@ -328,11 +328,57 @@ pub(crate) fn natural_file_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// Locks the shared persistent connection. The guard must never be held
 /// across `.await`.
+#[track_caller]
 fn locked_db(state: &LibraryState) -> Result<MutexGuard<'_, Connection>, String> {
-    state
+    let caller = std::panic::Location::caller();
+    let started = std::time::Instant::now();
+    let guard = state
         .conn
         .lock()
-        .map_err(|_| "Library database is unavailable".to_string())
+        .map_err(|_| "Library database is unavailable".to_string());
+    perf::note_if_slow(&state.db_path, started, &format!("waited for the database lock at line {}", caller.line()));
+    guard
+}
+
+/// Round 128: timing log (`melo-perf.log` next to the database). Only slow
+/// steps are written (>= 20 ms), the file is capped at ~400 KB (the previous
+/// one is kept as `.old`), and nothing here can fail a command.
+mod perf {
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
+    pub const SLOW_MS: u128 = 20;
+    const MAX_BYTES: u64 = 400 * 1024;
+    static LOG: OnceLock<PathBuf> = OnceLock::new();
+
+    fn stamp() -> String {
+        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let day = ms % 86_400_000;
+        format!("{:02}:{:02}:{:02}.{:03}Z", day / 3_600_000, (day / 60_000) % 60, (day / 1000) % 60, day % 1000)
+    }
+
+    pub fn note(db_path: &Path, line: &str) {
+        let path = LOG.get_or_init(|| db_path.with_file_name("melo-perf.log"));
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.len() > MAX_BYTES { let _ = std::fs::rename(path, path.with_extension("log.old")); }
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "{} {}", stamp(), line);
+        }
+    }
+
+    pub fn note_if_slow(db_path: &Path, started: Instant, what: &str) {
+        let ms = started.elapsed().as_millis();
+        if ms >= SLOW_MS { note(db_path, &format!("{ms} ms  {what}")); }
+    }
+}
+
+/// The interface reports its own slow steps (IPC round trips, painting).
+#[tauri::command]
+pub fn perf_log(lines: Vec<String>, state: State<'_, LibraryState>) {
+    for l in lines.iter().take(50) { perf::note(&state.db_path, &format!("[ui] {}", l.chars().take(300).collect::<String>())); }
 }
 
 /// No in-place migration for older databases: the probe exists only to emit
@@ -1520,6 +1566,7 @@ fn query_groups(
     include_total: bool,
 ) -> Result<Page<GroupRow>, String> {
     let limit = limit.clamp(1, 5000);
+    let phase_start = std::time::Instant::now();
     let raw_search = search.unwrap_or_default();
     let has_search = !raw_search.trim().is_empty();
     // (group column, key expr, subtitle expr, GROUP BY / ORDER BY terms).
@@ -1633,6 +1680,8 @@ fn query_groups(
         "years" => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND year=CAST(?1 AS INTEGER) AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
         _ => "SELECT id,artwork_path FROM tracks WHERE library_owned=1 AND artist=?1 COLLATE NOCASE AND artwork_path IS NOT NULL ORDER BY id LIMIT 1",
     };
+    let groups_ms = phase_start.elapsed().as_millis();
+    let cover_start = std::time::Instant::now();
     let mut cover_stmt = conn.prepare(cover_sql).map_err(|e| e.to_string())?;
     let mut items = Vec::with_capacity(page_rows.len());
     for (key, name, subtitle, count) in page_rows {
@@ -1648,6 +1697,12 @@ fn query_groups(
             None => (None, None),
         };
         items.push(GroupRow { key, name, subtitle, count, cover, artwork_track_id });
+    }
+    if let Some(db) = conn.path() {
+        let cover_ms = cover_start.elapsed().as_millis();
+        if groups_ms + cover_ms >= perf::SLOW_MS {
+            perf::note(Path::new(db), &format!("  query_groups kind={kind}: grouping+count {groups_ms} ms, cover lookups {cover_ms} ms for {} rows", items.len()));
+        }
     }
     Ok(Page { items, total, limit, offset })
 }
@@ -1667,8 +1722,15 @@ pub async fn library_groups(
 ) -> Result<Page<GroupRow>, String> {
     let db_path = state.db_path.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Page<GroupRow>, String> {
+        let t0 = std::time::Instant::now();
         let conn = open_db(&db_path)?;
-        query_groups(&conn, &kind, search, artist, limit, offset, include_total.unwrap_or(true))
+        let opened = t0.elapsed().as_millis();
+        let with_total = include_total.unwrap_or(true);
+        let label = format!("library_groups kind={kind} search={} limit={limit} offset={offset} total={with_total}", search.as_deref().map(|s| !s.is_empty()).unwrap_or(false));
+        let res = query_groups(&conn, &kind, search, artist, limit, offset, with_total);
+        let rows = res.as_ref().map(|p| p.items.len()).unwrap_or(0);
+        perf::note_if_slow(&db_path, t0, &format!("{label} -> {rows} rows (open {opened} ms)"));
+        res
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2574,8 +2636,11 @@ pub async fn touch_track_last_played(track_id: String, state: State<'_, LibraryS
 #[tauri::command]
 pub async fn list_playlists(state: State<'_, LibraryState>) -> Result<Vec<PlaylistRow>, String> {
     let conn = locked_db(&state)?;
+    let t0 = std::time::Instant::now();
     ensure_auto_playlists(&conn)?;
+    let t1 = std::time::Instant::now();
     refresh_all_smart(&conn)?;
+    perf::note_if_slow(&state.db_path, t0, &format!("list_playlists (auto lists {} ms, smart lists {} ms)", t1.duration_since(t0).as_millis(), t1.elapsed().as_millis()));
     let mut stmt = conn.prepare("SELECT p.id,p.name,p.created_at,COUNT(pt.track_id),p.kind FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlist_id=p.id GROUP BY p.id ORDER BY CASE p.id WHEN '__auto_most_played__' THEN 0 WHEN '__auto_recently_played__' THEN 1 WHEN '__auto_recently_added__' THEN 2 ELSE CASE p.kind WHEN 'smart' THEN 3 ELSE 4 END END,p.created_at").map_err(|e| e.to_string())?;
     let mapped = stmt.query_map([], |r| Ok(PlaylistRow{id:r.get(0)?,name:r.get(1)?,created_at:r.get(2)?,track_count:r.get(3)?,kind:r.get(4)?})).map_err(|e|e.to_string())?;
     let rows = mapped.filter_map(log_skipped).collect();

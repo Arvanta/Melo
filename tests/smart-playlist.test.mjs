@@ -68,3 +68,16 @@ test("cleanPath strips the extended-length prefix", async () => {
   assert.equal(T.cleanPath("\\\\?\\UNC\\srv\\share\\a.mp3"), "\\\\srv\\share\\a.mp3");
   assert.equal(T.cleanPath("E:\\a.mp3"), "E:\\a.mp3");
 });
+
+test("round 128 static pins: Edit/Delete dialog, timing log, softer flash", () => {
+  const lib = read("src/library.ts"), rs = read("src-tauri/src/library_db.rs"), css = read("src/app.css");
+  assert.match(lib, /id="libEditSmart">Edit<\/button>/);
+  assert.match(lib, /data-confirm="delete"/);
+  assert.match(lib, /"delete_playlist", \{ playlistId: pl\.id \}/);
+  assert.match(rs, /mod perf \{/);
+  assert.match(rs, /melo-perf\.log/);
+  assert.match(rs, /pub fn perf_log/);
+  assert.ok(read("src-tauri/src/main.rs").includes("library_db::perf_log"));
+  assert.match(lib, /HOME_FLASH_MS = 1800/);
+  assert.match(css, /czFlashOk 1\.8s/);
+});
