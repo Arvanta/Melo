@@ -104,3 +104,12 @@ test("round 131 static pins: stable gutter, no re-render on re-click", () => {
   assert.match(lib, /clicking the tab you are already on, at its root/);
   assert.match(lib, /!selectedArtist && !selectedAlbum && !selectedGenre\) \{\s*if \(trackList\) trackList\.scrollTop = 0;\s*return;/);
 });
+
+test("round 132 static pins: data-grp is not dropped before the new content arrives", () => {
+  const lib = read("src/library.ts");
+  assert.match(lib, /function clearGrpOnNextPaint\(\)/);
+  assert.match(lib, /if \(tilesCardsActive\(\) \|\| defaultGroupCardsActive\(\)\) cancelGrpClear\(\);/);
+  assert.match(lib, /cancelGrpClear\(\);\s*trackList\.setAttribute\("data-grp"/);
+  const top = lib.slice(lib.indexOf("async function renderLibraryVirtualInner"), lib.indexOf("const request = ++libraryRequest;"));
+  assert.ok(!/removeAttribute\("data-grp"\)/.test(top.replace(/\/\/.*$/gm, "")), "no immediate removal at the top of the render");
+});

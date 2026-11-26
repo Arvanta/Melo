@@ -3266,10 +3266,31 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     }
   }
 
+  let grpClearObserver: MutationObserver | null = null;
+  let grpClearTimer = 0;
+  function cancelGrpClear() { grpClearObserver?.disconnect(); grpClearObserver = null; window.clearTimeout(grpClearTimer); }
+  function clearGrpOnNextPaint() {
+    cancelGrpClear();
+    const list = trackList;
+    if (!list || !list.hasAttribute("data-grp")) return;
+    if (typeof MutationObserver === "undefined") { list.removeAttribute("data-grp"); return; }
+    const done = () => { cancelGrpClear(); list.removeAttribute("data-grp"); };
+    grpClearObserver = new MutationObserver(done);
+    // Every branch replaces the list via trackList.innerHTML, i.e. its direct children.
+    grpClearObserver.observe(list, { childList: true });
+    // Safety net: a branch that fails or is superseded must not leave the inset behind.
+    grpClearTimer = window.setTimeout(() => { if (grpClearObserver) done(); }, 1500);
+  }
+
   async function renderLibraryVirtualInner(reset = false, restoreScroll?: number) {
     // The group-card inset/backdrop (data-grp) belongs to the group-root render
     // only; every other branch (discography, sheets, entity search…) starts clean.
-    trackList?.removeAttribute("data-grp");
+    // Round 132: NOT immediately. The attribute insets the list 12px per side; removing it
+    // before the new content arrives made the OLD cards (still on screen while the page is
+    // fetched) stretch 12px each side for a moment. It is dropped when the list's content is
+    // actually replaced (see clearGrpOnNextPaint); the group branch cancels that.
+    if (tilesCardsActive() || defaultGroupCardsActive()) cancelGrpClear(); // group root: keeps (and re-sets) the inset
+    else clearGrpOnNextPaint();
     if (libTab !== "home" && trackList?.hasAttribute("data-home")) {
       trackList.removeAttribute("data-home");
       trackList.onclick = null;
@@ -3347,6 +3368,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
       const card = tilesCardsActive();
       const cardDefault = defaultGroupCardsActive();
       // Insets the virtual list 12px per side while rows are group cards.
+      cancelGrpClear();
       trackList.setAttribute("data-grp", card ? "tiles" : cardDefault ? "default" : "");
       const rows = page.items.map((item, index) => {
         const absoluteIndex = page.offset + index;
