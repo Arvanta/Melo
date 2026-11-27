@@ -161,6 +161,34 @@
   .fd-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(24px, 1fr) 15px 28px; gap: 4px; }
   .fd-meta { min-width: 0; }
   .fd-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; font-weight: 650; line-height: 1.2; letter-spacing: -.016em; }
+  .fd-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; font-weight: 650; line-height: 1.2; letter-spacing: -.016em; }
+  /* ── Star rating: right end of the title line ──
+     Fold is deliberately quiet, so the stars add no box and no chip of their own:
+     small glyphs on the title's baseline, accent only where a star is lit. */
+  .fd-titlerow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .fd-titlerow .fd-title { flex: 1 1 auto; min-width: 0; }
+  .fd-rate {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 0;
+    height: 20px; padding: 0; margin: 0; min-width: 0; min-height: 0;
+    -webkit-app-region: no-drag;
+  }
+  /* nothing loaded / nothing rendered yet: collapse completely, no gap */
+  .fd-rate[hidden], .fd-rate:empty { display: none !important; }
+  .fd-rate .rate-star {
+    width: 15px; height: 20px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 12.5px; line-height: 1; color: var(--fd-faint); opacity: .8;
+    border-radius: 5px;
+    transition: color .14s ease, opacity .14s ease, transform .12s ease, background .14s ease;
+  }
+  .fd-rate .rate-star:hover { color: var(--fd-muted); opacity: 1; transform: scale(1.15); }
+  .fd-rate .rate-star.on {
+    color: var(--accent); opacity: 1;
+    filter: drop-shadow(0 0 4px var(--accent-glow));
+  }
+  .fd-rate .rate-star.pv-add { color: var(--accent); opacity: .45; transform: scale(1.06); }
+  .fd-rate .rate-star.pv-remove { color: var(--fd-muted); opacity: .55; }
+  .fd-rate .rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .fd-sub { margin-top: 2px; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--fd-muted); font-size: 10px; font-weight: 500; }
   .fd-sub span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .fd-artist { flex: 0 1 auto; }
@@ -273,7 +301,10 @@
 
     <section class="fd-main">
       <div class="fd-meta">
-        <div class="fd-title" data-melo="title">Nothing playing</div>
+        <div class="fd-titlerow">
+          <div class="fd-title" data-melo="title">Nothing playing</div>
+          <div class="fd-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
+        </div>
         <div class="fd-sub"><span class="fd-artist" data-melo="artist">Add music to begin</span><span class="fd-dot" aria-hidden="true"></span><span class="fd-album" data-melo="album"></span></div>
         <div class="fd-info"><span class="fd-chip" data-melo="codec"></span><span data-melo="specs"></span><span class="fd-lyric" data-melo="current-lyric" aria-live="polite"></span></div>
       </div>

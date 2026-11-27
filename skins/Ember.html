@@ -320,9 +320,58 @@
     -webkit-backdrop-filter: blur(14px) saturate(1.3);
     transition: background .12s ease;
   }
+  /* window keys: plain fills, no border tricks. Each key has its own colour;
+     minimize is warm brown (Ember's own ember-ink), close is the danger red. */
   .em-win button:hover { background: rgba(20, 14, 9, .62); }
+  /* minimize: its own flat colour on hover, clearly not close's red */
+  .em-win button[data-melo="minimize"]:hover {
+    background: #8a5a2b;
+    border-color: #8a5a2b;
+    color: #fff7ef;
+  }
   .em-win button.close:hover { background: #c42b1c; border-color: #c42b1c; }
   .em-win button svg { width: 11px; height: 11px; }
+
+  /* ----- star rating: sits on the cover, between the Melo pill and the window keys -----
+     No capsule: a soft stroke behind the glyphs keeps them legible on busy artwork
+     without drawing a box on the cover. Already-lit stars carry their own glow. */
+  .em-rate {
+    -webkit-app-region: no-drag; app-region: no-drag;
+    margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 0;
+    height: 26px; padding: 0 3px;
+    background: none; border: 0;
+    min-width: 0; min-height: 0;
+  }
+  /* nothing loaded: the capsule leaves entirely (no empty glass bubble) */
+  .em-rate[hidden], .em-rate:empty { display: none; }
+  .em-rate .rate-star {
+    width: 15px; height: 24px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 13.5px; line-height: 1;
+    color: var(--em-on-glass);
+    /* translucent glass stars: the artwork shows through, the thin stroke keeps
+       the glyph readable on light and dark covers alike */
+    opacity: .55;
+    -webkit-text-stroke: .8px rgba(20, 14, 9, .38);
+    paint-order: stroke fill;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+    transition: color .12s ease, opacity .12s ease, transform .1s ease, -webkit-text-stroke-color .12s ease;
+  }
+  .em-rate .rate-star:hover { opacity: .95; transform: scale(1.18); }
+  .em-rate .rate-star.on {
+    color: var(--accent);
+    opacity: .75;
+    filter: drop-shadow(0 0 5px var(--accent-glow));
+  }
+  .em-rate .rate-star.on:hover { opacity: 1; }
+  .em-rate .rate-star.pv-add { color: var(--accent); opacity: .45; transform: scale(1.08); }
+  .em-rate .rate-star.pv-remove { color: #ff8c7a; opacity: .5; }
+  .em-rate .rate-star:focus-visible { outline: 2px solid var(--em-on-glass); outline-offset: 1px; }
+  @media (max-width: 300px) {
+    .em-rate { padding: 0 5px; }
+    .em-rate .rate-star { width: 13px; font-size: 11.5px; }
+  }
 
   /* ----- vertical mode rail ----- */
   .em-rail {
@@ -646,6 +695,8 @@
         </div>
         <label class="em-dismiss" for="nkMenuToggle" aria-label="Close menu"></label>
       </div>
+
+      <div class="em-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
 
       <div class="em-win">
         <button type="button" data-melo="minimize" title="Minimize" aria-label="minimize">

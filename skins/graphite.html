@@ -169,6 +169,38 @@
   }
   .hl-l2 [data-melo="codec"] { color: color-mix(in srgb, var(--accent) 72%, var(--hl-mute)); }
   .hl-l2 span:empty { display: none; }
+  .hl-l2 [data-melo="codec"] { color: color-mix(in srgb, var(--accent) 72%, var(--hl-mute)); }
+  .hl-l2 span:empty { display: none; }
+  /* ── Star rating: right end of the details line (codec · specs) ──
+     Graphite is typography-first: tiny bare glyphs, no box, no chip. Lit stars
+     take the amber accent, empty ones stay graphite-mute. */
+	 
+  .track-rating {
+    margin-top: 0px;
+}
+  .hl-rate {
+    flex: 0 0 auto; margin-left: auto; padding-left: 6px;
+    display: flex; align-items: center; gap: 0;
+    height: 14px; min-width: 0; min-height: 0;
+    -webkit-app-region: no-drag;
+  }
+  /* nothing loaded / nothing rendered: collapse completely (no gap) */
+  .hl-rate[hidden], .hl-rate:empty { display: none !important; }
+  .hl-rate .rate-star {
+    width: 12px; height: 14px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 9.5px; line-height: 1; color: var(--hl-mute); opacity: .85;
+    border-radius: 3px;
+    transition: color .15s ease, opacity .15s ease, transform .12s ease;
+  }
+  .hl-rate .rate-star:hover { color: var(--hl-soft); opacity: 1; transform: scale(1.2); }
+  .hl-rate .rate-star.on {
+    color: var(--accent); opacity: 1;
+    filter: drop-shadow(0 0 3px var(--accent-glow));
+  }
+  .hl-rate .rate-star.pv-add { color: var(--accent); opacity: .45; transform: scale(1.1); }
+  .hl-rate .rate-star.pv-remove { color: var(--hl-mute); opacity: .5; }
+  .hl-rate .rate-star:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 
   /* transport — bare glyphs */
   .hl-tr { display: flex; align-items: center; gap: 2px; }
@@ -289,6 +321,7 @@
       <div class="hl-l2">
         <span data-melo="codec" id="trackCodec"></span>
         <span data-melo="specs" id="trackSpecs"></span>
+        <div class="hl-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
       </div>
       <span class="hl-hide" data-melo="album" id="trackAlbum"></span>
     </div>
@@ -340,4 +373,3 @@
 </div>
 </body>
 </html>
-l>

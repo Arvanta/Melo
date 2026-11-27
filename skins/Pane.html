@@ -83,9 +83,9 @@
   body.tauri-main .player-card,
   body.custom-skin-active .player-card {
     width: min(460px, 100%);
-    height: 250px;
+    height: 246px;
     min-width: 400px;
-    min-height: 195px;
+    min-height: 201px;
     margin: 0; padding: 6px;
     position: relative; overflow: hidden;
     container-type: size;
@@ -390,21 +390,83 @@
   }
   .pn-title {
     font-size: 16px; font-weight: 690; letter-spacing: -.017em; line-height: 1.22;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
     color: var(--pn-ink);
   }
+  /* meta — title and byline share one rail (13px icon slot + 5px gap),
+     so the title and the artist line begin at exactly the same x;
+     the rating and the codec row start under the icon column. */
+  .pn-row {
+    display: grid; grid-template-columns: 13px minmax(0, 1fr);
+    column-gap: 5px; align-items: center; min-width: 0;
+  }
+  .pn-ico {
+    display: grid; place-items: center;
+    width: 13px; height: 13px; flex: 0 0 auto;
+    color: var(--pn-mute);
+  }
+  .pn-ico svg { width: 12px; height: 12px; display: block; }
+  .pn-row-title .pn-ico { color: color-mix(in srgb, var(--accent) 42%, var(--pn-mute)); }
+  .pn-row-title .pn-ico svg { width: 13px; height: 13px; }
+  .pn-ico-artist { color: var(--pn-soft); }
   .pn-byline {
     display: flex; align-items: center; gap: 5px; min-width: 0;
-    font-size: 11px; font-weight: 500; color: var(--pn-soft);
   }
-  .pn-byline > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .pn-byline [data-melo="artist"] { font-weight: 600; color: var(--pn-ink); opacity: .88; flex: 0 1 auto; }
-  .pn-album { color: var(--pn-mute); flex: 0 1 auto; }
+  .pn-artist {
+    font-size: 11.5px; font-weight: 600; line-height: 1.25;
+    color: var(--pn-ink); opacity: .88; flex: 0 1 auto;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
+  .pn-album {
+    font-size: 11px; font-weight: 500; line-height: 1.25;
+    color: var(--pn-mute); flex: 0 1 auto;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
   .pn-dot { flex: 0 0 auto; width: 2.5px; height: 2.5px; border-radius: 50%; background: var(--pn-mute); }
-  .pn-byline:has(.pn-album:empty) .pn-dot { display: none; }
+  .pn-byline:has(.pn-album:empty) :is(.pn-dot, .pn-ico-album) { display: none; }
+  .pn-row-byline:has(.pn-artist:empty):has(.pn-album:empty) { display: none; }
+
+  /* star rating — its own line under artist + album, on the same rail */
+  .pn-meta > .pn-rate {
+    --pn-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3.1l2.72 5.5 6.08.88-4.4 4.29 1.04 6.06L12 16.97l-5.44 2.86 1.04-6.06L3.2 9.48l6.08-.88z' fill='%23000' stroke='%23000' stroke-width='1.7' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E");
+    display: flex; align-items: center; gap: 1px;
+    height: 13px; min-height: 0; min-width: 0;
+    margin: 0;
+    pointer-events: auto; -webkit-app-region: no-drag; app-region: no-drag;
+  }
+  .pn-meta > .pn-rate[hidden],
+  .pn-meta > .pn-rate:empty { display: none !important; }
+  .pn-rate .rate-star {
+    position: relative; flex: 0 0 auto;
+    width: 14px; height: 13px; padding: 0; margin: 0;
+    border: 0; background: none; cursor: pointer;
+    font-size: 0; line-height: 0;
+    transition: transform .12s ease;
+  }
+  .pn-rate .rate-star::before,
+  .pn-rate .rate-star::after {
+    content: ""; position: absolute; left: 50%; top: 50%; translate: -50% -50%;
+    -webkit-mask: var(--pn-star) center / contain no-repeat;
+    mask: var(--pn-star) center / contain no-repeat;
+    transition: background .12s ease;
+  }
+  .pn-rate .rate-star::before {   /* crisp outline — the empty state */
+    width: 13px; height: 12.2px;
+    background: color-mix(in srgb, var(--pn-mute) 62%, transparent);
+  }
+  .pn-rate .rate-star::after {    /* accent core — the filled state */
+    width: 9.6px; height: 9px;
+    background: transparent;
+  }
+  .pn-rate .rate-star:hover { transform: scale(1.16); }
+  .pn-rate .rate-star.on::before,
+  .pn-rate .rate-star.on::after { background: var(--accent); }
+  .pn-rate .rate-star.pv-add::before,
+  .pn-rate .rate-star.pv-add::after { background: color-mix(in srgb, var(--accent) 52%, transparent); }
+  .pn-rate .rate-star.pv-remove::before { background: color-mix(in srgb, var(--pn-mute) 38%, transparent); }
 
   .pn-meta-bits {
-    margin-top: 3px;
+    margin-top: 2px;
     display: flex; align-items: center; gap: 6px; min-width: 0;
     font-size: 9px; font-weight: 600; letter-spacing: .06em;
     text-transform: uppercase; color: var(--pn-mute);
@@ -607,14 +669,15 @@
   @container nook (max-width: 530px) {
     .pn-meta-bits [data-melo="specs"] { display: none; }
   }
-  @container nook (max-height: 200px) {
+  @container nook (max-height: 213px) {
     .pn-lyric { display: none !important; }
   }
     @container nook (max-height: 180px) {
     .pn-meta-bits { display: none; }
   }
   @container nook (max-height: 205px) {
-    .pn-side { gap: 4px; }
+    .pn-side { gap: 2px; }
+    .pn-meta-bits { margin-top: 1px; }
     .pn-btn.pn-play { width: 34px; height: 34px; }
     .pn-foot { padding-top: 3px; }
   }
@@ -637,9 +700,9 @@
 </head>
 <body
   data-window-width="600"
-  data-window-height="240"
+  data-window-height="246"
   data-min-width="400"
-  data-min-height="195"
+  data-min-height="201"
   data-max-width="640"
   data-max-height="380"
   data-resizable="true">
@@ -728,12 +791,26 @@
     </div>
 
     <div class="pn-meta">
-      <div class="pn-title" data-melo="title">Nothing playing</div>
-      <div class="pn-byline">
-        <span data-melo="artist">Add music to begin</span>
-        <span class="pn-dot" aria-hidden="true"></span>
-        <span class="pn-album" data-melo="album"></span>
+      <div class="pn-row pn-row-title">
+        <span class="pn-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.2l10-1.8v12.2"/><circle cx="6.2" cy="18" r="2.8"/><circle cx="16.2" cy="15.6" r="2.8"/></svg>
+        </span>
+        <div class="pn-title" data-melo="title">Nothing playing</div>
       </div>
+      <div class="pn-row pn-row-byline">
+        <span class="pn-ico pn-ico-artist" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.1" r="3.4"/><path d="M5.2 19.3c.9-3 3.6-4.6 6.8-4.6s5.9 1.6 6.8 4.6"/></svg>
+        </span>
+        <div class="pn-byline">
+          <span class="pn-artist" data-melo="artist">Add music to begin</span>
+          <span class="pn-dot" aria-hidden="true"></span>
+          <span class="pn-ico pn-ico-album" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="2.1"/></svg>
+          </span>
+          <span class="pn-album" data-melo="album"></span>
+        </div>
+      </div>
+      <div class="pn-rate" data-melo="rating"></div>
       <div class="pn-meta-bits">
         <span class="pn-chip" data-melo="codec"></span>
         <span data-melo="specs"></span>

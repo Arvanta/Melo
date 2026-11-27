@@ -434,15 +434,53 @@ input[data-melo="seek"] { flex: 1 1 0; min-width: 60px; }
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--mica-accent) 7%, transparent);
 }
 .mica-art-fallback svg { width: 38%; height: 38%; position: relative; z-index: 1; }
-.mica-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; overflow: hidden; }
-.mica-title { font-size: 13px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mica-artist-row { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11px; color: var(--mica-text-soft); }
+.mica-meta {
+  flex: 1 1 auto; min-width: 0;
+  /* three stacked lines (title / artist · album / stars) — the block is
+     exactly as tall as the 44px cover so nothing pokes above or below it */
+  height: 44px; display: flex; flex-direction: column; justify-content: center;
+  gap: 1px; padding-bottom: 2px;   /* keeps the copy one notch higher inside the cover */
+  overflow: hidden;
+}
+.mica-title {
+  display: flex; align-items: center; gap: 5px; min-width: 0;
+  font-size: 13px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15;
+  white-space: nowrap; overflow: hidden;
+}
+.mica-title > [data-melo="title"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mica-artist-row { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11px; line-height: 1.15; color: var(--mica-text-soft); }
 .mica-artist-row span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mica-artist-row [data-melo="artist"] { font-weight: 600; }
 .mica-artist-row [data-melo="album"] { color: var(--mica-text-muted); }
 .mica-artist-row [data-melo="album"]:empty { display: none; }
 .mica-artist-row .dot { width: 2.5px; height: 2.5px; border-radius: 50%; background: var(--mica-text-faint); flex: 0 0 auto; }
 .mica-artist-row:has([data-melo="album"]:empty) .dot { display: none; }
+/* meta glyphs — note / person / disc, drawn as the skin's thin line icons */
+.mica-ico { flex: 0 0 auto; display: grid; place-items: center; color: var(--mica-text-faint); }
+.mica-ico svg { width: 11px; height: 11px; display: block; }
+.mica-title .mica-ico { color: var(--mica-text-muted); }
+.mica-artist-row .mica-ico { gap: 0; }
+.mica-artist-row .mica-ico.is-album { color: var(--mica-text-faint); }
+.mica-artist-row:has([data-melo="album"]:empty) .mica-ico.is-album { display: none; }
+/* star rating — third line, right under the artist · album row */
+.mica-rate {
+  display: flex; align-items: center; gap: 0; height: 11px; margin-top: 1px;
+  min-width: 0; min-height: 0;      /* beats app.css .track-rating min-height: 20px */
+  -webkit-app-region: no-drag;
+}
+.mica-rate[hidden], .mica-rate:empty { display: none !important; }
+.mica-rate .rate-star {
+  width: 12px; height: 11px; padding: 0; margin: 0; border: 0; background: none;
+  display: grid; place-items: center; cursor: pointer;
+  font-size: 10px; line-height: 1; color: var(--mica-text-faint); opacity: .75;
+  border-radius: 3px;
+  transition: color .12s ease, opacity .12s ease, transform .1s ease;
+}
+.mica-rate .rate-star:hover { opacity: 1; transform: scale(1.18); }
+.mica-rate .rate-star.on { color: var(--mica-accent); opacity: 1; filter: drop-shadow(0 0 4px var(--mica-accent-glow)); }
+.mica-rate .rate-star.pv-add { color: var(--mica-accent); opacity: .45; transform: scale(1.08); }
+.mica-rate .rate-star.pv-remove { color: var(--mica-text-faint); opacity: .35; }
+.mica-rate .rate-star:focus-visible { outline: 1.5px solid var(--mica-accent); outline-offset: 1px; }
 
 /* Controls (right) */
 .mica-controls { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
@@ -621,8 +659,18 @@ html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px
             <div class="mica-art-fallback" data-melo="cover-fallback" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="24" cy="24" r="14"/><circle cx="24" cy="24" r="5"/><path d="M24 10v7M38 24h-7M24 38v-7M10 24h7"/></svg></div>
           </div>
           <div class="mica-meta">
-            <div class="mica-title" data-melo="title">No track loaded</div>
-            <div class="mica-artist-row"><span data-melo="artist">Add music to begin</span><span class="dot"></span><span data-melo="album"></span></div>
+            <div class="mica-title">
+              <span class="mica-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>
+              <span data-melo="title">No track loaded</span>
+            </div>
+            <div class="mica-artist-row">
+              <span class="mica-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5c1.2-3.2 3.4-4.8 6.5-4.8s5.3 1.6 6.5 4.8"/></svg></span>
+              <span data-melo="artist">Add music to begin</span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="mica-ico is-album" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/></svg></span>
+              <span data-melo="album"></span>
+            </div>
+            <div class="mica-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
           </div>
         </div>
 

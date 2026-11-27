@@ -169,8 +169,13 @@
     font-size: 18px; font-weight: 600; letter-spacing: -.03em; line-height: 1.35;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .hi-artistrow {
+    margin-top: 3px; display: flex; align-items: center; min-width: 0;
+    -webkit-app-region: no-drag;
+  }
   .track-artist {
-    margin-top: 3px; font-size: 11px; color: var(--mute);
+    margin-top: 0; flex: 0 1 auto; min-width: 0;
+    font-size: 11px; color: var(--mute);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .track-album, .track-format { display: none; }
@@ -338,6 +343,30 @@
   }
   .hi-current-lyric.melo-lyric-empty { display: none !important; }
   html.melo-show-lyrics .hi-current-lyric { display: none !important; }
+  /* ───── Star rating: just right of the artist name ─────
+     The engine fills [data-melo="rating"] with five button.rate-star stars.
+     Hira: flat and square like the rest of the skin — no pill, no glow; a
+     star lights up in the accent (ink on light, lime on dark). The row is
+     NOT pinned to the right edge: the stars follow the artist text with a
+     fixed gap, and the artist name truncates first when space runs out. */
+  .hi-rate {
+    flex: 0 0 auto; margin: 0 0 0 10px; padding: 0;
+    display: flex; align-items: center; gap: 0; min-width: 0; min-height: 0; height: 14px;
+    -webkit-app-region: no-drag;
+  }
+  .hi-rate[hidden], .hi-rate:empty { display: none !important; }
+  .hi-rate .rate-star {
+    width: 13px; height: 14px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 12px; line-height: 1; color: var(--faint); opacity: .8;
+    border-radius: 0;
+    transition: color .12s ease, opacity .12s ease, transform .1s ease;
+  }
+  .hi-rate .rate-star:hover { opacity: 1; transform: scale(1.15); }
+  .hi-rate .rate-star.on { color: var(--accent); opacity: 1; }
+  .hi-rate .rate-star.pv-add { color: var(--accent); opacity: .5; transform: scale(1.08); }
+  .hi-rate .rate-star.pv-remove { color: var(--danger); opacity: .55; }
+  .hi-rate .rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   /* Waveform seek bar (optional: Settings → Waveform seek bar; see skins/README.md §5.7b).
      The slot takes the plain range's place in the row while the waveform is ready; the
      range stays in the DOM (keyboard) but leaves the layout and is invisible. */
@@ -392,7 +421,10 @@
       </div>
       <div class="hi-meta">
         <div class="track-title" id="trackTitle">No track loaded</div>
-        <div class="track-artist" id="trackArtist">Choose music to begin</div>
+        <div class="hi-artistrow">
+          <div class="track-artist" id="trackArtist">Choose music to begin</div>
+          <div class="hi-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
+        </div>
         <div class="track-album" id="trackAlbum"></div>
         <div class="track-format"><span id="trackCodec">—</span><span id="trackSpecs"></span></div>
       </div>

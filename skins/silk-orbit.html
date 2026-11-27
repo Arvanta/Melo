@@ -135,18 +135,88 @@
     display: flex; flex-direction: column;
   }
   .so-kicker { flex-shrink: 0; color: var(--accent); font-size: 9px; font-weight: 760; letter-spacing: .13em; text-transform: uppercase; }
-  .track-title {
-    margin-top: 7px; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    flex-shrink: 0; color: var(--so-text); font-size: clamp(21px, 4vw, 29px); font-weight: 780; line-height: 1.18; letter-spacing: -.035em;
+  /* one vertical rail: a 17px icon slot + 6px gap, so the title, the
+     artist and the album text all begin at the same x. */
+  .so-line {
+    display: grid; grid-template-columns: 17px minmax(0, 1fr);
+    column-gap: 6px; align-items: center; min-width: 0;
+    flex-shrink: 0; line-height: 1;
   }
-  .track-artist { flex-shrink: 0; line-height: 1.3; margin-top: 8px; color: var(--so-soft); font-size: 13px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .track-album { flex-shrink: 0; line-height: 1.25; margin-top: 3px; color: var(--so-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .track-format { flex-shrink: 0; margin-top: 9px; display: flex; align-items: center; gap: 6px; color: var(--so-muted); font-size: 9px; }
+  .so-ic {
+    width: 17px; height: 17px; display: grid; place-items: center;
+    color: var(--so-muted); flex: 0 0 auto;
+  }
+  .so-ic svg { width: 14px; height: 14px; display: block; }
+  .title-row { margin-top: 5px; }
+  .title-row .so-ic { color: var(--so-soft); }   /* fixed ink, never track-accent */
+  .byline-row { margin-top: 6px; }
+  .so-byline { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .track-title {
+    min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--so-text); font-size: clamp(21px, 3vw, 29px); font-weight: 780; line-height: 1.18; letter-spacing: -.035em;
+  }
+  .track-artist { flex: 0 1 auto; min-width: 0; line-height: 1.3; color: var(--so-soft); font-size: 13px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .so-dash { flex: 0 0 auto; color: var(--so-muted); font-size: 13px; font-weight: 500; line-height: 1; }
+  .so-dash::before { content: "–"; }
+  .so-ic-album { width: 14px; height: 14px; margin-left: 1px; }
+  .so-ic-album svg { width: 13px; height: 13px; }
+  .so-byline:has(.track-album:empty) :is(.so-dash, .so-ic-album) { display: none; }
+  .track-album { flex: 0 1 auto; min-width: 0; line-height: 1.3; color: var(--so-muted); font-size: 13px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-album:empty { display: none; }
+
+  /* star rating — a line of its own, right above the format details */
+  .so-rate {
+    --so-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.4l2.9 6.06 6.6.78-4.86 4.58 1.26 6.53L12 17.2l-5.9 3.15 1.26-6.53L2.5 9.24l6.6-.78z' fill='%23000' stroke='%23000' stroke-width='1.6' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E");
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 2px;
+    height: 15px; min-height: 0; margin-top: 6px;
+    -webkit-app-region: no-drag;
+  }
+  .so-rate[hidden], .so-rate:empty { display: none !important; }
+  .so-rate .rate-star {
+    position: relative; flex: 0 0 auto;
+    width: 15px; height: 15px; padding: 0; margin: 0;
+    border: 0; background: none; cursor: pointer;
+    font-size: 0; line-height: 0;
+    transition: transform .16s cubic-bezier(.3, 1.4, .6, 1);
+  }
+  .so-rate .rate-star::before,
+  .so-rate .rate-star::after {
+    content: ""; position: absolute; left: 50%; top: 50%; translate: -50% -50%;
+    -webkit-mask: var(--so-star) center / contain no-repeat;
+    mask: var(--so-star) center / contain no-repeat;
+    transition: background .14s ease, opacity .14s ease;
+  }
+  .so-rate .rate-star::before {      /* hairline silk outline */
+    width: 14px; height: 13.5px;
+    background: color-mix(in srgb, var(--so-muted) 78%, transparent);
+  }
+  .so-rate .rate-star::after {       /* soft accent core */
+    width: 10.6px; height: 10.2px;
+    background: transparent;
+  }
+  .so-rate .rate-star.on::before,
+  .so-rate .rate-star.on::after { background: var(--accent); }
+  .so-rate .rate-star.on { filter: drop-shadow(0 1px 6px color-mix(in srgb, var(--accent) 34%, transparent)); }
+  .so-rate .rate-star:hover { transform: translateY(-1px) scale(1.18); }
+  .so-rate .rate-star.pv-add::before,
+  .so-rate .rate-star.pv-add::after { background: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .so-rate .rate-star.pv-remove::before { background: color-mix(in srgb, var(--so-muted) 45%, transparent); }
+
+  /* app.css ships unscoped .track-artist/.track-album margins — out-rank them
+     so the byline rows keep the skin's own rhythm */
+  .so-byline .track-artist,
+  .so-byline .track-album { margin-top: 0; }
+  .so-player-column > .track-format { margin-top: 6px; }
+  .so-player-column > .so-rate { margin-top: 6px; min-height: 0; }
+
+  .track-format { flex-shrink: 0; margin-top: 6px; display: flex; align-items: center; gap: 6px; color: var(--so-muted); font-size: 9px; }
   .badge-flac { padding: 3px 6px; border: 1px solid var(--so-line); border-radius: 6px; color: var(--accent); font-weight: 750; letter-spacing: .06em; }
 
   .so-viz {
-    height: 42px; margin-top: auto; margin-bottom: 8px;
+    flex-shrink: 0;
+    height: 42px; min-height: 34px; margin-top: auto; margin-bottom: 6px;
     overflow: hidden; border-radius: 10px;
     background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 5%, transparent));
     cursor: pointer;
@@ -154,7 +224,7 @@
   .so-viz canvas { width: 100% !important; height: 100% !important; display: block; }
 
   .so-seek { flex-shrink: 0; display: grid; grid-template-columns: 32px minmax(0,1fr) 32px; gap: 8px; align-items: center; }
-  .so-time { color: var(--so-muted); font: 500 9px/1 ui-monospace, "Cascadia Mono", monospace; font-variant-numeric: tabular-nums; }
+  .so-time { color: var(--so-muted); font: 500 10px/1 ui-monospace, "Cascadia Mono", monospace; font-variant-numeric: tabular-nums; }
   #durTime { text-align: right; }
   .seek, .vol {
     -webkit-appearance: none; appearance: none; outline: none; cursor: pointer;
@@ -167,7 +237,7 @@
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
   }
 
-  .transport { flex-shrink: 0; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .transport { flex-shrink: 0; margin-top: 9px; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .transport button {
     width: 36px; height: 36px; padding: 0; border: 0; border-radius: 12px;
     display: grid; place-items: center; color: var(--so-soft); background: transparent; cursor: pointer;
@@ -224,7 +294,6 @@
     .so-footer button { min-width: 28px; width: 28px; }
     .so-volume { grid-template-columns: 15px 42px 23px; gap: 4px; }
     .vol { width: 42px; }
-    .track-title { font-size: 20px; }
     .so-seek { transform: translateY(-4px); }
   }
 
@@ -238,9 +307,13 @@
     .so-content { padding-top: 2px; padding-bottom: 7px; }
     .so-player-column { padding-top: 1px; padding-bottom: 0; }
     .so-kicker { display: none; }
-    .track-title { margin-top: 0; font-size: 21px; line-height: 1.22; }
-    .track-artist { margin-top: 4px; line-height: 1.35; }
-    .track-album { margin-top: 1px; }
+    .title-row { margin-top: 0; }
+    .byline-row { margin-top: 3px; }
+    .track-artist { line-height: 1.35; }
+    .so-rate { margin-top: 4px; height: 13px; }
+    .so-rate .rate-star { width: 13px; height: 13px; }
+    .so-rate .rate-star::before { width: 12.2px; height: 11.8px; }
+    .so-rate .rate-star::after { width: 9.2px; height: 8.9px; }
     .track-format { margin-top: 4px; }
     .so-viz { height: 31px; min-height: 31px; margin-bottom: 4px; }
     .transport { margin-top: 5px; gap: 4px; }
@@ -268,10 +341,13 @@
     -webkit-text-fill-color: transparent;
     padding-bottom: 3px;
   }
-  .so-current-lyric.melo-lyric-tick { animation: so-lyric-sheen 1.15s cubic-bezier(.33, 1, .68, 1) both; }
+  /* the sweep starts at the resting position and returns to it, so after the
+     one-shot animation no dark band is left stranded mid-line */
+  .so-current-lyric.melo-lyric-tick { animation: so-lyric-sheen 1.15s cubic-bezier(.33, 1, .68, 1); }
   @keyframes so-lyric-sheen {
-    from { background-position: 120% 0; }
-    to   { background-position: -120% 0; }
+    0%   { background-position: 120% 0; }
+    45%  { background-position: -10% 0; }
+    100% { background-position: 120% 0; }
   }
   .so-current-lyric::after {
     content: ""; position: absolute; left: 0; bottom: 0; height: 1px; width: 100%;
@@ -319,12 +395,29 @@
 
     <section class="so-player-column">
       <div class="so-kicker">Now playing</div>
-      <div class="track-title" id="trackTitle">No track loaded</div>
-      <div class="track-artist" id="trackArtist">Choose music to begin</div>
-      <div class="track-album" id="trackAlbum"></div>
+      <div class="so-line title-row">
+        <span class="so-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.2l10-1.7v12.1"/><circle cx="6.2" cy="18" r="2.7"/><circle cx="16.2" cy="15.7" r="2.7"/></svg>
+        </span>
+        <div class="track-title" id="trackTitle" data-melo="title">No track loaded</div>
+      </div>
+      <div class="so-line byline-row">
+        <span class="so-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.1" r="3.3"/><path d="M5.3 19.2c.9-3 3.5-4.5 6.7-4.5s5.8 1.5 6.7 4.5"/></svg>
+        </span>
+        <div class="so-byline">
+          <span class="track-artist" id="trackArtist" data-melo="artist">Choose music to begin</span>
+          <span class="so-dash" aria-hidden="true"></span>
+          <span class="so-ic so-ic-album" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="2"/></svg>
+          </span>
+          <span class="track-album" id="trackAlbum" data-melo="album"></span>
+        </div>
+      </div>
+      <div class="so-rate" data-melo="rating"></div>
       <div class="track-format">
-        <span class="badge-flac" id="trackCodec">—</span>
-        <span id="trackSpecs"></span>
+        <span class="badge-flac" id="trackCodec" data-melo="codec">—</span>
+        <span id="trackSpecs" data-melo="specs"></span>
         <div class="so-current-lyric" data-melo="current-lyric" aria-live="polite"></div>
       </div>
 

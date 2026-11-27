@@ -362,6 +362,32 @@
     line-height: 1;
     text-transform: uppercase;
   }
+  /* Rating rides the quality row, just right of the specs with a small gap
+     (never pinned to the card edge). It keeps the row's 8px rhythm and picks
+     up the cover's accent colour — no pill, no box. */
+  .lt-rate {
+    flex: 0 0 auto; margin: 0 0 0 3px; padding: 0;
+    display: flex; align-items: center; gap: 0;
+    min-width: 0; min-height: 0; height: 12px;
+    text-transform: none; letter-spacing: 0;
+    -webkit-app-region: no-drag;
+  }
+  .lt-rate[hidden], .lt-rate:empty { display: none !important; }
+  .lt-rate .rate-star {
+    width: 12px; height: 12px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 10px; line-height: 1; color: var(--lt-muted); opacity: .62;
+    border-radius: 3px;
+    transition: color .12s ease, opacity .12s ease, transform .1s ease;
+  }
+  .lt-rate .rate-star:hover { opacity: 1; transform: scale(1.18); }
+  .lt-rate .rate-star.on {
+    color: var(--lt-accent); opacity: 1;
+    filter: drop-shadow(0 1px 3px var(--lt-accent-glow));
+  }
+  .lt-rate .rate-star.pv-add { color: var(--lt-accent); opacity: .42; transform: scale(1.1); }
+  .lt-rate .rate-star.pv-remove { color: var(--lt-muted); opacity: .35; }
+  .lt-rate .rate-star:focus-visible { outline: 1.5px solid var(--lt-accent); outline-offset: 1px; }
   .lt-quality > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lt-codec {
     flex: 0 0 auto;
@@ -846,6 +872,7 @@
       <div class="lt-quality">
         <span data-melo="codec" class="lt-codec"></span>
         <span data-melo="specs" class="lt-specs"></span>
+        <div class="lt-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
       </div>
     </div>
     <div class="lt-cover" aria-label="Album cover">

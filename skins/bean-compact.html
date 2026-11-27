@@ -82,7 +82,7 @@
   body.custom-skin-active .player-card {
     width: min(500px, 100%);
     height: 132px;
-    min-width: 380px;
+    min-width: 430px;
     min-height: 132px;
     max-height: 132px;
     margin: 0; padding: 0;
@@ -298,8 +298,20 @@
     font-size: 15.5px; font-weight: 680; letter-spacing: -.015em;
     color: var(--nk-ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    line-height: 1.18;
+    line-height: 1.3;
   }
+  /* Star rating — Melo fills [data-melo="rating"] with five .rate-star buttons (.on = filled).
+     It sits at the right end of the title row; the title (flex:1) ellipsizes first. The app's default
+     .track-rating spacing and 17px stars are overridden to fit this compact row.
+     Hover preview: .pv-add = stars a click would fill (accent, dimmed); .pv-remove = stars it would
+     empty (still filled, dimmed). The :hover variants out-rank the app's own .rate-star.pv-*:hover rules. */
+  .nk-rating.track-rating { flex: 0 0 auto; margin: 0; min-height: 0; height: 16px; gap: 0; align-items: center; }
+  .nk-rating .rate-star { padding: 0 1px; font-size: 13px; line-height: 16px; opacity: 1;
+    color: color-mix(in srgb, var(--nk-mute) 55%, transparent); transition: color .12s ease, opacity .12s ease; }
+  .nk-rating .rate-star.on { color: var(--accent); }
+  .nk-rating .rate-star.pv-add, .nk-rating .rate-star.pv-add:hover { color: var(--accent); opacity: .5; }
+  .nk-rating .rate-star.pv-remove, .nk-rating .rate-star.pv-remove:hover { color: var(--accent); opacity: .4; }
+  .nk-rating .rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
   .nk-byline {
     display: flex; align-items: center; gap: 5px; min-width: 0;
     font-size: 11px; font-weight: 520; color: var(--nk-soft);
@@ -580,7 +592,7 @@
 <body
   data-window-width="500"
   data-window-height="132"
-  data-min-width="380"
+  data-min-width="430"
   data-min-height="132"
   data-max-width="640"
   data-max-height="132"
@@ -640,6 +652,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         </span>
         <div class="nk-title" data-melo="title">Nothing playing</div>
+        <div class="nk-rating" data-melo="rating"></div>
       </div>
       <div class="nk-byline">
         <span class="nk-meta-ico" aria-hidden="true" title="Artist">

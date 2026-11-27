@@ -273,11 +273,37 @@
     border-radius: 14px;
     display: flex; flex-direction: column; gap: 3px;
   }
+  .ms-titlerow {
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+  }
   .ms-name {
-    min-width: 0; font-size: 16px; font-weight: 700; letter-spacing: .01em;
+    flex: 1 1 auto; min-width: 0;
+    font-size: 16px; font-weight: 700; letter-spacing: .01em;
     color: var(--ms-ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  /* ── Star rating: right end of the title line ──
+     The engine fills [data-melo="rating"] with five button.rate-star stars.
+     Mist: no pill, no box — stars float on the glass sheet; a lit star takes
+     the lavender accent with the soft aura, unlit stay mist-mute. */
+  .ms-rate {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 0;
+    height: 15px; min-width: 0; min-height: 0;
+    -webkit-app-region: no-drag;
+  }
+  .ms-rate[hidden], .ms-rate:empty { display: none !important; }
+  .ms-rate .rate-star {
+    width: 13px; height: 15px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 12px; line-height: 1; color: var(--ms-mute); opacity: .85;
+    border-radius: 4px;
+    transition: color .12s ease, opacity .12s ease, transform .1s ease;
+  }
+  .ms-rate .rate-star:hover { opacity: 1; transform: scale(1.16); }
+  .ms-rate .rate-star.on { color: var(--accent); opacity: 1; filter: drop-shadow(0 0 5px var(--accent-glow)); }
+  .ms-rate .rate-star.pv-add { color: var(--accent-2); opacity: .5; transform: scale(1.08); }
+  .ms-rate .rate-star.pv-remove { color: var(--ms-mute); opacity: .4; }
+  .ms-rate .rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .ms-sub {
     min-width: 0; display: flex; align-items: baseline; gap: 6px;
     font-size: 12px; color: var(--ms-soft);
@@ -292,7 +318,22 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .ms-sub .ms-dot { color: var(--ms-mute); flex: 0 0 auto; }
-  .ms-sub .ms-dot:has(+ [data-melo="album"]:empty) { display: none; }
+  /* hide the · and the album glyph together when there is no album */
+  .ms-sub:has([data-melo="album"]:empty) .ms-dot,
+  .ms-sub:has([data-melo="album"]:empty) .ms-ico.is-album { display: none; }
+  /* meta glyphs — note / person / disc, drawn in the skin's thin line-icon
+     language and kept one notch quieter than the text they label */
+  .ms-ico {
+    flex: 0 0 auto; display: grid; place-items: center;
+    align-self: center;
+    color: var(--ms-mute);
+  }
+  .ms-ico svg { display: block; }
+  .ms-titlerow .ms-ico svg { width: 13px; height: 13px; }
+  .ms-sub .ms-ico svg { width: 11px; height: 11px; }
+  .ms-sub .ms-ico + .ms-artist { margin-left: -1px; }
+  .ms-sub .ms-dot + .ms-ico { margin-left: -1px; }
+  .ms-ico.is-album + .ms-album { margin-left: -1px; }
 
   .ms-chips {
     display: flex; gap: 6px; margin-top: 4px; flex: 0 0 auto;
@@ -462,10 +503,16 @@
         </div>
 
         <div class="ms-sheet">
-          <div class="ms-name" data-melo="title" id="trackTitle">No track loaded</div>
+          <div class="ms-titlerow">
+            <span class="ms-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></span>
+            <div class="ms-name" data-melo="title" id="trackTitle">No track loaded</div>
+            <div class="ms-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
+          </div>
           <div class="ms-sub">
+            <span class="ms-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5c1.2-3.2 3.4-4.8 6.5-4.8s5.3 1.6 6.5 4.8"/></svg></span>
             <span class="ms-artist" data-melo="artist" id="trackArtist">Add music to begin</span>
             <span class="ms-dot">·</span>
+            <span class="ms-ico is-album" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/></svg></span>
             <span class="ms-album" data-melo="album" id="trackAlbum"></span>
           </div>
           <div class="ms-chips">

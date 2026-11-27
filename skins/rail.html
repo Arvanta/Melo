@@ -368,9 +368,19 @@ input.vol-track { width: 90px; flex: 0 0 90px; }
   height: 56px;
 }
 
-/* Track info (left) */
+/* Track info (left) — title and artist share one 12px icon rail + 5px gap,
+   so both texts start at the same x; the tech row starts on that rail too. */
 .fluent-now { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
-.fluent-title { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fluent-titlerow { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.fl-ico {
+  flex: 0 0 12px; width: 12px; height: 12px;
+  display: grid; place-items: center;
+  color: var(--mica-text-muted);
+}
+.fl-ico svg { width: 12px; height: 12px; display: block; }
+.fl-ico-title { color: color-mix(in srgb, var(--mica-accent) 45%, var(--mica-text-muted)); }
+.fl-ico-album { margin-left: 1px; color: var(--mica-text-faint); }
+.fluent-title { flex: 1 1 auto; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .fluent-codec {
   flex: 0 0 auto; padding: 1px 6px; border-radius: 6px;
   font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
@@ -378,10 +388,44 @@ input.vol-track { width: 90px; flex: 0 0 90px; }
 }
 .fluent-codec:empty { display: none; }
 .fluent-tech { display: flex; align-items: center; gap: 6px; min-height: 15px; min-width: 0; }
-.fluent-specs { font-size: 10px; color: var(--mica-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.fluent-tech > span { min-width: 0; }
+.fluent-specs { flex: 0 1 auto; font-size: 10px; color: var(--mica-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .fluent-specs:empty { display: none; }
-.fluent-artist { font-size: 11px; color: var(--mica-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fluent-album:not(:empty)::before { content: " · "; }
+.fluent-artist { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11px; color: var(--mica-text-soft); }
+.fluent-artist > [data-melo="artist"] { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fluent-album { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fluent-dot { flex: 0 0 auto; width: 3px; height: 3px; border-radius: 50%; background: var(--mica-text-faint); }
+.fluent-artist:has(.fluent-album:empty) :is(.fluent-dot, .fl-ico-album) { display: none; }
+.fluent-artist:has([data-melo="artist"]:empty):has(.fluent-album:empty) { display: none; }
+
+/* star rating — sits to the right of the tech details, same 15px row */
+.fluent-rate {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 1px;
+  height: 15px; min-height: 0; min-width: 0;
+  margin-left: 8px;
+  -webkit-app-region: no-drag;
+}
+.fluent-rate[hidden],
+.fluent-rate:empty { display: none !important; }
+.fluent-rate .rate-star {
+  flex: 0 0 auto;
+  width: 14px; height: 15px; padding: 0; margin: 0;
+  border: 0; background: none; cursor: pointer;
+  display: grid; place-items: center;
+  font-size: 13px; line-height: 1; color: transparent;
+  -webkit-text-stroke: 1.05px color-mix(in srgb, var(--mica-text-muted) 88%, transparent);
+  transition: color .14s ease, transform .12s ease, text-shadow .16s ease, -webkit-text-stroke-color .14s ease;
+}
+.fluent-rate .rate-star:hover { transform: scale(1.16); }
+.fluent-rate .rate-star.on {
+  color: var(--mica-accent);
+  -webkit-text-stroke-color: var(--mica-accent);
+  text-shadow: 0 0 8px var(--mica-accent-glow);
+}
+.fluent-rate .rate-star.pv-add { color: color-mix(in srgb, var(--mica-accent) 55%, transparent); transform: scale(1.08); }
+.fluent-rate .rate-star.pv-remove { -webkit-text-stroke-color: color-mix(in srgb, var(--mica-text-muted) 45%, transparent); }
+.fluent-rate:has(.rate-star) + * { }
 
 /* Controls (right) */
 .fluent-controls { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
@@ -584,9 +628,24 @@ html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px
         <!-- Track info (left) + controls (right) -->
         <div class="fluent-info-row">
           <div class="fluent-now">
-            <div class="fluent-title" data-melo="title">No track loaded</div>
-            <div class="fluent-artist"><span data-melo="artist">Add music to begin</span><span class="fluent-album" data-melo="album"></span></div>
-            <div class="fluent-tech"><span class="fluent-codec" data-melo="codec"></span><span class="fluent-specs" data-melo="specs"></span></div>
+            <div class="fluent-titlerow">
+              <span class="fl-ico fl-ico-title" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.2l10-1.7v12.1"/><circle cx="6.2" cy="18" r="2.8"/><circle cx="16.2" cy="15.6" r="2.8"/></svg>
+              </span>
+              <div class="fluent-title" data-melo="title">No track loaded</div>
+            </div>
+            <div class="fluent-artist">
+              <span class="fl-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.1" r="3.4"/><path d="M5.2 19.3c.9-3 3.6-4.6 6.8-4.6s5.9 1.6 6.8 4.6"/></svg>
+              </span>
+              <span data-melo="artist">Add music to begin</span>
+              <span class="fluent-dot" aria-hidden="true"></span>
+              <span class="fl-ico fl-ico-album" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="2.1"/></svg>
+              </span>
+              <span class="fluent-album" data-melo="album"></span>
+            </div>
+            <div class="fluent-tech"><span class="fluent-codec" data-melo="codec"></span><span class="fluent-specs" data-melo="specs"></span><div class="fluent-rate" data-melo="rating"></div></div>
           </div>
 
           <div class="fluent-controls">

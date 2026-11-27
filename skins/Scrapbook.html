@@ -299,10 +299,50 @@
   .sb-artist:empty { display: none; }
   .sb-meta { display: flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; padding-left: 4px; font-size: 11.5px; color: var(--sb-soft); overflow: hidden; }
   .sb-album { min-width: 0; flex: 0 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; unicode-bidi: plaintext; font-style: italic; }
-  .sb-album:empty { display: none; }
+  .sb-album, .sb-album[data-melo="album"] { display: none !important; }   /* album name removed from this skin */
   .sb-codec { flex: 0 0 auto; padding: 2px 9px; border-radius: 999px; background: var(--sb-mint); color: #1f3d33; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; box-shadow: 0 1px 2px rgba(0,0,0,.15); transform: rotate(-2deg); }
   .sb-codec:empty { display: none; }
   .sb-specs { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
+
+  /* ── star rating: five little sticker stars sitting at the right end of the
+        album · codec · specs line — same height as the details, no backing.
+        The star echoes the seek thumb (yellow fill, navy hand-drawn outline),
+        drawn as a mask so the points stay chubby and rounded. ── */
+  .sb-rate {
+    --sb-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.6l3.1 7 7.5.7-5.7 5 1.7 7.4L12 17.8l-6.6 3.9 1.7-7.4-5.7-5 7.5-.7z' fill='%23000' stroke='%23000' stroke-width='3.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E");
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 1px;
+    height: 14px; min-height: 0;
+    margin: 0 0 0 5px;
+    -webkit-app-region: no-drag;
+  }
+  .sb-rate[hidden], .sb-rate:empty { display: none !important; }
+  .sb-rate .rate-star {
+    position: relative; flex: 0 0 auto;
+    width: 14px; height: 14px; padding: 0; margin: 0;
+    border: 0; background: none; cursor: pointer;
+    font-size: 0; line-height: 0;
+    transition: transform .16s cubic-bezier(.3, 1.6, .5, 1);
+  }
+  .sb-rate .rate-star::before,
+  .sb-rate .rate-star::after {
+    content: ""; position: absolute; left: 50%; top: 50%; translate: -50% -50%;
+    -webkit-mask: var(--sb-star) center / contain no-repeat;
+    mask: var(--sb-star) center / contain no-repeat;
+    transition: background .14s ease;
+  }
+  .sb-rate .rate-star::before {   /* navy ink outline */
+    width: 13px; height: 12.6px;
+    background: #2b2a4c;
+  }
+  .sb-rate .rate-star::after {    /* sticker paper fill */
+    width: 9.4px; height: 9.1px;
+    background: var(--sb-die);
+  }
+  .sb-rate .rate-star.on::after { background: var(--sb-yellow); }
+  .sb-rate .rate-star:hover { transform: scale(1.3) rotate(-10deg); }
+  .sb-rate .rate-star.pv-add::after { background: color-mix(in srgb, var(--sb-yellow) 55%, var(--sb-die)); }
+  .sb-rate .rate-star.pv-remove::before { background: color-mix(in srgb, #2b2a4c 55%, var(--sb-die)); }
 
   /* sticky note: the lyric — pinned, curled, and colour-filled by progress */
   .sb-lyric {
@@ -591,7 +631,7 @@
       <div class="sb-info">
         <h1 class="sb-headline"><span class="sb-title" data-melo="title">Nothing playing</span></h1>
         <div class="sb-artist" data-melo="artist">Add some music</div>
-        <div class="sb-meta"><span class="sb-album" data-melo="album"></span><span class="sb-codec" data-melo="codec"></span><span class="sb-specs" data-melo="specs"></span></div>
+        <div class="sb-meta"><span class="sb-album" data-melo="album" hidden></span><span class="sb-codec" data-melo="codec"></span><span class="sb-specs" data-melo="specs"></span><div class="sb-rate" data-melo="rating"></div></div>
         <div class="sb-lyric" data-melo="current-lyric" aria-live="polite"></div>
         <div class="sb-next" data-melo="next-lyric"></div>
         <div class="sb-vizrow"><div class="sb-viz" data-melo="visualizer" data-bars="30"></div></div>

@@ -74,9 +74,9 @@
   body.tauri-main .player-card,
   body.custom-skin-active .player-card {
     width: min(760px, 100%);
-    height: 300px;
+    height: 308px;
     min-width: 700px;
-    min-height: 280px;
+    min-height: 288px;
     margin: 0; padding: 0;
     position: relative; overflow: hidden;
     container-type: size;
@@ -329,7 +329,7 @@
   .pv-title {
     min-width: 0; flex: 1 1 auto;
     font-size: 1em;
-    font-weight: 600; letter-spacing: -.021em; line-height: 1.22;
+    font-weight: 600; letter-spacing: -.021em; line-height: 1.2;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .pv-sub {
@@ -345,6 +345,41 @@
   .pv-dot { flex: 0 0 auto; width: 3px; height: 3px; border-radius: 50%; background: var(--pv-mute); }
   .pv-sub:has(.pv-album:empty) .pv-dot,
   .pv-sub:has(.pv-album:empty) .pv-ico-album { display: none; }
+
+  /* star rating — its own line under artist · album.
+     Prism look: thin outlined star (same 1.8 stroke language as the icons)
+     that fills with the accent and picks up the skin's soft glow. */
+  .pv-rate {
+    display: flex; align-items: center; gap: 1px;
+    height: 15px; min-height: 0; min-width: 0;
+    margin-top: 5px;
+    -webkit-app-region: no-drag; app-region: no-drag;
+  }
+  .pv-rate[hidden],
+  .pv-rate:empty { display: none !important; }
+  .pv-rate .rate-star {
+    flex: 0 0 auto;
+    width: 15px; height: 15px; padding: 0; margin: 0;
+    border: 0; background: none; cursor: pointer;
+    display: grid; place-items: center;
+    font-size: 14px; line-height: 1; color: transparent;
+    -webkit-text-stroke: 1.15px color-mix(in srgb, var(--pv-mute) 78%, transparent);
+    transition: color .14s ease, transform .12s ease, text-shadow .18s ease;
+  }
+  .pv-rate .rate-star:hover { transform: scale(1.16); }
+  .pv-rate .rate-star.on {
+    color: var(--accent);
+    -webkit-text-stroke-color: var(--accent);   /* solid accent star, no inner ring */
+    text-shadow: 0 1px 9px var(--accent-glow);
+  }
+  .pv-rate .rate-star.pv-add {
+    color: color-mix(in srgb, var(--accent) 52%, transparent);
+    transform: scale(1.09);
+  }
+  .pv-rate .rate-star.pv-remove {
+    color: transparent;
+    -webkit-text-stroke-color: color-mix(in srgb, var(--pv-mute) 44%, transparent);
+  }
 
   .pv-chips {
     margin-top: 6px; min-width: 0;
@@ -645,7 +680,7 @@
   html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
-<body data-window-width="760" data-window-height="300" data-min-width="700" data-min-height="280" data-max-width="960" data-max-height="380" data-resizable="true">
+<body data-window-width="760" data-window-height="308" data-min-width="700" data-min-height="288" data-max-width="960" data-max-height="380" data-resizable="true">
 <div id="melo-player">
 
   <!-- ============ top bar ============ -->
@@ -730,6 +765,7 @@
           </span>
           <span class="pv-album" data-melo="album"></span>
         </div>
+        <div class="pv-rate" data-melo="rating"></div>
         <div class="pv-chips">
           <span class="pv-live" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="pv-chip" data-melo="codec"></span>

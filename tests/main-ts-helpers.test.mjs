@@ -2711,3 +2711,13 @@ test("round 135: ten new bundled skins are embedded, seeded and synced", () => {
     assert.doesNotMatch(html, /https?:\/\/(?!www\.w3\.org)/, `${f} loads nothing from the network`);
   }
 });
+
+test("round 136: updated skins carry the rating slot; default-skin stars sit 3px lower", () => {
+  const withSlot = ["Fold","bean","haven","aria","graphite","Ember","halcyon","hira","lilt","koto","mist","Prism","Scrapbook","silk-orbit","slate","Mochi","rail","mica","bean-compact","Pane"];
+  for (const f of withSlot) {
+    const html = readSrc(`skins/${f}.html`);
+    assert.match(html, /data-melo="rating"/, `${f} has a rating slot`);
+    assert.doesNotMatch(html, /<\/html>\s*\S/, `${f} has nothing after </html>`);
+  }
+  assert.match(readSrc("src/app.css"), /\.track-rating \{ position: relative; top: 3px; \}/, "default-skin stars painted 3px lower, layout unchanged");
+});

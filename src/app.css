@@ -3094,6 +3094,7 @@ select.te-input { padding-right: 4px; }
 .track-rating { display: flex; gap: 1px; margin-top: 4px; min-height: 20px; }
 .track-rating[hidden] { display: flex; visibility: hidden; } /* keep the row's space: no jump when a track loads */
 .track-rating .rate-star { font-size: 17px; }
+.track-rating { position: relative; top: 3px; } /* optical centring: the glyph sits high in its box, so the gap above the stars was ~6px tighter than below; top: moves only the paint, the row keeps its layout space */
 .ctx-rate { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 12px; }
 .ctx-rate[hidden] { display: none; }
 .ctx-rate-label { font-size: 12.5px; color: var(--text-soft); }

@@ -222,6 +222,18 @@
 
   /* text */
   .cm-text { min-width: 0; min-height: 0; align-self: center; display: flex; flex-direction: column; gap: 3px; padding-top: 4px; }
+  /* each line = a fixed-width icon slot + its text, so the START of the
+     title, artist and album copy all begin on one vertical rail */
+  .cm-row { display: flex; align-items: flex-start; gap: 7px; min-width: 0; }
+  .cm-row > .cm-title, .cm-row > .cm-artist, .cm-row > .cm-album { flex: 1 1 auto; min-width: 0; }
+  .cm-ico {
+    flex: 0 0 15px; width: 15px; display: grid; place-items: center;
+    color: var(--cm-soft); margin-top: 1px;
+  }
+  .cm-ico svg { width: 13px; height: 13px; display: block; }
+  .cm-row:first-of-type .cm-ico { margin-top: 3px; }   /* meets the 18px title's first line */
+  .cm-row-album .cm-ico { color: var(--cm-mute); }
+  .cm-row-album:has(.cm-album:empty) { display: none; }
   .cm-title, .cm-artist, .cm-album { unicode-bidi: plaintext; text-align: left; }
   .cm-title {
     font-size: 18px; font-weight: 800; letter-spacing: -.01em; line-height: 1.3;
@@ -231,6 +243,50 @@
   .cm-artist { font-size: 13px; font-weight: 700; color: var(--cm-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cm-album { font-size: 11px; font-weight: 600; color: var(--cm-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cm-album:empty { display: none; }
+  /* star rating — its own line under the album, indented to the same text
+     rail. Candy-pink stars with the skin's hard cocoa offset (like every
+     other sticker edge here); unlit stars stay quiet ink. */
+  .cm-rate {
+    /* round-tipped sticker star, drawn as a mask so the ★ glyph's sharp
+       points are replaced by a chubby cocoa-outlined candy star */
+    --cm-star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3.4l2.65 5.37 5.92.86-4.29 4.18 1.01 5.9L12 16.92l-5.29 2.79 1.01-5.9L3.43 9.63l5.92-.86z' fill='%23000' stroke='%23000' stroke-width='3.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E");
+    display: flex; align-items: center; gap: 1px; height: 15px;
+    margin: 1px 0 0 22px;                 /* 15px icon slot + 7px gap */
+    min-width: 0; min-height: 0;
+  }
+  .cm-rate[hidden], .cm-rate:empty { display: none !important; }
+  .cm-rate .rate-star {
+    position: relative;
+    width: 16px; height: 15px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 0; line-height: 0;         /* the glyph is replaced by the masks below */
+    /* empty star: the paper tone pulled toward the skin's mute mauve, so it
+       reads on the cream card AND on the plum dark card */
+    color: color-mix(in srgb, var(--cm-card2) 42%, var(--cm-mute));
+    transition: color .12s ease, transform .1s ease;
+  }
+  .cm-rate .rate-star::before,
+  .cm-rate .rate-star::after {
+    content: ""; position: absolute; left: 50%; top: 50%; translate: -50% -50%;
+    -webkit-mask: var(--cm-star) center / contain no-repeat;
+    mask: var(--cm-star) center / contain no-repeat;
+  }
+  /* cocoa sticker outline */
+  .cm-rate .rate-star::before {
+    width: 15px; height: 14.5px;
+    background: var(--cm-outline);
+    filter: drop-shadow(0 1px 0 var(--cm-outline));
+  }
+  /* the filling: plain white sticker, candy pink when lit */
+  .cm-rate .rate-star::after {
+    width: 11px; height: 10.5px;
+    background: currentColor;
+  }
+  .cm-rate .rate-star:hover { transform: scale(1.14) rotate(-6deg); }
+  .cm-rate .rate-star.on { color: var(--accent); }
+  .cm-rate .rate-star.pv-add { color: color-mix(in srgb, var(--accent) 55%, var(--cm-card2)); transform: scale(1.07); }
+  .cm-rate .rate-star.pv-remove { color: color-mix(in srgb, var(--cm-card2) 30%, var(--cm-mute)); opacity: .7; }
+  .cm-rate .rate-star:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 1px; }
   .cm-tags { display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--cm-mute); }
   .cm-tags > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cm-chip {
@@ -245,7 +301,7 @@
   .cm-viz canvas { width: 100% !important; height: 100% !important; display: block; }
   .cm-lyric {
     display: none; position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; min-height: 26px;
-    padding: 4px 12px 4px 14px; cursor: pointer;
+    padding: 4px 27px; cursor: pointer;   /* side room for the hover line-chips */
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; text-align: left;
     font-size: 12px; font-weight: 800; line-height: 16px; color: var(--cm-ink);
     background: linear-gradient(to right, color-mix(in srgb, var(--accent) 38%, var(--cm-card2)) calc(var(--melo-lyric-progress, 0) * 100%), var(--cm-card2) calc(var(--melo-lyric-progress, 0) * 100%));
@@ -255,6 +311,45 @@
   .cm-lyric.melo-lyric-empty, .cm-lyric:empty { display: none !important; }
   .cm-lyric.melo-lyric-tick { animation: cm-bubble .35s cubic-bezier(.3, 1.6, .5, 1) both; }
   html.melo-show-playlist .cm-lyric, html.melo-show-lyrics .cm-lyric { display: none !important; }
+  /* previous / next lyric line — sticker arrow chips owned by the engine
+     (`.melo-lyric-nav`, fixed overlay placed over this slot). Restyled as tiny
+     cocoa-outlined chips that float at the bubble's two ends and only
+     materialise while the pointer is over the line. */
+  .cm-lyric {
+    --melo-lyric-nav-size: 17px;
+    --melo-lyric-nav-inset: 4px;
+    --melo-lyric-nav-bg: var(--cm-card2);
+    --melo-lyric-nav-bg-hover: var(--cm-butter);
+  }
+  .melo-lyric-nav-btn {
+    color: var(--cm-outline) !important;
+    border: 2px solid var(--cm-outline);
+    box-shadow: 0 2px 0 var(--cm-outline);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    border-radius: 999px;
+    display: grid; place-items: center;
+    transition: transform .13s cubic-bezier(.34, 1.56, .64, 1), background .13s ease, box-shadow .13s ease, opacity .13s ease;
+  }
+  /* no fill-mode: once the pop has played, hover owns the transform again */
+  .melo-lyric-nav.on .melo-lyric-nav-btn { animation: cm-nav-pop .18s cubic-bezier(.34, 1.56, .64, 1); }
+  .melo-lyric-nav-btn:hover:not(:disabled) {
+    transform: translateY(-50%) scale(1.18);
+    box-shadow: 0 3px 0 var(--cm-outline);
+  }
+  .melo-lyric-nav-btn:active:not(:disabled) {
+    transform: translateY(calc(-50% + 2px)) scale(1.04);
+    box-shadow: 0 0 0 var(--cm-outline);
+  }
+  .melo-lyric-nav-btn:disabled { opacity: .28; box-shadow: none; }
+  .melo-lyric-nav-btn svg { width: 58%; height: 58%; stroke-width: 2.4; }
+  @keyframes cm-nav-pop {
+    from { opacity: 0; transform: translateY(-50%) scale(.55); }
+    to   { opacity: 1; transform: translateY(-50%) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .melo-lyric-nav.on .melo-lyric-nav-btn { animation: none; }
+  }
+
   html.melo-show-playlist .cm-viz, html.melo-show-lyrics .cm-viz { visibility: hidden; }
   /* While the speech bubble is showing a line it covers the whole strip, so the visualizer
      underneath is switched OFF (display:none → Melo pauses its render loop; see skins/README.md
@@ -491,9 +586,19 @@
       </div>
 
       <div class="cm-text">
-        <div class="cm-title" data-melo="title">Nothing playing</div>
-        <div class="cm-artist" data-melo="artist">Add some music</div>
-        <div class="cm-album" data-melo="album"></div>
+        <div class="cm-row">
+          <span class="cm-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></span>
+          <div class="cm-title" data-melo="title">Nothing playing</div>
+        </div>
+        <div class="cm-row">
+          <span class="cm-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5c1.2-3.2 3.4-4.8 6.5-4.8s5.3 1.6 6.5 4.8"/></svg></span>
+          <div class="cm-artist" data-melo="artist">Add some music</div>
+        </div>
+        <div class="cm-row cm-row-album">
+          <span class="cm-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/></svg></span>
+          <div class="cm-album" data-melo="album"></div>
+        </div>
+        <div class="cm-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
         <div class="cm-tags">
           <span class="cm-chip" data-melo="codec"></span>
           <span data-melo="specs"></span>

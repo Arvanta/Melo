@@ -325,6 +325,16 @@
   .player-card:has(#nkModeSound:checked) .nk-banner { color: var(--nk-ink); }
   #melo-player:has(#nkModeSound:checked) .nk-title,
   .player-card:has(#nkModeSound:checked) .nk-title { text-shadow: none; }
+  #melo-player:has(#nkModeSound:checked) .nk-title-row .nk-rating,
+  .player-card:has(#nkModeSound:checked) .nk-title-row .nk-rating { --nk-star: #d99a3e; --nk-star-faint: var(--nk-mute); --nk-star-edge: none; }
+  #melo-player:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star,
+  .player-card:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star { color: var(--nk-star-faint); opacity: .35; }
+  #melo-player:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star.on,
+  .player-card:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star.on { color: var(--nk-star); opacity: .56; }
+  #melo-player:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star.pv-add,
+  .player-card:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star.pv-add { color: var(--nk-star); opacity: .36; }
+  #melo-player:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star.pv-remove,
+  .player-card:has(#nkModeSound:checked) .nk-title-row .nk-rating .rate-star.pv-remove { opacity: .24; }
   #melo-player:has(#nkModeSound:checked) .nk-byline,
   #melo-player:has(#nkModeSound:checked) .nk-byline [data-melo="artist"],
   .player-card:has(#nkModeSound:checked) .nk-byline,
@@ -575,6 +585,30 @@
     opacity: .95;
   }
   .nk-title-row .nk-meta-ico svg { width: 15px; height: 15px; }
+
+  /* star rating at the right end of the title row. Melo fills .nk-rating with five .rate-star buttons (.on = filled) for the playing track and keeps
+     the space while no track is loaded. The stars sit on artwork, so they are warm gold with a dark outline (a ring of 1px shadows, which renders
+     the same everywhere) plus a soft halo, readable on both bright and dark covers. The banner is pointer-events:none, so the slot re-enables them.
+     Hover preview is tagged by Melo: .pv-add = would fill (dimmer star), .pv-remove = would empty (dimmed lit star). Selectors out-rank the app's
+     .track-rating / .rate-star rules; .pv-remove comes after .on on purpose. */
+  .nk-title-row .nk-rating {
+    --nk-star: #f2bf58;                       /* warm amber, a shade softer than a full gold */
+    --nk-star-faint: rgba(245, 247, 255, .5); /* empty stars: a light wisp of ink */
+    --nk-star-edge: 0 1px 0 rgba(0,0,0,.4), 0 -1px 0 rgba(0,0,0,.4), 1px 0 0 rgba(0,0,0,.4), -1px 0 0 rgba(0,0,0,.4),
+                    1px 1px 0 rgba(0,0,0,.28), -1px -1px 0 rgba(0,0,0,.28), 1px -1px 0 rgba(0,0,0,.28), -1px 1px 0 rgba(0,0,0,.28);
+    flex: 0 0 auto; margin: 0 -1px 0 4px; min-height: 0; gap: 0; pointer-events: auto;
+  }
+  .nk-title-row .nk-rating .rate-star {
+    width: 15px; height: 19px; padding: 0; background: none; border: 0; cursor: pointer; text-align: center;
+    font-size: 14px; line-height: 19px; color: var(--nk-star-faint); opacity: .45; text-shadow: var(--nk-star-edge);
+    transition: color .14s ease, opacity .14s ease, transform .14s ease;
+  }
+  .nk-title-row .nk-rating .rate-star:hover { transform: translateY(-1px); }
+  /* frosted amber — lit stars sit lighter than a solid fill */
+  .nk-title-row .nk-rating .rate-star.on { color: var(--nk-star); opacity: .6; }
+  .nk-title-row .nk-rating .rate-star.pv-add { color: var(--nk-star); opacity: .38; }
+  .nk-title-row .nk-rating .rate-star.pv-remove { opacity: .26; }
+  .nk-title-row .nk-rating .rate-star:focus-visible { outline: 2px solid var(--nk-on-art); outline-offset: -2px; border-radius: 3px; }
   .nk-meta-ico.is-album { color: var(--nk-on-art-mute); opacity: .88; }
   .nk-byline:has(.nk-album:empty) .nk-dot,
   .nk-byline:has(.nk-album:empty) .nk-meta-ico.is-album { display: none; }
@@ -995,6 +1029,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         </span>
         <div class="nk-title" data-melo="title">Nothing playing</div>
+        <div class="nk-rating" data-melo="rating"></div>
       </div>
       <div class="nk-byline">
         <span class="nk-meta-ico" aria-hidden="true" title="Artist">

@@ -271,11 +271,37 @@
     display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0;
   }
 
-  .hc-title {
-    min-width: 0; font-size: 21px; font-weight: 500; letter-spacing: -.005em;
+  .hc-titlerow { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .hc-titlerow .hc-title {
+    flex: 1 1 auto; min-width: 0; font-size: 21px; font-weight: 500; letter-spacing: -.005em;
     line-height: 1.25; color: var(--hc-ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  /* ── Star rating: right end of the title line ──
+     Halcyon is one accent colour on sea glass, so the stars stay glyphs with no
+     box of their own: lit = accent with the same soft glow, empty = sea-mute. */
+  .hc-rate {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 1px;
+    height: 24px; padding: 0; margin: 0; min-width: 0; min-height: 0;
+    -webkit-app-region: no-drag;
+  }
+  /* nothing loaded / nothing rendered yet: collapse, no gap and no row */
+  .hc-rate[hidden], .hc-rate:empty { display: none !important; }
+  .hc-rate .rate-star {
+    width: 17px; height: 24px; padding: 0; margin: 0; border: 0; background: none;
+    display: grid; place-items: center; cursor: pointer;
+    font-size: 14px; line-height: 1; color: var(--hc-mute); opacity: .75;
+    border-radius: 6px;
+    transition: color .16s ease, opacity .16s ease, transform .12s ease;
+  }
+  .hc-rate .rate-star:hover { color: var(--hc-soft); opacity: 1; transform: scale(1.12); }
+  .hc-rate .rate-star.on {
+    color: var(--accent); opacity: 1;
+    filter: drop-shadow(0 0 5px var(--accent-glow));
+  }
+  .hc-rate .rate-star.pv-add { color: var(--accent-2); opacity: .5; transform: scale(1.06); }
+  .hc-rate .rate-star.pv-remove { color: var(--hc-danger); opacity: .55; }
+  .hc-rate .rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .hc-sub {
     display: flex; align-items: baseline; gap: 7px; min-width: 0;
     margin-top: 3px; font-size: 12.5px;
@@ -646,7 +672,10 @@
       <!-- ================= info ================= -->
       <div class="hc-info">
         <div class="hc-head">
-          <div class="hc-title" data-melo="title" id="trackTitle">Nothing playing</div>
+          <div class="hc-titlerow">
+            <div class="hc-title" data-melo="title" id="trackTitle">Nothing playing</div>
+            <div class="hc-rate" id="trackRating" data-melo="rating" role="radiogroup" aria-label="Rating"></div>
+          </div>
           <div class="hc-sub">
             <span class="hc-artist" data-melo="artist" id="trackArtist">Add music to begin</span>
             <span class="hc-dot">·</span>

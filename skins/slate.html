@@ -92,10 +92,55 @@
   }
 
   .sr-meta { min-width: 0; }
-  .track-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sr-text); font-size: 13px; font-weight: 760; line-height: 1.24; }
-  .track-artist { margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-size: 10px; font-weight: 650; }
-  .track-album { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sr-muted); font-size: 8px; }
-  .track-format { margin-top: 6px; display: flex; align-items: center; gap: 5px; color: var(--sr-muted); font-size: 8px; }
+  /* one vertical rail: an 11px icon slot + 4px gap, so the title and the
+     artist line start at exactly the same x */
+  .sr-line {
+    display: grid; grid-template-columns: 11px minmax(0, 1fr);
+    column-gap: 4px; align-items: center; min-width: 0;
+  }
+  .sr-line-byline { margin-top: 2px; }
+  .sr-ic {
+    width: 11px; height: 11px; display: grid; place-items: center;
+    color: var(--sr-muted); flex: 0 0 auto;
+  }
+  .sr-ic svg { width: 10px; height: 10px; display: block; }
+  .sr-line-title .sr-ic { color: var(--sr-soft); }   /* fixed ink, never track-accent */
+  .sr-line-title .sr-ic svg { width: 11px; height: 11px; }
+  .sr-ic-album { width: 9px; height: 9px; margin-left: 1px; }
+  .sr-ic-album svg { width: 9px; height: 9px; }
+  .sr-byline { display: flex; align-items: center; gap: 3px; min-width: 0; }
+  .sr-meta .track-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sr-text); font-size: 13px; font-weight: 760; line-height: 1.24; }
+  .sr-meta .track-artist { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sr-text); font-size: 10px; font-weight: 650; line-height: 1.25; }   /* fixed ink, never track-accent */
+  .sr-meta .track-album { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sr-muted); font-size: 8px; line-height: 1.25; }
+  .sr-meta .track-album:empty { display: none; }
+  .sr-dash { flex: 0 0 auto; color: var(--sr-muted); font-size: 10px; font-weight: 500; line-height: 1; }
+  .sr-dash::before { content: "–"; }
+  .sr-byline:has(.track-album:empty) :is(.sr-dash, .sr-ic-album) { display: none; }
+  .sr-byline .sr-ic-album:has(+ .track-album:empty) { display: none; }
+  .sr-line-byline:has(.track-artist:empty):has(.track-album:empty) { display: none; }
+
+  /* star rating — one compact line of its own, right above the details */
+  .sr-meta .sr-rate {
+    display: flex; align-items: center; gap: 1px;
+    height: 12px; min-height: 0; margin-top: 3px;
+    -webkit-app-region: no-drag;
+  }
+  .sr-rate[hidden], .sr-rate:empty { display: none !important; }
+  .sr-rate .rate-star {
+    flex: 0 0 auto;
+    width: 12px; height: 12px; padding: 0; margin: 0;
+    border: 0; background: none; cursor: pointer;
+    display: grid; place-items: center;
+    font-size: 11px; line-height: 1; color: transparent;
+    -webkit-text-stroke: 1px color-mix(in srgb, var(--sr-muted) 82%, transparent);
+    transition: color .12s ease, transform .12s ease;
+  }
+  .sr-rate .rate-star:hover { transform: scale(1.18); }
+  .sr-rate .rate-star.on { color: var(--accent); -webkit-text-stroke-color: var(--accent); }
+  .sr-rate .rate-star.pv-add { color: color-mix(in srgb, var(--accent) 50%, transparent); transform: scale(1.08); }
+  .sr-rate .rate-star.pv-remove { -webkit-text-stroke-color: color-mix(in srgb, var(--sr-muted) 45%, transparent); }
+
+  .sr-meta .track-format { margin-top: 4px; display: flex; align-items: center; gap: 5px; color: var(--sr-muted); font-size: 8px; }
   .badge-flac { flex: 0 0 auto; padding: 2px 5px; border: 1px solid var(--sr-line); border-radius: 5px; color: var(--accent); font-weight: 780; }
   #trackSpecs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -115,7 +160,7 @@
   body.show-stop-btn #btnStop { display: grid !important; }
 
   .sr-seek { min-width: 0; display: grid; grid-template-columns: 29px minmax(0,1fr) 29px; gap: 6px; align-items: center; }
-  .sr-time { color: var(--sr-muted); font: 500 8px/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric: tabular-nums; }
+  .sr-time { color: var(--sr-muted); font: 500 10px/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric: tabular-nums; }
   #durTime { text-align: right; }
   .seek, .vol {
     -webkit-appearance: none; appearance: none; height: 3px; border-radius: 999px; outline: none; cursor: pointer;
@@ -132,7 +177,7 @@
   #volIcon { display: grid; place-items: center; color: var(--sr-soft); cursor: pointer; }
   #volIcon:hover { color: var(--accent); }
   .vol { width: 100%; background: linear-gradient(to right,var(--accent) 0%,var(--accent) var(--vol,60%),var(--track-bg) var(--vol,60%),var(--track-bg) 100%); }
-  #volPct { color: var(--sr-muted); text-align: right; font: 500 7px/1 ui-monospace,monospace; }
+  #volPct { color: var(--sr-muted); text-align: right; font: 500 9px/1 ui-monospace,monospace; }
 
   .sr-head-sep { width: 1px; height: 15px; margin: 0 4px; background: color-mix(in srgb,var(--accent) 30%,var(--sr-line)); }
   .sr-title-panels { display: flex; align-items: center; gap: 2px; }
@@ -190,10 +235,27 @@
     </div>
 
     <section class="sr-meta">
-      <div class="track-title" id="trackTitle">No track loaded</div>
-      <div class="track-artist" id="trackArtist">Add music to begin</div>
-      <div class="track-album" id="trackAlbum"></div>
-      <div class="track-format"><span class="badge-flac" id="trackCodec">—</span><span id="trackSpecs"></span></div>
+      <div class="sr-line sr-line-title">
+        <span class="sr-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.2l10-1.8v12.2"/><circle cx="6.2" cy="18" r="2.7"/><circle cx="16.2" cy="15.6" r="2.7"/></svg>
+        </span>
+        <div class="track-title" id="trackTitle" data-melo="title">No track loaded</div>
+      </div>
+      <div class="sr-line sr-line-byline">
+        <span class="sr-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.1" r="3.4"/><path d="M5.2 19.3c.9-3 3.6-4.6 6.8-4.6s5.9 1.6 6.8 4.6"/></svg>
+        </span>
+        <div class="sr-byline">
+          <span class="track-artist" id="trackArtist" data-melo="artist">Add music to begin</span>
+          <span class="sr-dash" aria-hidden="true"></span>
+          <span class="sr-ic sr-ic-album" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="2.1"/></svg>
+          </span>
+          <span class="track-album" id="trackAlbum" data-melo="album"></span>
+        </div>
+      </div>
+      <div class="sr-rate" data-melo="rating"></div>
+      <div class="track-format"><span class="badge-flac" id="trackCodec" data-melo="codec">—</span><span id="trackSpecs" data-melo="specs"></span></div>
     </section>
 
     <section class="sr-center">
