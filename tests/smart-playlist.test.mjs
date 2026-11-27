@@ -113,3 +113,26 @@ test("round 132 static pins: data-grp is not dropped before the new content arri
   const top = lib.slice(lib.indexOf("async function renderLibraryVirtualInner"), lib.indexOf("const request = ++libraryRequest;"));
   assert.ok(!/removeAttribute\("data-grp"\)/.test(top.replace(/\/\/.*$/gm, "")), "no immediate removal at the top of the render");
 });
+
+test("round 133 static pins: add files / folder to queue lives in the queue's ⋯ menu", () => {
+  const lib = read("src/library.ts");
+  assert.match(lib, /id="plCtxQueueFiles"[^>]*>Add files to queue…/);
+  assert.match(lib, /id="plCtxQueueFolder"[^>]*>Add folder to queue…/);
+  // queue view: only the two queue items; playlist views: they are hidden
+  assert.match(lib, /plCtxQueueFiles\.style\.display = "none";\s*plCtxQueueFolder\.style\.display = "none";/);
+  assert.ok(!lib.includes("Playlist actions aren't available for the play queue"));
+  // "queue" mode appends to the queue even if another playlist is selected when the picker closes
+  assert.match(lib, /mode === "queue" \|\| \(mode === "append" && currentPlaylistId === QUEUE_ID\)/);
+  assert.match(lib, /playlistId: mode === "append" && !toQueue \? currentPlaylistId : null/);
+  assert.match(lib, /importPaths\(paths, "queue"\)/);
+  // append only: never replaces the queue
+  const body = lib.slice(lib.indexOf("async function appendPathsToQueue"), lib.indexOf("plCtxQueueFolder.onclick"));
+  assert.ok(!body.includes("replace_queue_tracks"));
+  assert.match(lib, /list_dir_audio_files", \{ path: dir \}/);
+});
+
+test("round 134 static pin: default-skin cover is 160x160 and the volume row matches", () => {
+  const css = read("src/app.css");
+  assert.match(css, /\.cover-wrap \{ width: 160px; height: 160px;/);
+  assert.match(css, /\.volume-under \{ width: 160px;/);
+});

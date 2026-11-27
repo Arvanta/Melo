@@ -275,7 +275,7 @@ app.innerHTML = `
         <div class="playlist-toolbar" style="display:flex; gap:6px; align-items:center; flex-shrink:0; flex-wrap:wrap; padding:0 4px;">
           <select id="playlistSelect" class="settings-select" style="height:28px; font-size:11px; padding:2px 8px; flex:1 1 140px; min-width:80px;" title="Current playlist"></select>
           <button class="btn small ghost" id="btn-new-playlist" title="New playlist" style="height:28px; width:28px; padding:0; font-size:16px; line-height:1; justify-content:center; flex:0 0 auto;">+</button>
-          <button class="btn small ghost" id="btn-playlist-menu" title="Playlist actions (rename, duplicate, remove missing, delete)" aria-label="Playlist actions" aria-haspopup="menu" style="height:28px; width:28px; padding:0; font-size:15px; line-height:1; justify-content:center; flex:0 0 auto;">⋯</button>
+          <button class="btn small ghost" id="btn-playlist-menu" title="Playlist actions (rename, duplicate, remove missing, delete) — on the queue: add files / folder" aria-label="Playlist actions" aria-haspopup="menu" style="height:28px; width:28px; padding:0; font-size:15px; line-height:1; justify-content:center; flex:0 0 auto;">⋯</button>
           <select id="playlistSortSelect" class="settings-select" style="height:28px; font-size:11px; padding:2px 4px; width:92px; min-width:64px; flex:1 1 64px;" title="Sort tracks">
             <option value="default">Sort: Default</option>
             <option value="title-asc">Title (A-Z)</option>

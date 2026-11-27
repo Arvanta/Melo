@@ -531,6 +531,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
   playlistContextMenu.setAttribute("role", "menu");
   playlistContextMenu.innerHTML = `
     <div class="pl-ctx-title" style="padding:6px 10px 4px; font-size:11px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px;"></div>
+    <button class="ctx-item" id="plCtxQueueFiles" role="menuitem">Add files to queue…</button>
+    <button class="ctx-item" id="plCtxQueueFolder" role="menuitem">Add folder to queue…</button>
     <button class="ctx-item" id="plCtxRename" role="menuitem">Rename…</button>
     <button class="ctx-item" id="plCtxDuplicate" role="menuitem">Duplicate</button>
     <button class="ctx-item" id="plCtxEditRules" role="menuitem">Edit</button>
@@ -538,6 +540,8 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     <div style="height:1px; margin:4px 6px; background:var(--card-border);"></div>
     <button class="ctx-item danger" id="plCtxDelete" role="menuitem">Delete playlist…</button>`;
   document.body.appendChild(playlistContextMenu);
+  // Round 133: while the play queue is shown this menu holds ONLY the two
+  // "add to queue" items; for real playlists they are hidden.
   const contextPlayNext = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxPlayNext")!;
   const contextAddToQueue = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxAddToQueue")!;
   const contextEditTags = libraryContextMenu.querySelector<HTMLButtonElement>("#ctxEditTags")!;
@@ -4706,14 +4710,27 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     void editSmartPlaylist(playlists.find(p => p.id === currentPlaylistId));
   };
   const plCtxDelete = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxDelete")!;
+  const plCtxQueueFiles = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxQueueFiles")!;
+  const plCtxQueueFolder = playlistContextMenu.querySelector<HTMLButtonElement>("#plCtxQueueFolder")!;
+  // Everything that is NOT a queue item, in menu order, so the queue view can
+  // hide the lot with one loop (the separator is the plain <div> child).
+  const plCtxPlaylistOnly: HTMLElement[] = [plCtxRename, plCtxDuplicate, plCtxEditRules, plCtxSweep, plCtxDelete,
+    ...Array.from(playlistContextMenu.querySelectorAll<HTMLElement>(":scope > div:not(.pl-ctx-title)"))];
 
   function closePlaylistMenu() { playlistContextMenu.style.display = "none"; }
 
   function openPlaylistMenu(x: number, y: number) {
     if (currentPlaylistId === QUEUE_ID) {
-      toast("Playlist actions aren't available for the play queue");
+      plCtxTitle.textContent = "Play queue";
+      for (const el of plCtxPlaylistOnly) el.style.display = "none";
+      plCtxQueueFiles.style.display = "";
+      plCtxQueueFolder.style.display = "";
+      positionPlaylistMenu(x, y);
       return;
     }
+    plCtxQueueFiles.style.display = "none";
+    plCtxQueueFolder.style.display = "none";
+    for (const el of plCtxPlaylistOnly) el.style.display = "";
     const pl = playlists.find(p => p.id === currentPlaylistId);
     if (pl?.kind === "auto") {
       toast("Automatic playlists are read-only");
@@ -4724,11 +4741,53 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     // Smart playlists: rules instead of manual cleanup.
     plCtxEditRules.style.display = pl.kind === "smart" ? "" : "none";
     plCtxSweep.style.display = pl.kind === "smart" ? "none" : "";
+    positionPlaylistMenu(x, y);
+  }
+
+  function positionPlaylistMenu(x: number, y: number) {
     playlistContextMenu.style.display = "block";
     const rect = playlistContextMenu.getBoundingClientRect();
     playlistContextMenu.style.left = `${Math.max(6, Math.min(x, window.innerWidth - rect.width - 6))}px`;
     playlistContextMenu.style.top = `${Math.max(6, Math.min(y, window.innerHeight - rect.height - 6))}px`;
   }
+
+  // Round 133 — "Add files / folder to queue" (queue view only). Always
+  // APPENDS to the play queue (duplicates allowed), never replaces it, and the
+  // files are imported playback-only (library_owned=false), so they do not
+  // show up in the Library. Folders are top-level only, like Open Folder.
+  const QUEUE_AUDIO_EXTS = ["mp3", "flac", "wav", "aac", "ogg", "m4a", "alac", "opus", "aiff", "mka"];
+  async function appendPathsToQueue(paths: string[], what: string) {
+    if (!paths.length) return;
+    if (paths.length >= 40) toast(`Adding ${paths.length} files to the queue…`);
+    const added = await importPaths(paths, "queue");
+    if (!added.length) { toast(`None of the ${what} could be added to the queue`); return; }
+    const skipped = paths.length - added.length;
+    toast(`Added ${added.length} track${added.length === 1 ? "" : "s"} to the end of the queue${skipped > 0 ? ` (${skipped} skipped)` : ""}`);
+  }
+  plCtxQueueFiles.onclick = async () => {
+    closePlaylistMenu();
+    if (!isTauri) { toast("Adding files to the queue needs the desktop app"); return; }
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const sel = await open({ multiple: true, title: "Add files to the queue", filters: [{ name: "Audio", extensions: QUEUE_AUDIO_EXTS }] });
+      const paths = Array.isArray(sel) ? sel : (sel ? [sel] : []);
+      await appendPathsToQueue(paths, "selected files");
+    } catch (e) { toast("Couldn't add the files to the queue — " + String(e)); }
+  };
+  plCtxQueueFolder.onclick = async () => {
+    closePlaylistMenu();
+    if (!isTauri) { toast("Adding a folder to the queue needs the desktop app"); return; }
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const dir = await open({ directory: true, multiple: false, title: "Add a folder to the queue" });
+      if (!dir || typeof dir !== "string") return;
+      await loadCore();
+      if (!invoke) return;
+      const files = await invoke<string[]>("list_dir_audio_files", { path: dir });
+      if (!files.length) { toast("No supported audio files in that folder"); return; }
+      await appendPathsToQueue(files, "files in that folder");
+    } catch (e) { toast("Couldn't add the folder to the queue — " + String(e)); }
+  };
 
   plCtxRename.onclick = async () => {
     closePlaylistMenu();
@@ -5256,9 +5315,13 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     return invoke<T>(command, args);
   }
 
-  async function importPaths(paths: string[], mode: "replace" | "append" | "none" = "replace"): Promise<Track[]> {
+  async function importPaths(paths: string[], mode: "replace" | "append" | "queue" | "none" = "replace"): Promise<Track[]> {
     await loadCore();
     if (!invoke || !paths.length) return [];
+    // "queue" (round 133) = append to the play queue regardless of which
+    // playlist is selected when the picker closes; "append" keeps its old
+    // meaning (the selected playlist, or the queue when that is selected).
+    const toQueue = mode === "queue" || (mode === "append" && currentPlaylistId === QUEUE_ID);
     let list: Track[];
     try {
       list = await invoke<Track[]>("import_audio_files", {
@@ -5266,14 +5329,14 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
         // "replace" targets the QUEUE, not a playlist: the backend only receives
         // A playlist id when genuinely appending to a real playlist. Import is
         // Append-only on the backend; no playlist replace path remains.
-        playlistId: mode === "append" && currentPlaylistId !== QUEUE_ID ? currentPlaylistId : null,
+        playlistId: mode === "append" && !toQueue ? currentPlaylistId : null,
       });
     } catch (e) {
       toast("Couldn't import the selected file(s) — " + String(e));
       return [];
     }
     const hydrated = list.map(normalizeTrack);
-    if (hydrated.length && (mode === "replace" || (mode === "append" && currentPlaylistId === QUEUE_ID))) {
+    if (hydrated.length && (mode === "replace" || toQueue)) {
       try {
         if (mode === "replace") {
           await invoke("replace_queue_tracks", { trackIds: hydrated.map(t => t.id) });
@@ -5295,7 +5358,7 @@ export function setupLibrary(_audio: HTMLAudioElement, toast: (message: string) 
     busEmit("melo:library-changed", { imported: hydrated.length });
     // Announce the playlist change only when a real playlist was touched —
     // Queue writes already announced themselves above.
-    if (mode === "append" && currentPlaylistId !== QUEUE_ID) busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
+    if (mode === "append" && !toQueue) busEmit("melo:playlist-changed", { playlistId: currentPlaylistId });
     return hydrated;
   }
 

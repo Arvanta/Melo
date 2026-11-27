@@ -210,12 +210,12 @@ width/height; drop it again on mouseup. */
 .player-main { display: flex; flex: 1; gap: 20px; margin-top: 0; min-width: 0; align-items: stretch; }
 /* Cover column: cover on top, volume slider at the bottom aligned with the seek/progress row */
 .cover-col { display: flex; flex-direction: column; justify-content: flex-start; gap: 10px; flex-shrink: 0; min-width: 0; }
-.volume-under { width: 152px; margin-top: auto; } /* same width as the cover */
-/* allow the range input to shrink inside the 152px row (fixes volPct overlapping the seek times) */
+.volume-under { width: 160px; margin-top: auto; } /* same width as the cover */
+/* allow the range input to shrink inside the 160px row (fixes volPct overlapping the seek times) */
 .volume-under input[type="range"].vol { flex: 1 1 0; min-width: 0; width: auto; }
 .volume-under .vol-icon { flex-shrink: 0; }
 .volume-under .vol-pct { min-width: 28px; font-size: 10.5px; flex-shrink: 0; }
-.cover-wrap { width: 152px; height: 152px; flex-shrink: 0; border-radius: 12px; overflow: hidden; background: var(--track-bg); box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
+.cover-wrap { width: 160px; height: 160px; flex-shrink: 0; border-radius: 12px; overflow: hidden; background: var(--track-bg); box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
 .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-fallback { width: 100%; height: 100%; display: grid; place-items: center; background: linear-gradient(135deg, #8fb9e8 0%, #d6b8e0 50%, #f0c9a8 100%); color: white; font-size: 32px; }
 .track-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; }
