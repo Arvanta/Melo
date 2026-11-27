@@ -81,6 +81,16 @@ const DEFAULT_SKIN_EMBER: &str = include_str!("../../skins/Ember.html");
 const DEFAULT_SKIN_MOCHI: &str = include_str!("../../skins/Mochi.html");
 const DEFAULT_SKIN_PANE: &str = include_str!("../../skins/Pane.html");
 const DEFAULT_SKIN_SCRAPBOOK: &str = include_str!("../../skins/Scrapbook.html");
+const DEFAULT_SKIN_AFTERGLOW: &str = include_str!("../../skins/Afterglow.html");
+const DEFAULT_SKIN_DECK: &str = include_str!("../../skins/Deck.html");
+const DEFAULT_SKIN_FLAT: &str = include_str!("../../skins/Flat.html");
+const DEFAULT_SKIN_SHELL: &str = include_str!("../../skins/Shell.html");
+const DEFAULT_SKIN_STRATUS: &str = include_str!("../../skins/Stratus.html");
+const DEFAULT_SKIN_SKYLINE: &str = include_str!("../../skins/skyline.html");
+const DEFAULT_SKIN_STROLL: &str = include_str!("../../skins/Stroll.html");
+const DEFAULT_SKIN_CASSETTE: &str = include_str!("../../skins/cassette.html");
+const DEFAULT_SKIN_TICKET: &str = include_str!("../../skins/ticket.html");
+const DEFAULT_SKIN_TUNER: &str = include_str!("../../skins/tuner.html");
 
 /// Every skin shipped in `skins/` (the guide is handled separately). They are
 /// written into the user's skins folder when missing — see
@@ -110,6 +120,16 @@ const BUNDLED_SKINS: &[(&str, &str)] = &[
     ("Mochi.html", DEFAULT_SKIN_MOCHI),
     ("Pane.html", DEFAULT_SKIN_PANE),
     ("Scrapbook.html", DEFAULT_SKIN_SCRAPBOOK),
+    ("Afterglow.html", DEFAULT_SKIN_AFTERGLOW),
+    ("Deck.html", DEFAULT_SKIN_DECK),
+    ("Flat.html", DEFAULT_SKIN_FLAT),
+    ("Shell.html", DEFAULT_SKIN_SHELL),
+    ("Stratus.html", DEFAULT_SKIN_STRATUS),
+    ("skyline.html", DEFAULT_SKIN_SKYLINE),
+    ("Stroll.html", DEFAULT_SKIN_STROLL),
+    ("cassette.html", DEFAULT_SKIN_CASSETTE),
+    ("ticket.html", DEFAULT_SKIN_TICKET),
+    ("tuner.html", DEFAULT_SKIN_TUNER),
 ];
 
 // ---- Helpers ----
@@ -434,6 +454,16 @@ fn ensure_default_skins_on_disk(skins_dir: &Path) {
         ("Mochi.html", DEFAULT_SKIN_MOCHI),
         ("Pane.html", DEFAULT_SKIN_PANE),
         ("Scrapbook.html", DEFAULT_SKIN_SCRAPBOOK),
+        ("Afterglow.html", DEFAULT_SKIN_AFTERGLOW),
+        ("Deck.html", DEFAULT_SKIN_DECK),
+        ("Flat.html", DEFAULT_SKIN_FLAT),
+        ("Shell.html", DEFAULT_SKIN_SHELL),
+        ("Stratus.html", DEFAULT_SKIN_STRATUS),
+        ("skyline.html", DEFAULT_SKIN_SKYLINE),
+        ("Stroll.html", DEFAULT_SKIN_STROLL),
+        ("cassette.html", DEFAULT_SKIN_CASSETTE),
+        ("ticket.html", DEFAULT_SKIN_TICKET),
+        ("tuner.html", DEFAULT_SKIN_TUNER),
     ] {
         let f = skins_dir.join(fname);
         if !f.exists() {

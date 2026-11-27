@@ -255,6 +255,32 @@ export async function listInstalledSkins(): Promise<SkinItem[]> {
   return [];
 }
 
+/**
+ * Returns the skin id that is REALLY usable. A saved id that is not in the
+ * installed list (file deleted/renamed) is persisted as "default" right here
+ * (resetSkin) so no screen keeps using a dead id. When the list cannot be
+ * obtained (browser mode, backend error) the id is returned unchanged: an
+ * unknown list must never wipe a good skin.
+ */
+export async function resolveSkinId(id: string, broadcast = true): Promise<string> {
+  if (!id || id === "default") return "default";
+  if (!isTauri) return id;
+  let list: SkinItem[];
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const r = await invoke("list_installed_skins");
+    if (!Array.isArray(r)) return id;
+    list = r as SkinItem[];
+  } catch { return id; }
+  const ok = list.some(it =>
+    it.filename === id || it.id === id ||
+    `${it.filename}` === `${id}.html` ||
+    id === `${it.filename}`.replace(/\.html$/, ""));
+  if (ok) return id;
+  resetSkin(undefined, broadcast);
+  return "default";
+}
+
 export async function loadSkinFromDisk(
   filenameOrPath: string,
   toast?: (m: string) => void,

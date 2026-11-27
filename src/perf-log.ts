@@ -22,8 +22,9 @@ export function perfNote(line: string) {
 }
 
 /** Asks the backend what is on disk for a file that failed to play (exists / size / can be opened). */
-export function perfProbeFile(path: string) {
-  void send("perf_probe_file", { path }).catch(() => {});
+export function perfProbeFile(path: string): Promise<boolean> {
+  // Resolves true only when the backend found the file AND could open it.
+  return send("perf_probe_file", { path }).then((r) => r === true).catch(() => false);
 }
 
 /** Database queue length (the number the queue views show), or null if unavailable. */

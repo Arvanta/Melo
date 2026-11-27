@@ -1183,8 +1183,9 @@ test("a deleted skin is detected BEFORE window geometry is applied at boot", () 
   const checkIdx = main.indexOf("deleted-skin boot check");
   assert.ok(checkIdx > 0 && geoIdx > 0 && checkIdx < geoIdx,
     "the existence check must run before getTargetSize() is first used");
-  assert.match(main, /listInstalledSkins\(\)/, "the check must consult the installed skins list");
-  assert.match(main, /if \(!exists\) resetSkin\(undefined, false\);/, "a missing skin must reset BEFORE geometry");
+  const boot = main.slice(checkIdx, geoIdx);
+  assert.match(boot, /await resolveSkinId\(bootSkinId, false\)/, "the boot check resolves the id against the installed list (round 135)");
+  assert.match(readSrc("src/skin.ts"), /resetSkin\(undefined, broadcast\);\s*return "default";/, "a missing skin resets and persists default");
   const firstReg = main.indexOf('busOn("melo:skin-geometry"');
   assert.ok(firstReg > 0 && firstReg < main.indexOf("mainWin.onCloseRequested"),
     "the handler must sit at the TOP of the main-window block (it used to be at the end and missed the fallback emit)");
@@ -1820,7 +1821,7 @@ test("Settings → Skins: the 'Reset to Default' button is gone (boot fallback s
   assert.doesNotMatch(src, /Reset to Default<\/button>/, "no such button is rendered");
   // Removing the button must NOT remove the engine's own reset used when the
   // installed skin file vanishes at boot.
-  assert.match(src, /if \(!exists\) resetSkin\(undefined, false\);/, "boot fallback reset kept");
+  assert.match(src, /resolveSkinId\(bootSkinId, false\)/, "boot fallback reset kept (via resolveSkinId, round 135)");
   const skin = readSrc("src/skin.ts");
   assert.match(skin, /export function resetSkin\(/, "skin engine still exports resetSkin");
 });
@@ -2663,4 +2664,50 @@ test("round 117c: side list serves albums and genres; seek-bar wheel scrubs; Sto
   const compact = fs.readFileSync(path.join(here, "..", "skins", "bean-compact.html"), "utf8");
   assert.match(bean, /top: 11px; bottom: 11px;/);
   assert.match(compact, /width: 100%; height: 12px;/);
+});
+
+
+// ─── Round 135 ───
+test("round 135: a skin id missing from the installed list becomes default in Settings and at boot; chips follow the effective id", () => {
+  const skin = readSrc("src/skin.ts");
+  const main = readSrc("src/main.ts");
+  assert.match(skin, /export async function resolveSkinId\(id: string, broadcast = true\)/);
+  assert.match(skin, /if \(!Array\.isArray\(r\)\) return id;/, "an unknown list never wipes a good skin");
+  assert.match(skin, /catch \{ return id; \}/, "backend failure keeps the id");
+  assert.match(main, /const currentVal = await resolveSkinId\(/, "dropdown validates the stored id");
+  assert.match(main, /await refreshSkinFeatures\(skinSelect\.value \|\| "default"\)/, "chips use the real selected value");
+  assert.match(main, /async function refreshSkinFeatures\(effectiveId\?: string\)/);
+});
+
+test("round 135: one silent retry for read errors (MediaError 2) when the file is on disk; honest message", () => {
+  const p = readSrc("src/player.ts");
+  assert.match(p, /async function maybeRetryRead\(el: HTMLAudioElement\)/);
+  assert.match(p, /code !== 2\) \{ handlePlaybackError\(false\)/, "only code 2 retries");
+  assert.match(p, /retriedTrackId === key/, "one retry per track");
+  assert.match(p, /couldn't read the file just now/, "corrected message");
+  assert.match(p, /read-retry OK/);
+  assert.match(readSrc("src/perf-log.ts"), /export function perfProbeFile\(path: string\): Promise<boolean>/);
+  assert.match(readSrc("src-tauri/src/library_db.rs"), /pub fn perf_probe_file\(path: String, state: State<'_, LibraryState>\) -> bool/);
+});
+
+test("round 135: seven new visualizers are registered, drawn, and use their own rhythm layer", () => {
+  const v = readSrc("src/visualizer.ts");
+  for (const m of ["Skyline", "Strings", "Electric Arc", "Pearls", "Sidechain", "Bounce", "Spring Curtain"]) {
+    assert.ok(v.includes(`{ id: "${m}", label: "${m}" }`), `${m} in VIZ_MODES`);
+    assert.ok(v.includes(`mode === "${m}"`), `${m} in draw()`);
+  }
+  assert.match(v, /function wideSignals\(n: number\): WideSignals/);
+  assert.match(v, /function punchSignals\(n: number\): PunchSignals/, "the old rhythm layer is untouched");
+  assert.ok(!/wideSignals\(/.test(v.slice(v.indexOf("function drawSparks"), v.indexOf("function drawSparks") + 2500)), "old scenes don't use the new layer");
+});
+
+test("round 135: ten new bundled skins are embedded, seeded and synced", () => {
+  const main = readSrc("src-tauri/src/main.rs");
+  for (const [k, f] of [["AFTERGLOW", "Afterglow.html"], ["DECK", "Deck.html"], ["FLAT", "Flat.html"], ["SHELL", "Shell.html"], ["STRATUS", "Stratus.html"], ["SKYLINE", "skyline.html"], ["STROLL", "Stroll.html"], ["CASSETTE", "cassette.html"], ["TICKET", "ticket.html"], ["TUNER", "tuner.html"]]) {
+    assert.match(main, new RegExp(`const DEFAULT_SKIN_${k}: &str = include_str!\\("\\.\\./\\.\\./skins/${f.replace(".", "\\.")}"\\);`), f);
+    assert.equal((main.match(new RegExp(`\\("${f.replace(".", "\\.")}", DEFAULT_SKIN_${k}\\),`, "g")) || []).length, 2, `${f} in BUNDLED_SKINS and the first-run list`);
+    const html = readSrc(`skins/${f}`);
+    assert.match(html, /data-melo="seek"|id="seek"/, `${f} has a seek control`);
+    assert.doesNotMatch(html, /https?:\/\/(?!www\.w3\.org)/, `${f} loads nothing from the network`);
+  }
 });

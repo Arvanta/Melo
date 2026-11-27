@@ -1143,11 +1143,50 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       try { src = decodeURIComponent(el.currentSrc || el.src || ""); } catch { src = el.currentSrc || el.src || ""; }
       perfNote(`playback error (${where}) code=${e?.code ?? "?"} message="${e?.message ?? ""}" networkState=${el.networkState} readyState=${el.readyState} index=${currentIndex}/${queue.length} src=${src.slice(0, 220)}`);
       const path = t?.path || t?.id;
-      if (path) perfProbeFile(String(path));
+      if (path) void perfProbeFile(String(path));
     } catch { /* diagnostics must never break playback */ }
   }
 
-  function handlePlaybackError() {
+  // Round 135: a MediaError code 2 (read/network) on a file that IS on disk is
+  // usually transient (HDD busy with scan/artwork/waveform reads). Retry the
+  // same track ONCE, silently; only if it fails again does the normal
+  // skip/stop logic run, and the toast then says the file could not be READ
+  // (not "missing") when it exists. One retry per track, never a loop.
+  let retriedTrackId: string | null = null;
+  async function maybeRetryRead(el: HTMLAudioElement) {
+    const t: any = queue[currentIndex];
+    const idx = currentIndex;
+    const path = t?.path || t?.id;
+    const code = el.error?.code;
+    if (!t || !path || code !== 2) { handlePlaybackError(false); return; }
+    const readable = await perfProbeFile(String(path));
+    if (el !== audio || idx !== currentIndex || queue[currentIndex] !== t) return; // user moved on meanwhile
+    if (!readable) { handlePlaybackError(false); return; }
+    const key = `${idx}:${t.id}`;
+    if (retriedTrackId === key) {
+      perfNote(`read-retry FAILED again index=${idx} path=${String(path).slice(0, 200)}`);
+      retriedTrackId = null;
+      handlePlaybackError(true);
+      return;
+    }
+    retriedTrackId = key;
+    perfNote(`read-retry start index=${idx} path=${String(path).slice(0, 200)}`);
+    const pos = el.currentTime || 0;
+    await new Promise((r) => setTimeout(r, 400));
+    if (el !== audio || idx !== currentIndex || queue[currentIndex] !== t) return;
+    try {
+      el.src = await resolveSrc(t.path);
+      el.load();
+      if (pos > 1) {
+        const onMeta = () => { el.removeEventListener("loadedmetadata", onMeta); try { el.currentTime = pos; } catch {} };
+        el.addEventListener("loadedmetadata", onMeta);
+      }
+      el.addEventListener("playing", () => { perfNote(`read-retry OK index=${idx}`); if (retriedTrackId === key) retriedTrackId = null; }, { once: true });
+      await el.play();
+    } catch { /* a failure raises another error event, handled above */ }
+  }
+
+  function handlePlaybackError(fileOnDisk = false) {
     const t = queue[currentIndex];
     consecutiveErrors++;
     const cap = Math.min(10, Math.max(1, queue.length));
@@ -1155,10 +1194,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
       pause();
       toast(consecutiveErrors > 1
         ? `Stopped — ${consecutiveErrors} tracks in a row couldn't play (files missing or moved)`
-        : (t ? `Couldn't play "${t.title}" — file may be missing or moved` : "Couldn't play the selected track"));
+        : (t ? `Couldn't play "${t.title}" — ${fileOnDisk ? "couldn't read the file just now" : "file may be missing or moved"}` : "Couldn't play the selected track"));
       return;
     }
-    toast(`Skipping "${t ? t.title : "track"}" — file may be missing or moved`);
+    toast(`Skipping "${t ? t.title : "track"}" — ${fileOnDisk ? "couldn't read the file just now" : "file may be missing or moved"}`);
     next();
   }
 
@@ -1234,7 +1273,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     el.addEventListener("error", () => {
       if (el !== audio) return;
       logPlaybackError(el, "main deck");
-      handlePlaybackError();
+      void maybeRetryRead(el);
     });
   }
 

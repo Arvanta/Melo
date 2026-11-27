@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Melo — Afterglow</title>
+<style>
+  /*
+    AFTERGLOW — same idea as Afterglow (the cover IS the window), refined:
+      · one memorable thing: the title, large and weighty;
+        everything around it stays quiet (sentence case, no tracked-out caps, calmer chips)
+      · the cover melts out on an eased curve (same reach as before, no visible band) and all
+        text on the right carries a soft shadow so it stays readable on any cover
+      · live status: tiny equalizer bars next to "Now playing" instead of a pulsing dot
+      · seek bar shows its handle only on hover; shuffle / repeat get a small "on" dot
+      · RTL-safe text lines (Persian / Arabic titles align and truncate correctly)
+      · waveform hover time is no longer clipped
+    The accent follows the cover when Melo's ambient theme is on. Dark = night room, light = paper.
+    Fixed 620×278. Every data-melo hook / id / html class of the original is preserved.
+  */
+  :root, [data-theme="dark"] {
+    --bg: #101216; --ink: #f4f0ea; --mute: #a8a29a; --line: rgba(255,255,255,.12); --glass: rgba(18,20,24,.58); --glass-line: rgba(255,255,255,.16);
+    --accent: #ff8a5c; --visualizer: #ff8a5c; --track-bg: rgba(255,255,255,.14); --tint: 16%; --btn-hover: rgba(255,255,255,.09);
+  }
+  [data-theme="light"] {
+    --bg: #f6f2eb; --ink: #241f1a; --mute: #6f655a; --line: rgba(0,0,0,.12); --glass: rgba(255,255,255,.62); --glass-line: rgba(0,0,0,.1);
+    --accent: #e0531f; --visualizer: #e0531f; --track-bg: rgba(0,0,0,.13); --tint: 13%; --btn-hover: rgba(0,0,0,.07);
+  }
+  :root {
+    --ui: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --on-accent: #fff;
+    --ease: cubic-bezier(.2, .7, .2, 1);
+    /* soft readability shadow, opposite tone of the ink (see "Soft shadow" note) */
+    --halo: 0 1px 2px color-mix(in srgb, var(--bg) 52%, transparent), 0 2px 12px color-mix(in srgb, var(--bg) 40%, transparent);
+    --cover-fade: linear-gradient(90deg, #000 0, #000 52%, rgba(0,0,0,.72) 62%, rgba(0,0,0,.42) 72%, rgba(0,0,0,.2) 83%, rgba(0,0,0,.06) 93%, transparent 100%);
+  }
+  * { box-sizing: border-box; min-width: 0; }
+  html, body { margin: 0; }
+  button { font: inherit; }
+  body:not(.tauri-main):has(#melo-player) { min-height: 100vh; padding: 24px; display: grid; place-items: center; background: #07080a; }
+  [data-theme="light"] body:not(.tauri-main):has(#melo-player) { background: #dcd7cf; }
+
+  #melo-player, body.tauri-main .player-card, body.custom-skin-active .player-card {
+    position: relative; width: 620px; height: 278px; margin: 0; padding: 0; overflow: hidden; border-radius: 0 !important;
+    color: var(--ink); background: transparent; border: 0; box-shadow: none; font: 13px/1.3 var(--ui); -webkit-font-smoothing: antialiased;
+  }
+  body.tauri-main, body.tauri-main .app-shell { min-width: 0 !important; }
+  body.tauri-main .player-card, body.custom-skin-active .player-card {
+    width: 100% !important; height: 100vh !important; min-width: 0 !important; min-height: 0 !important; max-height: 100vh !important;
+    padding: 0 !important; margin: 0 !important; overflow: hidden !important; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important;
+  }
+
+  .af-root {
+    position: absolute; inset: 0; overflow: hidden;
+    background:
+      radial-gradient(70% 90% at 78% 8%, color-mix(in srgb, var(--accent) var(--tint), transparent), transparent 70%),
+      var(--bg);
+    transition: background .6s ease;
+  }
+  /* hairline that defines the frameless window edge */
+  .af-root::after { content: ""; position: absolute; inset: 0; z-index: 25; pointer-events: none; box-shadow: inset 0 0 0 1px var(--line); }
+  button:focus-visible, input:focus-visible, label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ───── the cover, bleeding in from the left ───── */
+  .af-cover, .af-fb { position: absolute; left: 0; top: 0; bottom: 0; width: 58%; height: 100%;
+    -webkit-mask-image: var(--cover-fade); mask-image: var(--cover-fade); }
+  .af-cover { object-fit: cover; display: none; }
+  .af-fb { display: grid; place-items: center; padding-right: 20%; font: 700 64px/1 var(--serif); color: color-mix(in srgb, var(--ink) 55%, transparent);
+    background: radial-gradient(90% 90% at 25% 30%, color-mix(in srgb, var(--accent) 55%, var(--bg)), color-mix(in srgb, var(--accent) 12%, var(--bg)) 70%); }
+  .af-shade { position: absolute; left: 0; top: 0; bottom: 0; width: 58%; pointer-events: none;
+    -webkit-mask-image: linear-gradient(90deg, #000 0, #000 52%, transparent 100%); mask-image: linear-gradient(90deg, #000 0, #000 52%, transparent 100%);
+    background: linear-gradient(180deg, rgba(0,0,0,.4), transparent 30%, transparent 60%, rgba(0,0,0,.52)); }
+
+  /* ───── top bar ───── */
+  .af-bar { position: absolute; left: 0; right: 0; top: 0; height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 12px; -webkit-app-region: drag; user-select: none; z-index: 30; }
+  .af-spacer { flex: 1 1 auto; }
+  .af-menu { position: relative; z-index: 60; -webkit-app-region: no-drag; }
+  .af-mchk { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+  .af-mbtn { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 12px 0 9px; border-radius: 999px; cursor: pointer; color: #fff;
+    background: rgba(12,12,14,.42); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+    font: 700 12.5px/1 var(--ui); letter-spacing: .01em; transition: background .15s; }
+  .af-mbtn i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .af-mbtn:hover, .af-mchk:checked ~ .af-mbtn { background: rgba(12,12,14,.62); }
+  .af-pop, .af-scrim { display: none; }
+  .af-mchk:checked ~ .af-pop { display: block; animation: af-pop .14s var(--ease); }
+  .af-mchk:checked ~ .af-scrim { display: block; position: fixed; inset: 0; z-index: 55; cursor: default; -webkit-app-region: no-drag; }
+  @keyframes af-pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .af-pop { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; min-width: 168px; padding: 5px; border-radius: 12px; background: var(--bg); color: var(--ink);
+    box-shadow: 0 14px 34px rgba(0,0,0,.45), 0 0 0 1px var(--line); }
+  .af-item { display: block; height: 30px; padding: 0 11px; line-height: 30px; border-radius: 8px; cursor: pointer; font-size: 12.5px; white-space: nowrap; }
+  .af-item:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+  .af-tools { display: flex; align-items: center; gap: 1px; -webkit-app-region: no-drag; }
+  .af-tools button { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--mute); cursor: pointer; display: grid; place-items: center; transition: background .12s, color .12s; }
+  .af-tools button:hover { background: var(--btn-hover); color: var(--ink); }
+  .af-tools svg { width: 14px; height: 14px; }
+  .af-sep { width: 1px; height: 14px; margin: 0 5px; background: var(--line); }
+  .af-win { width: 26px !important; font-size: 15px; line-height: 1; }
+  .af-win.close:hover { background: #e5484d !important; color: #fff !important; }
+
+  /* glass chips over the cover (embedded Lyrics / Queue toggles) */
+  .af-chips { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; z-index: 30; -webkit-app-region: no-drag; }
+  .af-chip, .af-chip.stage-btn { width: auto; min-width: 0; flex: 0 0 auto; white-space: nowrap; height: 26px; padding: 0 13px; border: 0; border-radius: 999px; cursor: pointer; color: #fff; font: 600 12px/1 var(--ui);
+    background: rgba(12,12,14,.42); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); transition: background .15s, color .15s; }
+  .af-chip:hover { background: rgba(12,12,14,.62); }
+  .af-chip.stage-btn { border-radius: 999px; color: #fff; }
+  .af-chip.active { background: var(--accent); color: var(--on-accent); box-shadow: none; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+
+  /* ───── right pane ───── */
+  .af-pane { position: absolute; left: 41%; right: 18px; top: 40px; bottom: 14px; display: flex; flex-direction: column; min-height: 0; }
+  .af-pane > * { flex-shrink: 0; }
+  .af-pane > .af-viz { flex-shrink: 1; }
+  .af-kicker, .af-title, .af-artist, .af-album, .af-lyric, .af-tags span, .af-seekrow .t { text-shadow: var(--halo); }
+
+  /* status line: equalizer bars + "Now playing" / "Paused" */
+  .af-kicker { display: flex; align-items: center; gap: 7px; font: 600 11.5px/1 var(--ui); letter-spacing: .01em; color: var(--mute); }
+  .af-kicker::before { content: ""; width: 12px; height: 11px; flex: 0 0 12px;
+    background: linear-gradient(currentColor, currentColor) 0 100% / 2px 35% no-repeat,
+                linear-gradient(currentColor, currentColor) 5px 100% / 2px 35% no-repeat,
+                linear-gradient(currentColor, currentColor) 10px 100% / 2px 35% no-repeat; }
+  .af-kicker::after { content: "Paused"; }
+  .af-root:has([data-melo="pause-icon"][style*="block"]) .af-kicker { color: var(--accent); }
+  .af-root:has([data-melo="pause-icon"][style*="block"]) .af-kicker::before { animation: af-eq 1.1s ease-in-out infinite; }
+  .af-root:has([data-melo="pause-icon"][style*="block"]) .af-kicker::after { content: "Now playing"; }
+  @keyframes af-eq {
+    0%, 100% { background-size: 2px 30%, 2px 85%, 2px 50%; }
+    33%      { background-size: 2px 90%, 2px 40%, 2px 80%; }
+    66%      { background-size: 2px 55%, 2px 100%, 2px 35%; }
+  }
+  @media (prefers-reduced-motion: reduce) { .af-root * { animation: none !important; transition: none !important; } }
+
+  /* title = the memorable element */
+  .af-title, .af-artist, .af-album, .af-lyric { unicode-bidi: plaintext; }
+  .af-title { margin-top: 6px; font: 600 26px/32px var(--ui); letter-spacing: -.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .af-artist { margin-top: 1px; font: 600 14px/19px var(--ui); color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .af-album { margin-top: 1px; font: italic 12.5px/17px var(--serif); color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 17px; }
+  .af-krow { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
+  .af-kicker { flex: 0 0 auto; }
+  .af-tags { display: flex; gap: 5px; min-width: 0; font: 600 10px/14px var(--ui); letter-spacing: .02em; color: var(--mute); font-variant-numeric: tabular-nums; }
+  .af-tags span { padding: 0 6px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; }
+  .af-tags span:empty { display: none; }
+  .af-tags span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Star rating — Melo fills [data-melo="rating"] with five .rate-star buttons (.on = filled).
+     It sits just left of the codec / specs tags (margin-left:auto pushes it against them). The app's
+     default .track-rating spacing and 17px stars are overridden to fit the 14px row.
+     Hover preview: .pv-add = stars a click would fill (accent, dimmed); .pv-remove = stars it would empty
+     (still filled, dimmed). The :hover variants out-rank the app's own .rate-star.pv-*:hover rules. */
+  .af-rating.track-rating { flex: 0 0 auto; margin: 0 0 0 auto; min-height: 0; height: 14px; gap: 0; align-items: center; }
+  .af-rating .rate-star { padding: 0 1px; font-size: 13px; line-height: 14px; opacity: 1; text-shadow: var(--halo);
+    color: color-mix(in srgb, var(--mute) 60%, transparent); transition: color .12s ease, opacity .12s ease; }
+  .af-rating .rate-star.on { color: var(--accent); }
+  .af-rating .rate-star.pv-add, .af-rating .rate-star.pv-add:hover { color: var(--accent); opacity: .5; }
+  .af-rating .rate-star.pv-remove, .af-rating .rate-star.pv-remove:hover { color: var(--accent); opacity: .4; }
+  .af-rating .rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+  .af-lyric { display: none; margin-top: 5px; font: italic 13px/17px var(--serif); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  html.melo-lyric-skin-on .af-lyric { display: block; }
+  html.melo-lyric-skin-on .af-lyric.melo-lyric-empty { display: none; }
+  .af-lyric.melo-lyric-tick { animation: af-in .25s ease-out both; }
+  @keyframes af-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .af-viz { position: relative; flex: 1 1 auto; min-height: 20px; margin: 6px 0 4px; }
+  .af-viz-in { position: absolute !important; inset: 0 !important; width: auto !important; height: auto !important; display: block !important; overflow: hidden !important; cursor: pointer; padding: 0 !important; }
+  .af-viz-in canvas { width: 100% !important; height: 100% !important; display: block; }
+
+  /* seek: thin track, handle only on hover / drag / keyboard focus */
+  .af-seekrow { flex: 0 0 auto; margin: 4px 0; display: flex; align-items: center; gap: 10px; font: 600 11.5px/1 var(--ui); color: var(--mute); font-variant-numeric: tabular-nums; }
+  .af-seekrow .t { min-width: 34px; }
+  .af-seekrow .t:last-child { text-align: right; }
+  .af-seekwrap { position: relative; flex: 1 1 auto; height: 20px; display: flex; align-items: center; }
+  html.melo-wave-on .af-seekwrap { height: 20px; }
+  .af-seek { width: 100%; height: 20px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; outline: none; }
+  .af-seek::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--progress,0%), var(--track-bg) var(--progress,0%)); }
+  .af-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4px; border-radius: 50%; background: var(--accent); transform: scale(0);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); transition: transform .14s var(--ease); }
+  .af-seek:hover::-webkit-slider-thumb, .af-seek:active::-webkit-slider-thumb, .af-seek:focus-visible::-webkit-slider-thumb { transform: scale(1); }
+  .af-seek::-moz-range-track { height: 3px; border-radius: 2px; background: var(--track-bg); }
+  .af-seek::-moz-range-progress { height: 3px; border-radius: 2px; background: var(--accent); }
+  .af-seek::-moz-range-thumb { width: 11px; height: 11px; border: 0; border-radius: 50%; background: var(--accent); }
+  /* waveform: overflow stays visible so the hover-time tooltip (it sits above the slot) is not clipped */
+  [data-melo="waveform"] { --melo-wave-played: var(--accent); --melo-wave-rest: color-mix(in srgb, var(--ink) 24%, transparent); display: none; position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 3; overflow: visible; cursor: pointer; touch-action: none; -webkit-app-region: no-drag; }
+  html.melo-wave-on [data-melo="waveform"] { display: block; }
+  html.melo-wave-on .af-seek { opacity: 0; pointer-events: none; }
+
+  /* transport: play is the only filled control; the rest stay quiet */
+  .af-ctl { flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+  .af-keys { display: flex; align-items: center; gap: 3px; }
+  .af-k { position: relative; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; display: grid; place-items: center; transition: background .15s, color .15s, transform .12s var(--ease); }
+  .af-k:hover { background: var(--btn-hover); }
+  .af-k:active { transform: scale(.94); }
+  .af-k svg { width: 16px; height: 16px; }
+  .af-k.sm { width: 28px; height: 28px; color: var(--mute); }
+  .af-k.sm svg { width: 14px; height: 14px; }
+  .af-k.sm.active { color: var(--accent); background: transparent; }
+  .af-k.sm.active::after { content: ""; position: absolute; left: 50%; bottom: 1px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+  .af-k.play { width: 44px; height: 44px; color: var(--on-accent); background: var(--accent); margin: 0 3px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .af-k.play:hover { background: color-mix(in srgb, var(--accent) 90%, #000); transform: scale(1.05); }
+  .af-k.play svg { width: 18px; height: 18px; }
+  .af-vol { display: flex; align-items: center; gap: 6px; }
+  .af-vol .ico { position: relative; width: 16px; height: 16px; color: var(--mute); cursor: pointer; transition: color .12s; }
+  .af-vol .ico:hover { color: var(--ink); }
+  .af-vol .ico svg { position: absolute; inset: 0; width: 16px; height: 16px; }
+  .af-vol .ico .mu { opacity: 0; } .af-vol .ico.muted .mu { opacity: 1; } .af-vol .ico.muted .wv { opacity: 0; }
+  .af-volbar { width: 72px; height: 14px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; outline: none; }
+  .af-volbar::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--ink) var(--vol,60%), var(--track-bg) var(--vol,60%)); }
+  .af-volbar::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -3.5px; border-radius: 50%; background: var(--ink); transform: scale(0); transition: transform .14s var(--ease); }
+  .af-volbar:hover::-webkit-slider-thumb, .af-volbar:active::-webkit-slider-thumb, .af-volbar:focus-visible::-webkit-slider-thumb { transform: scale(1); }
+  .af-volbar::-moz-range-thumb { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--ink); }
+  .af-pct { display: none; }
+
+  /* embedded Lyrics / Queue: a glass card on the cover side, above the chips,
+     so the title, visualizer and transport on the right stay visible */
+  .af-panel { position: absolute; left: 12px; width: calc(41% - 24px); top: 42px; bottom: 46px; z-index: 20; display: none; flex-direction: column; border-radius: 12px; overflow: hidden;
+    background: var(--glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: inset 0 0 0 1px var(--glass-line); }
+  html.melo-show-lyrics .af-panel, html.melo-show-playlist .af-panel { display: flex; animation: af-pop .16s var(--ease); }
+  .af-phead { flex: 0 0 28px; display: flex; align-items: center; padding: 0 14px; font: 700 12px/1 var(--ui); letter-spacing: .01em; color: var(--accent); border-bottom: 1px solid var(--line); }
+  html.melo-show-playlist .af-ptitle::after { content: "Up next"; }
+  html.melo-show-lyrics .af-ptitle::after { content: "Lyrics"; }
+  .af-pbody { position: relative; flex: 1 1 auto; min-height: 0; }
+  .af-pbody [data-melo="embedded-playlist"], .af-pbody [data-melo="embedded-lyrics"] { display: none; height: 100%; }
+  html.melo-show-playlist .af-pbody [data-melo="embedded-playlist"], html.melo-show-lyrics .af-pbody [data-melo="embedded-lyrics"] { display: block; }
+  .af-pbody .embedded-lyrics-title { display: none; }
+  .af-pbody .embedded-playlist, .af-pbody .embedded-lyrics { height: 100% !important; max-height: 100% !important; overflow-y: auto !important; overflow-x: hidden !important; padding: 4px 8px !important; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .af-pbody .embedded-playlist-mini .embedded-playlist-row { display: flex; align-items: center; gap: 9px; height: 30px; min-height: 30px; padding: 0 8px !important; border-radius: 8px; color: var(--ink); }
+  .af-pbody .embedded-playlist-mini .embedded-playlist-row:hover { background: var(--btn-hover); }
+  .af-pbody .embedded-playlist-mini .embedded-playlist-row .t-title { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; }
+  .af-pbody .embedded-playlist-mini .embedded-playlist-row.active { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); font-weight: 700; }
+  .af-pbody .embedded-playlist-mini .ep-meta { flex: 1 1 auto; min-width: 0; }
+  /* mini covers are shown (the engine renders them when Settings → embedded playlist covers is on) */
+  .af-pbody .embedded-playlist-mini .track-cover-mini { display: grid !important; place-items: center; flex: 0 0 22px; width: 22px !important; height: 22px !important; border-radius: 6px; font-size: 11px; line-height: 1; color: var(--mute); background-color: var(--btn-hover); box-shadow: 0 1px 3px rgba(0,0,0,0.28); overflow: hidden; }
+  .af-pbody .embedded-playlist-mini .embedded-playlist-row.active .track-cover-mini { box-shadow: 0 0 0 1.5px var(--accent), 0 1px 3px rgba(0,0,0,0.28); }
+  .af-pbody .embedded-playlist-empty, .af-pbody .embedded-playlist-more { font-size: 12px; color: var(--mute); background: transparent; border: 0; padding: 4px 8px; text-align: left; cursor: pointer; }
+  .af-pbody .lyric-line { padding: 2px 8px; font: italic 14px/1.5 var(--serif); color: var(--mute); overflow-wrap: anywhere; unicode-bidi: plaintext; transition: color .2s; }
+  .af-pbody .lyric-line.active { color: var(--ink); font-style: normal; font-weight: 700; }
+</style>
+</head>
+<body data-window-width="620" data-window-height="278" data-min-width="620" data-min-height="278" data-max-width="620" data-max-height="278" data-resizable="false">
+<div id="melo-player">
+  <div class="af-root">
+
+    <img class="af-cover" data-melo="cover" id="coverImg" alt="cover" style="display:none">
+    <div class="af-fb" data-melo="cover-fallback" id="coverFallback">♪</div>
+    <div class="af-shade"></div>
+
+    <header class="af-bar" data-tauri-drag-region>
+      <div class="af-menu">
+        <input class="af-mchk" type="checkbox" id="af-m" aria-label="Menu">
+        <label class="af-mbtn" for="af-m" title="Menu"><i></i>Melo</label>
+        <label class="af-scrim" for="af-m" aria-hidden="true"></label>
+        <div class="af-pop">
+          <label class="af-item" for="af-m" data-melo="add-files">Open files…</label>
+          <label class="af-item" for="af-m" data-melo="add-folder">Open folder…</label>
+          <label class="af-item" for="af-m" data-melo="theme-toggle">Switch theme</label>
+        </div>
+      </div>
+      <span class="af-spacer" data-tauri-drag-region></span>
+      <div class="af-tools">
+        <button data-melo="toggle-library" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+        <button data-melo="toggle-playlist" title="Playlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6M12 12H3M16 6H3M12 18H3"/><circle cx="18.5" cy="15.5" r="2.5"/></svg></button>
+        <button data-melo="toggle-eq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
+        <button data-melo="toggle-lyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+        <button data-melo="toggle-settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
+        <span class="af-sep"></span>
+        <button class="af-win" data-melo="minimize" aria-label="minimize" title="Minimize">–</button>
+        <button class="af-win close" data-melo="close" aria-label="close" title="Close">×</button>
+      </div>
+    </header>
+
+    <div class="af-chips">
+      <button class="af-chip stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics">Lyrics</button>
+      <button class="af-chip stage-btn" data-melo="toggle-embedded-playlist" title="Up next">Queue</button>
+    </div>
+
+    <main class="af-pane">
+      <div class="af-krow"><div class="af-kicker"></div><div class="af-rating" data-melo="rating"></div><div class="af-tags"><span data-melo="codec"></span><span data-melo="specs"></span></div></div>
+      <div class="af-title" data-melo="title" id="trackTitle">No track loaded</div>
+      <div class="af-artist" data-melo="artist" id="trackArtist">Add music to start playing</div>
+      <div class="af-album" data-melo="album" id="trackAlbum"></div>
+      <div class="af-lyric" data-melo="current-lyric" title="Click to seek" aria-live="polite"></div>
+
+      <div class="af-viz"><div class="af-viz-in" data-melo="visualizer" id="vizBars" data-bars="44"></div></div>
+
+      <div class="af-seekrow">
+        <span class="t" data-melo="current-time" id="curTime">0:00</span>
+        <div class="af-seekwrap">
+          <div data-melo="waveform"></div>
+          <input class="af-seek" type="range" data-melo="seek" id="seekBar" min="0" max="100" value="0" aria-label="Seek">
+        </div>
+        <span class="t" data-melo="duration" id="durTime">0:00</span>
+      </div>
+
+      <div class="af-ctl">
+        <div class="af-keys">
+          <button class="af-k sm" data-melo="shuffle" id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M16 21h5v-5M15 15l6 6M4 4l5 5"/></svg></button>
+          <button class="af-k" data-melo="prev" id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 20 9 12l10-8z"/><rect x="5" y="4" width="3" height="16" rx="1"/></svg></button>
+          <button class="af-k play" data-melo="play" id="btnPlay" title="Play / Pause">
+            <svg data-melo="pause-icon" id="iconPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16" rx="1.2"/><rect x="14" y="4" width="4" height="16" rx="1.2"/></svg>
+            <svg data-melo="play-icon" id="iconPlay" viewBox="0 0 24 24" fill="currentColor" style="margin-left:2px"><path d="M7 4.5 19 12 7 19.5z"/></svg>
+          </button>
+          <button class="af-k" data-melo="stop" id="btnStop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor" style="width:13px;height:13px"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg></button>
+          <button class="af-k" data-melo="next" id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8L5 20z"/><rect x="16" y="4" width="3" height="16" rx="1"/></svg></button>
+          <button class="af-k sm" data-melo="repeat" id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+        </div>
+        <div class="af-vol">
+          <span class="ico" id="volIcon" data-melo="volume-icon" title="Mute">
+            <svg class="wv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7"/></svg>
+            <svg class="mu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></svg>
+          </span>
+          <input class="af-volbar" type="range" id="volBar" data-melo="volume" min="0" max="100" value="60" aria-label="Volume">
+          <span class="af-pct" data-melo="volume-pct" id="volPct"></span>
+        </div>
+      </div>
+    </main>
+
+    <div class="af-panel">
+      <div class="af-phead"><span class="af-ptitle"></span></div>
+      <div class="af-pbody">
+        <div data-melo="embedded-playlist"></div>
+        <div data-melo="embedded-lyrics"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

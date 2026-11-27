@@ -378,16 +378,17 @@ mod perf {
 /// Diagnostics for "file may be missing or moved": what is really on disk for
 /// a track that failed to play. Writes one line to the timing log.
 #[tauri::command]
-pub fn perf_probe_file(path: String, state: State<'_, LibraryState>) {
+pub fn perf_probe_file(path: String, state: State<'_, LibraryState>) -> bool {
     let p = std::path::Path::new(&path);
-    let line = match std::fs::metadata(p) {
+    let (line, readable) = match std::fs::metadata(p) {
         Ok(m) => {
-            let open = match std::fs::File::open(p) { Ok(_) => "ok".to_string(), Err(e) => format!("FAILED ({e})") };
-            format!("[probe] {} exists=yes size={} readonly={} open={}", path, m.len(), m.permissions().readonly(), open)
+            let (open, ok) = match std::fs::File::open(p) { Ok(_) => ("ok".to_string(), true), Err(e) => (format!("FAILED ({e})"), false) };
+            (format!("[probe] {} exists=yes size={} readonly={} open={}", path, m.len(), m.permissions().readonly(), open), ok)
         }
-        Err(e) => format!("[probe] {} exists=NO ({e})", path),
+        Err(e) => (format!("[probe] {} exists=NO ({e})", path), false),
     };
     perf::note(&state.db_path, &line);
+    readable
 }
 
 /// The interface reports its own slow steps (IPC round trips, painting).

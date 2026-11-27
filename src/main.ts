@@ -8,7 +8,7 @@ import { setupTagEditor, TAGEDIT_IDS_KEY } from "./tag-editor";
 import { setupRating } from "./rating-ui";
 import { setupSkinLyricLine } from "./lyric-line";
 import { setupWaveformSeek } from "./waveform";
-import { setupSkinEngine, resetSkin, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry, getSkinCapabilities, clearSkinCapabilityCache, type SkinCapabilities } from "./skin";
+import { setupSkinEngine, resetSkin, resolveSkinId, applySkinChoice, listInstalledSkins, openSkinsFolderOnDisk, findHook, readSkinGeometry, getSkinCapabilities, clearSkinCapabilityCache, type SkinCapabilities } from "./skin";
 import { withCover } from "./cover";
 import { busEmit, busOn, isTauri, setPositionConsumer } from "./bus";
 import { t, initLocale, setLocale, AVAILABLE_LOCALES, getLocaleCode } from "./i18n";
@@ -1035,16 +1035,7 @@ if (isTauri && !urlPanel) {
     // At the deleted skin's window size.
     const bootSkinId = localStorage.getItem("melo-active-skin-id") || "default";
     if (bootSkinId !== "default") {
-      try {
-        const installed = await listInstalledSkins();
-        const exists = installed.some(it =>
-          it.filename === bootSkinId ||
-          it.id === bootSkinId ||
-          `${it.filename}` === `${bootSkinId}.html` ||
-          bootSkinId === `${it.filename}`.replace(/\.html$/, "")
-        );
-        if (!exists) resetSkin(undefined, false);
-      } catch { /* the 150ms re-apply fallback still covers this */ }
+      try { await resolveSkinId(bootSkinId, false); } catch { /* the 150ms re-apply fallback still covers this */ }
     }
 
     // Resolve the native window size a skin wants:
@@ -2642,7 +2633,9 @@ function setupSettings(toast: ToastFn) {
 
   async function populateSkinsDropdown() {
     if (!skinSelect) return;
-    const currentVal = localStorage.getItem("melo-active-skin-id") || "default";
+    // A saved id that is not on disk is turned into "default" (and persisted)
+    // here, so the dropdown, the chips and the rows all agree.
+    const currentVal = await resolveSkinId(localStorage.getItem("melo-active-skin-id") || "default");
     const installed = await listInstalledSkins();
     skinSelect.innerHTML = `<option value="default">Default Melo (Standard)</option>`;
     installed.forEach(item => {
@@ -2655,7 +2648,7 @@ function setupSettings(toast: ToastFn) {
     // The saved skin may have been deleted from the folder meanwhile — the
     // Dropdown must never show a selection that doesn't exist on disk.
     if (skinSelect.value !== currentVal) skinSelect.value = "default";
-    await refreshSkinFeatures();
+    await refreshSkinFeatures(skinSelect.value || "default");
   }
 
   // ---- Skin feature row (round 85) ----
@@ -2694,8 +2687,10 @@ function setupSettings(toast: ToastFn) {
     if (wnote) wnote.textContent = caps.waveform ? "" : t("settings.appearance.waveformSeek.unsupported");
   }
 
-  async function refreshSkinFeatures() {
-    const active = localStorage.getItem("melo-active-skin-id") || "default";
+  async function refreshSkinFeatures(effectiveId?: string) {
+    // Chips follow the EFFECTIVE id (validated against the installed list),
+    // never a stale stored one.
+    const active = effectiveId ?? await resolveSkinId(localStorage.getItem("melo-active-skin-id") || "default");
     renderSkinFeatures(await getSkinCapabilities(active));
   }
 

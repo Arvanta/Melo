@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Melo — Flat</title>
+<style>
+/*
+  FLAT — strictly flat: solid planes, hairlines, one accent. No shadows, no blur, no glow,
+  and gradients only as hard-stop fills inside the sliders. Built on an 8px rhythm; the square
+  cover is flush with the window edge. Follows the Dynamic Album Artwork accent, dark / light,
+  the optional lyric line, waveform seek bar and on-stage Lyrics / Queue.
+  Signals are flat too: while playing, the Play key turns accent and a 4px bar runs along the
+  foot of the cover; Shuffle / Repeat get an accent bar under them when on.
+  Pure CSS, no scripts.
+*/
+:root, :root[data-theme="dark"], [data-theme="dark"] {
+  --fl-bg: #131417; --fl-surface: #1b1d21; --fl-surface-2: #23262b; --fl-line: #2d3036;
+  --fl-ink: #f3f4f6; --fl-soft: #b4b9c2; --fl-mute: #8a909a;
+  --accent: #ff5d3a; --accent-glow: transparent; --visualizer: #ff5d3a; --track-bg: #2d3036;
+}
+:root[data-theme="light"], [data-theme="light"] {
+  --fl-bg: #f3f4f6; --fl-surface: #ffffff; --fl-surface-2: #e9ebef; --fl-line: #d9dce2;
+  --fl-ink: #15171b; --fl-soft: #444a54; --fl-mute: #6c727c;
+  --accent: #e8431f; --accent-glow: transparent; --visualizer: #e8431f; --track-bg: #d9dce2;
+}
+* { box-sizing: border-box; }
+button { font: inherit; }
+body:not(.tauri-main):has(#melo-player) { min-height: 100vh; margin: 0; padding: 32px; display: grid; place-items: center; overflow: hidden; background: #0b0c0e; }
+[data-theme="light"] body:not(.tauri-main):has(#melo-player) { background: #dfe2e7; }
+
+#melo-player, body.tauri-main .player-card, body.custom-skin-active .player-card {
+  position: relative; overflow: hidden; width: 880px; height: 320px; margin: 0; padding: 0; color: var(--fl-ink); background: var(--fl-bg);
+  border: 1px solid var(--fl-line); border-radius: 8px; box-shadow: none;
+  font-family: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+}
+body.tauri-main, body.tauri-main .app-shell { min-width: 0 !important; }
+body.tauri-main .player-card, body.custom-skin-active .player-card {
+  width: 100% !important; height: 100vh !important; min-width: 0 !important; min-height: 0 !important; max-height: 100vh !important;
+  padding: 0 !important; margin: 0 !important; border-radius: 8px !important; box-shadow: none !important; background: var(--fl-bg) !important; overflow: hidden !important; border: 1px solid var(--fl-line) !important;
+}
+.ft-root { position: absolute; inset: 0; display: flex; }
+
+/* ───── cover (square, flush) ───── */
+.ft-art { position: relative; flex: 0 0 auto; height: 100%; aspect-ratio: 1 / 1; max-width: 42%; background: var(--fl-surface-2); overflow: hidden; border-right: 1px solid var(--fl-line); }
+.ft-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+.ft-art::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--accent); transition: height .15s ease; }
+.ft-root:has([data-melo="pause-icon"][style*="block"]) .ft-art::after { height: 4px; }
+.ft-none { position: absolute; inset: 0; background: var(--fl-surface-2); }
+.ft-none i { position: absolute; display: block; }
+.ft-none .d1 { left: 50%; top: 50%; width: 62%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: var(--fl-ink); opacity: .9; }
+.ft-none .d2 { left: 50%; top: 50%; width: 22%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: var(--accent); }
+.ft-none .d3 { left: 50%; top: 50%; width: 5%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: var(--fl-surface-2); }
+.ft-none .bar { left: 14%; bottom: 14%; width: 22%; height: 4px; background: var(--accent); }
+.ft-none .bar2 { right: 14%; top: 14%; width: 12%; height: 4px; background: var(--fl-mute); }
+
+/* ───── star rating (bottom of the cover; skins/README.md §5.3b) ───── */
+/* no band: the stars float on the cover, kept readable by a crisp 1px flat outline
+   (--fl-bg = dark ring around light stars in dark mode, light ring around dark stars
+   in light mode) painted with hard text-shadows — zero blur, so it stays strictly flat */
+.ft-rate { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; height: 34px; display: flex; align-items: center; justify-content: center; gap: 3px; background: none; border: 0; }
+.ft-rate[hidden] { display: none !important; }
+.ft-rate .rate-star { -webkit-appearance: none; appearance: none; margin: 0; padding: 0 2px; border: 0; border-radius: 0; background: none; font-size: 16px; line-height: 1; cursor: pointer; color: var(--fl-soft); transition: color .12s ease; text-shadow: 1px 0 0 var(--fl-bg), -1px 0 0 var(--fl-bg), 0 1px 0 var(--fl-bg), 0 -1px 0 var(--fl-bg), 1px 1px 0 var(--fl-bg), -1px -1px 0 var(--fl-bg), 1px -1px 0 var(--fl-bg), -1px 1px 0 var(--fl-bg); }
+.ft-rate .rate-star:hover { color: var(--fl-ink); }
+.ft-rate .rate-star.on { color: var(--accent); }
+.ft-rate .rate-star.pv-add { color: var(--accent); opacity: .7; }
+.ft-rate .rate-star.pv-remove { opacity: .5; }
+.ft-rate .rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ft-art::after { z-index: 2; }
+
+/* ───── main column ───── */
+.ft-main { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.ft-top { flex: 0 0 40px; height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 16px; border-bottom: 1px solid var(--fl-line); -webkit-app-region: drag; user-select: none; }
+.ft-menu { position: relative; height: 100%; display: flex; align-items: center; -webkit-app-region: no-drag; }
+.ft-mchk { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.ft-brand { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 0; cursor: pointer; font-size: 11px; font-weight: 800; letter-spacing: .22em; color: var(--fl-ink); }
+.ft-brand i { width: 10px; height: 10px; background: var(--accent); display: block; }
+.ft-brand:hover, .ft-mchk:checked ~ .ft-brand { color: var(--accent); }
+.ft-mchk:focus-visible ~ .ft-brand { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ft-pop, .ft-scrim { display: none; }
+.ft-mchk:checked ~ .ft-scrim { display: block; position: fixed; inset: 0; z-index: 35; cursor: default; -webkit-app-region: no-drag; }
+.ft-mchk:checked ~ .ft-pop { display: block; }
+.ft-pop { position: absolute; top: calc(100% + 1px); left: -16px; z-index: 40; min-width: 176px; padding: 4px 0; background: var(--fl-surface); border: 1px solid var(--fl-line); border-radius: 0 0 6px 6px; }
+.ft-mi { height: 32px; padding: 0 16px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--fl-soft); font-size: 12px; font-weight: 600; }
+.ft-mi:hover { background: var(--fl-surface-2); color: var(--fl-ink); }
+.ft-mi svg { width: 13px; height: 13px; flex: 0 0 auto; }
+
+.ft-tools { display: flex; align-items: center; height: 100%; -webkit-app-region: no-drag; }
+.ft-tools button { position: relative; width: 32px; height: 40px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--fl-mute); cursor: pointer; display: grid; place-items: center; transition: color .12s ease, background .12s ease; }
+.ft-tools button:hover { color: var(--fl-ink); background: var(--fl-surface-2); }
+.ft-tools button svg { width: 15px; height: 15px; }
+.ft-tools .stage-btn.active { color: var(--fl-ink); }
+.ft-tools .stage-btn.active::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 2px; background: var(--accent); }
+.ft-sep { width: 1px; height: 16px; margin: 0 6px; background: var(--fl-line); }
+.ft-tools .win-btn svg { width: 10px; height: 10px; }
+.ft-tools .win-btn.close:hover { background: #d4402b; color: #fff; }
+.ft-root button:focus-visible, .ft-range:focus-visible, .ft-vol:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ───── now playing ───── */
+.ft-body { flex: 1 1 0; min-height: 0; padding: 14px 24px 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.ft-title { font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; color: var(--fl-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft-artist { font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft-sub { display: flex; align-items: center; gap: 12px; min-height: 20px; }
+.ft-album { flex: 1 1 0; min-width: 0; font-size: 12px; font-weight: 500; line-height: 20px; color: var(--fl-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft-tags { flex: 0 0 auto; display: flex; gap: 4px; }
+.ft-tags span { height: 18px; padding: 0 6px; border: 1px solid var(--fl-line); font-size: 10px; font-weight: 700; line-height: 16px; letter-spacing: .06em; text-transform: uppercase; color: var(--fl-mute); white-space: nowrap; }
+.ft-tags span:empty { display: none; }
+
+.ft-lyric { position: relative; display: none; margin-top: 6px; max-width: 100%; padding: 4px 0 4px 10px; font-size: 12.5px; font-weight: 600; line-height: 1.35; color: var(--fl-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; user-select: none; }
+/* the vertical bar on the left is the lyric progress: a dim bar plus a fill that grows from the bottom up.
+   The fill is a scaleY() transform, not a background size, so it moves in sub-pixel steps instead of whole pixels. */
+.ft-lyric::before, .ft-lyric::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; }
+.ft-lyric::before { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.ft-lyric::after { background: var(--accent); transform: scaleY(var(--melo-lyric-progress, 0)); transform-origin: 50% 100%; will-change: transform; }
+html.melo-lyric-skin-on .ft-lyric { display: block !important; }
+html.melo-lyric-skin-on .ft-lyric.melo-lyric-empty { display: none !important; }
+html.melo-show-lyrics .ft-lyric, html.melo-show-playlist .ft-lyric { display: none !important; }
+.ft-lyric.melo-lyric-tick { animation: ft-in .22s ease-out both; }
+@keyframes ft-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ft-lyric.melo-lyric-tick { animation: none; } .ft-art::after { transition: none; } }
+
+.ft-viz { flex: 0 0 52px; height: 52px; margin: 8px 24px 0; cursor: pointer; border-bottom: 1px solid var(--fl-line); }
+.ft-viz canvas { width: 100% !important; height: 100% !important; display: block; }
+html.melo-show-lyrics .ft-viz, html.melo-show-playlist .ft-viz { display: none !important; }
+@media (max-height: 270px) { .ft-viz { display: none !important; } }
+
+/* ───── seek + transport ───── */
+.ft-seek { flex: 0 0 auto; position: relative; margin: 10px 24px 0; height: 20px; display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; gap: 10px; align-items: center; }
+.ft-time { font-size: 11px; font-weight: 700; color: var(--fl-soft); font-variant-numeric: tabular-nums; }
+#durTime, [data-melo="duration"] { text-align: right; color: var(--fl-mute); }
+/* the slider's track box is as tall as its thumb; the 4px groove is a centred band inside it, so the thumb is always centred on the line */
+.ft-range, .ft-vol { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; margin: 0; padding: 0; border-radius: 0; background: transparent; outline: none; cursor: pointer; }
+.ft-range::-webkit-slider-runnable-track { height: 14px; background: linear-gradient(to right, var(--accent) var(--progress, 0%), var(--track-bg) var(--progress, 0%)) center / 100% 4px no-repeat; }
+.ft-vol::-webkit-slider-runnable-track { height: 14px; background: linear-gradient(to right, var(--fl-ink) var(--vol, 60%), var(--track-bg) var(--vol, 60%)) center / 100% 4px no-repeat; }
+.ft-range::-webkit-slider-thumb, .ft-vol::-webkit-slider-thumb { -webkit-appearance: none; width: 4px; height: 14px; margin-top: 0; border-radius: 0; background: var(--fl-ink); border: 0; }
+.ft-range::-moz-range-track, .ft-vol::-moz-range-track { height: 4px; background: var(--track-bg); }
+.ft-range::-moz-range-progress { height: 4px; background: var(--accent); }
+.ft-vol::-moz-range-progress { height: 4px; background: var(--fl-ink); }
+.ft-range::-moz-range-thumb, .ft-vol::-moz-range-thumb { width: 4px; height: 14px; border-radius: 0; background: var(--fl-ink); border: 0; }
+
+.ft-row { flex: 0 0 auto; height: 60px; padding: 0 24px 4px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ft-tr { display: flex; align-items: center; gap: 2px; }
+.ft-tr button { position: relative; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--fl-soft); display: grid; place-items: center; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.ft-tr button:hover { background: var(--fl-surface-2); color: var(--fl-ink); }
+.ft-tr button:active { background: var(--fl-line); }
+.ft-tr button.active { color: var(--accent); }
+.ft-tr button.active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 3px; height: 2px; background: var(--accent); }
+.ft-tr svg { width: 16px; height: 16px; }
+.ft-tr .play { width: 44px; height: 44px; margin: 0 6px; background: var(--fl-ink); color: var(--fl-bg); }
+.ft-tr .play:hover { background: var(--accent); color: #fff; }
+.ft-tr .play svg { width: 20px; height: 20px; }
+.ft-root:has([data-melo="pause-icon"][style*="block"]) .ft-tr .play { background: var(--accent); color: #fff; }
+.ft-root:has([data-melo="pause-icon"][style*="block"]) .ft-tr .play:hover { background: var(--fl-ink); color: var(--fl-bg); }
+
+.ft-volrow { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.ft-volrow .ico { position: relative; display: grid; place-items: center; width: 18px; height: 18px; color: var(--fl-soft); cursor: pointer; }
+.ft-volrow .ico svg { position: absolute; inset: 0; margin: auto; width: 15px; height: 15px; }
+.ft-volrow .ico:hover, .ft-volrow .ico.muted { color: var(--accent); }
+.ft-volrow .ico .ft-mute { opacity: 0; } .ft-volrow .ico.muted .ft-mute { opacity: 1; } .ft-volrow .ico.muted .ft-waves { opacity: 0; }
+.ft-volrow .ft-vol { width: 88px; flex: 0 0 88px; }
+.ft-pct { min-width: 30px; font-size: 11px; font-weight: 700; color: var(--fl-mute); font-variant-numeric: tabular-nums; text-align: right; }
+@media (max-width: 620px) { .ft-pct { display: none; } .ft-volrow .ft-vol { width: 64px; flex-basis: 64px; } .ft-tags { display: none; } }
+
+/* ───── on-stage Lyrics / Queue ───── */
+.ft-panel { position: absolute; z-index: 6; left: 0; right: 0; top: 40px; bottom: 90px; display: none; overflow: hidden; background: var(--fl-surface); border-bottom: 1px solid var(--fl-line); }
+html.melo-show-lyrics .ft-panel[data-melo="embedded-lyrics"], html.melo-show-playlist .ft-panel[data-melo="embedded-playlist"] { display: block; }
+.ft-panel .embedded-playlist, .ft-panel .embedded-lyrics { height: 100% !important; max-height: 100% !important; overflow-y: auto !important; overflow-x: hidden !important; padding: 8px 16px; scrollbar-width: thin; scrollbar-color: var(--fl-line) transparent; }
+.ft-panel .embedded-playlist-row { min-height: 40px; padding: 4px 8px; border-radius: 0; border-bottom: 1px solid var(--fl-line); color: var(--fl-ink); }
+.ft-panel .embedded-playlist-row:hover { background: var(--fl-surface-2); }
+.ft-panel .embedded-playlist-row.active { background: var(--fl-surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.ft-panel .embedded-playlist-row .t-title { color: var(--fl-ink) !important; font-size: 12.5px !important; font-weight: 700 !important; line-height: 1.3 !important; }
+.ft-panel .embedded-playlist-row.active .t-title { color: var(--accent) !important; }
+.ft-panel .embedded-playlist-row .t-artist, .ft-panel .embedded-playlist-row .t-album, .ft-panel .embedded-playlist-row .t-dur { color: var(--fl-mute) !important; font-size: 11px !important; line-height: 1.25 !important; }
+.ft-panel .track-cover-mini { border-radius: 0; width: 32px !important; height: 32px !important; }
+.ft-panel .lyric-line { font-size: 15px; line-height: 1.6; padding: 4px 12px; border-radius: 0; text-align: left; color: var(--fl-mute); overflow-wrap: anywhere; border-left: 2px solid transparent; }
+.ft-panel .lyric-line.active { color: var(--fl-ink); font-weight: 700; border-left-color: var(--accent); background: var(--fl-surface-2); }
+
+@media (max-width: 680px) { .ft-body { padding: 10px 16px 0; } .ft-title { font-size: 22px; } .ft-viz, .ft-seek { margin-left: 16px; margin-right: 16px; } .ft-row { padding: 0 16px 4px; } .ft-art { max-width: 34%; } }
+
+/* ───── waveform seek bar (optional; skins/README.md §5.7b) ───── */
+[data-melo="waveform"] { --melo-wave-played: var(--accent); --melo-wave-rest: var(--fl-line); display: none; position: relative; flex: 1 1 0; min-width: 0; width: 100%; height: 20px; align-self: center; cursor: pointer; touch-action: none; -webkit-app-region: no-drag; }
+html.melo-wave-on [data-melo="waveform"] { display: block; }
+html.melo-wave-on #seekBar, html.melo-wave-on [data-melo="seek"] { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
+</style>
+</head>
+<body data-window-width="880" data-window-height="320" data-min-width="560" data-min-height="240" data-max-width="1280" data-max-height="480" data-resizable="true">
+<div id="melo-player">
+  <div class="ft-root">
+
+    <div class="ft-art">
+      <img class="ft-cover" data-melo="cover" id="coverImg" alt="cover" style="display:none" />
+      <div class="ft-none" data-melo="cover-fallback" id="coverFallback"><i class="d1"></i><i class="d2"></i><i class="d3"></i><i class="bar"></i><i class="bar2"></i></div>
+      <div class="ft-rate" data-melo="rating" aria-label="Rating"></div>
+    </div>
+
+    <div class="ft-main">
+      <div class="ft-top" data-tauri-drag-region>
+        <div class="ft-menu">
+          <input class="ft-mchk" type="checkbox" id="ft-m" aria-label="Menu">
+          <label class="ft-brand" for="ft-m" title="Menu"><i></i>FLAT</label>
+          <label class="ft-scrim" for="ft-m" aria-hidden="true"></label>
+          <div class="ft-pop">
+            <label class="ft-mi" for="ft-m" data-melo="add-files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>Add files</label>
+            <label class="ft-mi" for="ft-m" data-melo="add-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Add folder</label>
+            <label class="ft-mi" for="ft-m" data-melo="theme-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/></svg>Theme</label>
+          </div>
+        </div>
+
+        <div class="ft-tools">
+          <button class="stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 7h16M4 12h10M4 17h13"/></svg></button>
+          <button class="stage-btn" data-melo="toggle-embedded-playlist" title="Queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="3" y="4" width="18" height="16"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></button>
+          <span class="ft-sep" aria-hidden="true"></span>
+          <button data-melo="toggle-library" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16"/></svg></button>
+          <button data-melo="toggle-playlist" title="Playlist window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M8 7h12M8 12h12M8 17h8"/><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/></svg></button>
+          <button data-melo="toggle-eq" title="Equalizer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></button>
+          <button data-melo="toggle-lyrics" title="Lyrics window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></button>
+          <button data-melo="toggle-settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+          <span class="ft-sep" aria-hidden="true"></span>
+          <button class="win-btn" data-melo="minimize" aria-label="minimize" title="Minimize"><svg viewBox="0 0 10 10" fill="currentColor"><rect x="0" y="4.2" width="10" height="1.6"/></svg></button>
+          <button class="win-btn close" data-melo="close" aria-label="close" title="Close"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></button>
+        </div>
+      </div>
+
+      <div class="ft-body">
+        <div class="ft-title" data-melo="title" id="trackTitle">No track loaded</div>
+        <div class="ft-artist" data-melo="artist" id="trackArtist">Add music to begin</div>
+        <div class="ft-sub">
+          <div class="ft-album" data-melo="album" id="trackAlbum"></div>
+          <div class="ft-tags"><span data-melo="codec"></span><span data-melo="specs"></span></div>
+        </div>
+        <div class="ft-lyric" data-melo="current-lyric" aria-live="polite" title="Click to seek"></div>
+      </div>
+
+      <div class="ft-viz" data-melo="visualizer" id="vizBars" data-bars="48"></div>
+
+      <div class="ft-seek">
+        <span class="ft-time" data-melo="current-time" id="curTime">0:00</span>
+        <div data-melo="waveform"></div>
+        <input class="ft-range" type="range" data-melo="seek" id="seekBar" min="0" max="100" value="0" aria-label="Seek" />
+        <span class="ft-time" data-melo="duration" id="durTime">0:00</span>
+      </div>
+
+      <div class="ft-row">
+        <div class="ft-tr">
+          <button data-melo="shuffle" id="btnShuffle" title="Shuffle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5M9 15l-5 5"/></svg></button>
+          <button data-melo="prev" id="btnPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+          <button class="play" data-melo="play" id="btnPlay" title="Play / Pause">
+            <svg data-melo="pause-icon" id="iconPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            <svg data-melo="play-icon" id="iconPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button data-melo="stop" id="btnStop" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+          <button data-melo="next" id="btnNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg></button>
+          <button data-melo="repeat" id="btnRepeat" title="Repeat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+        </div>
+        <div class="ft-volrow">
+          <span class="ico" id="volIcon" data-melo="volume-icon" title="Mute">
+            <svg class="ft-waves" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+            <svg class="ft-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+          </span>
+          <input class="ft-vol" type="range" id="volBar" data-melo="volume" min="0" max="100" value="60" aria-label="Volume" />
+          <span class="ft-pct" id="volPct" data-melo="volume-pct"></span>
+        </div>
+      </div>
+
+      <div class="ft-panel" data-melo="embedded-lyrics"></div>
+      <div class="ft-panel" data-melo="embedded-playlist"></div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

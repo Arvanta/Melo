@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Melo — Ticket</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Ticket
+   Now playing, printed as a boarding pass.
+     · the coloured band is the album accent (like an airline brand colour)
+     · the seek bar is a barcode, scanned by a thin accent line
+     · the cover sits on the tear-off stub, behind a perforation
+     · queue and lyrics are printed on the paper itself
+   ───────────────────────────────────────────────────────────── */
+:root,
+:root[data-theme="dark"] {
+  --tk-paper: #171b2b;
+  --tk-ink: #eceffa;
+  --tk-ink-2: #aab1cf;
+  --tk-ink-3: #7e86a8;
+  --tk-rule: rgba(236,239,250,.16);
+  --tk-faint: rgba(236,239,250,.2);
+  --tk-hover: rgba(236,239,250,.08);
+  --tk-band: var(--accent, #7480ff);
+  --tk-danger: #ff6b6b;
+}
+:root[data-theme="light"] {
+  --tk-paper: #f6f5f1;
+  --tk-ink: #1b2238;
+  --tk-ink-2: #4a526b;
+  --tk-ink-3: #636a83;
+  --tk-rule: rgba(27,34,56,.16);
+  --tk-faint: rgba(27,34,56,.2);
+  --tk-hover: rgba(27,34,56,.07);
+  --tk-band: var(--accent, #3f4fd6);
+  --tk-danger: #d13438;
+}
+.tk-root {
+  --tk-band-ink: #fff;
+  --tk-band-ink: oklch(from var(--tk-band) clamp(0, (0.7 - l) * 1000, 1) 0 0);
+  --tk-accent-text: color-mix(in srgb, var(--tk-band) 62%, var(--tk-ink));
+  --tk-wash: color-mix(in srgb, var(--tk-band) 14%, transparent);
+  --tk-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --tk-stub: clamp(200px, 28%, 260px);
+  color-scheme: dark;
+}
+:root[data-theme="light"] .tk-root { color-scheme: light; }
+
+/* ── Ticket shell: perforation notches are cut out of the card itself ── */
+body:not(.tauri-main):has(#melo-player) {
+  min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #0d1020;
+}
+:root[data-theme="light"] body:not(.tauri-main):has(#melo-player) { background: #c9ccd8; }
+
+#melo-player,
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  --tk-stub: clamp(200px, 28%, 260px);
+  position: relative;
+  width: 760px; height: 320px;
+  min-width: 560px; min-height: 250px;
+  overflow: hidden;
+  color: var(--tk-ink);
+  background: var(--tk-paper);
+  border: 0; border-radius: 14px; box-shadow: none;
+  -webkit-mask-image:
+    radial-gradient(circle 9px at calc(100% - var(--tk-stub)) 0, transparent 8.5px, #000 9px),
+    radial-gradient(circle 9px at calc(100% - var(--tk-stub)) 100%, transparent 8.5px, #000 9px);
+  -webkit-mask-composite: source-in;
+          mask-image:
+    radial-gradient(circle 9px at calc(100% - var(--tk-stub)) 0, transparent 8.5px, #000 9px),
+    radial-gradient(circle 9px at calc(100% - var(--tk-stub)) 100%, transparent 8.5px, #000 9px);
+          mask-composite: intersect;
+}
+body.tauri-main,
+body.tauri-main .app-shell { min-width: 0 !important; }
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  width: 100% !important; height: 100vh !important;
+  min-width: 560px !important; min-height: 250px !important;
+  max-width: 1000px !important; max-height: 440px !important;
+  margin: 0 auto !important; border: 0 !important; border-radius: 14px !important; box-shadow: none !important;
+}
+
+.tk-root, .tk-root *, .tk-root *::before, .tk-root *::after { box-sizing: border-box; }
+.tk-root {
+  position: absolute; inset: 0;
+  display: grid; grid-template-rows: 38px minmax(0, 1fr);
+  container: tkroot / size;
+  font-family: var(--tk-sans); font-size: 13px; line-height: 1.4;
+  color: var(--tk-ink); background: var(--tk-paper);
+  box-shadow: inset 0 0 0 1px var(--tk-rule);
+  border-radius: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+:where(.tk-root button) { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
+.tk-root svg { display: block; }
+.tk-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); opacity: 0; }
+
+.tk-root button:focus-visible,
+.tk-root input[type="range"]:focus-visible,
+.tk-sr:focus-visible + .tk-bandbtn {
+  outline: 2px solid var(--tk-accent-text); outline-offset: 2px;
+}
+.tk-band button:focus-visible, .tk-sr:focus-visible + .tk-bandbtn { outline-color: var(--tk-band-ink); outline-offset: -2px; }
+
+/* ── Band (the airline colour) ── */
+.tk-band {
+  display: flex; align-items: center; gap: 2px; padding: 0 8px 0 16px;
+  background: var(--tk-band); color: var(--tk-band-ink);
+}
+.tk-brand { display: flex; align-items: center; gap: 8px; padding-right: 14px; font-weight: 700; font-size: 13px; letter-spacing: -.01em; user-select: none; }
+.tk-brand svg { width: 16px; height: 16px; }
+.tk-tabs { display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
+.tk-tab { position: relative; height: 26px; padding: 0 10px; display: flex; align-items: center; gap: 6px; border-radius: 6px; font-size: 12px; font-weight: 500; opacity: .78; transition: background .12s ease, opacity .12s ease; -webkit-app-region: no-drag; }
+.tk-tab svg { width: 14px; height: 14px; }
+.tk-tab:hover { opacity: 1; background: color-mix(in srgb, var(--tk-band-ink) 14%, transparent); }
+.tk-tab.active { opacity: 1; font-weight: 700; }
+.tk-tab.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -6px; height: 2px; border-radius: 1px; background: var(--tk-band-ink); }
+.tk-drag { flex: 1 1 auto; align-self: stretch; min-width: 8px; }
+.tk-bandbtn { width: 28px; height: 26px; display: grid; place-items: center; border-radius: 6px; cursor: pointer; transition: background .12s ease; -webkit-app-region: no-drag; }
+.tk-bandbtn svg { width: 15px; height: 15px; }
+.tk-bandbtn:hover { background: color-mix(in srgb, var(--tk-band-ink) 16%, transparent); }
+.tk-bandbtn:active { background: color-mix(in srgb, var(--tk-band-ink) 24%, transparent); }
+.tk-root:has(#tkMenu:checked) .tk-bandbtn[for="tkMenu"] { background: color-mix(in srgb, var(--tk-band-ink) 22%, transparent); }
+.tk-bandbtn.close:hover { background: #c4392b; color: #fff; }
+.tk-band .gap { width: 8px; }
+
+/* ── Body: main | perforation | stub ── */
+.tk-body { display: grid; grid-template-columns: minmax(0, 1fr) var(--tk-stub); grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
+
+.tk-main { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; row-gap: 12px; padding: 14px 18px 16px; min-width: 0; min-height: 0; }
+
+/* Info area (switches to queue / lyrics in place) */
+.tk-info {
+  position: relative; min-height: 0; min-width: 0;
+  container: tkinfo / size;
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; row-gap: 10px;
+  /* the app's own queue / lyrics rules read these */
+  --text: var(--tk-ink); --text-soft: var(--tk-ink); --text-muted: var(--tk-ink-2); --track-bg: var(--tk-hover);
+}
+.tk-label { font-size: 10.5px; line-height: 14px; color: var(--tk-ink-3); font-weight: 500; }
+.tk-title {
+  margin-top: 2px; font-size: clamp(20px, 4.6cqw, 32px); font-weight: 700; line-height: 1.12; letter-spacing: -.025em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tk-head { min-width: 0; }
+/* a small dot after "Now playing": dim when stopped, band colour and breathing while playing */
+.tk-head .tk-label::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 7px; vertical-align: 1px; border-radius: 50%; background: var(--tk-faint); transition: background .2s ease; }
+.tk-root:has([data-melo="pause-icon"][style*="block"]) .tk-head .tk-label::after { background: var(--tk-band); animation: tk-live 1.8s ease-in-out infinite; }
+@keyframes tk-live { 50% { opacity: .3; } }
+
+.tk-fields { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(0, 1fr); column-gap: 16px; min-width: 0; padding-top: 10px; border-top: 1px dashed var(--tk-rule); }
+.tk-field { min-width: 0; }
+.tk-value { font-size: 13px; line-height: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-field:has([data-melo="album"]:empty) { visibility: hidden; }
+.tk-format { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tk-codec {
+  flex: 0 0 auto; padding: 0 6px; line-height: 17px; font-size: 11px; font-weight: 700;
+  color: var(--tk-accent-text); border: 1.5px solid var(--tk-accent-text); border-radius: 4px; transform: rotate(-3deg);
+}
+.tk-codec:empty { display: none; }
+.tk-specs { font-size: 11px; font-weight: 500; color: var(--tk-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.tk-viz {
+  grid-row: 3; position: relative !important; inset: auto !important;
+  width: auto !important; height: auto !important; min-height: 0; align-self: stretch; justify-self: stretch;
+  display: block !important; overflow: hidden !important; cursor: pointer; color: var(--tk-ink);
+}
+.tk-viz canvas { display: block; width: 100% !important; height: 100% !important; }
+html.melo-show-playlist .tk-viz,
+html.melo-show-lyrics .tk-viz { display: none !important; }
+
+/* Synced lyric lines: a two-row reel printed under the viz while the setting is on.
+   On every change the rows roll up together:
+     · the old current line slides out through the top of its row (ghost),
+     · the old next line leaves the lower row upward and the same text rises
+       into the current row, growing and brightening as it arrives,
+     · the new next line rises into the lower row from below.
+   The ghosts come from data-melo-lyric-prev, which the engine writes on each slot;
+   without it the rows still roll in, they just have no exiting copy. */
+.tk-lyric-block { grid-row: 4; display: none; min-width: 0; height: 42px; }
+html.melo-lyric-skin-on.melo-has-synced-lyrics:not(.melo-show-lyrics):not(.melo-show-playlist) .tk-lyric-block { display: block; }
+
+.tk-lyric-block [data-melo="current-lyric"],
+.tk-lyric-block [data-melo="next-lyric"] {
+  position: relative; display: block; box-sizing: border-box; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+}
+.tk-lyric-block [data-melo="current-lyric"] {
+  height: 24px; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--tk-ink);
+  background: linear-gradient(var(--tk-band), var(--tk-band)) left bottom / calc(var(--melo-lyric-progress, 0) * 100%) 2px no-repeat;
+}
+.tk-lyric-block [data-melo="next-lyric"] {
+  height: 18px; font-size: 12px; font-weight: 500; line-height: 18px; color: var(--tk-ink-3);
+  opacity: 1; /* the app dims this slot to .55 by default; the colour above is already the intended one */
+}
+.tk-lyric-block [data-melo-lyric-prev]::before {
+  content: attr(data-melo-lyric-prev);
+  position: absolute; left: 0; right: 0; top: 0; opacity: 0; pointer-events: none;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.tk-lyric-block [data-melo="current-lyric"].melo-lyric-tick { animation: tk-roll-in-current .42s cubic-bezier(.22, .8, .2, 1) .07s both; }
+.tk-lyric-block [data-melo="next-lyric"].melo-lyric-tick { animation: tk-roll-in-next .42s cubic-bezier(.22, .8, .2, 1) .07s both; }
+.tk-lyric-block .melo-lyric-tick[data-melo-lyric-prev]::before { animation: tk-roll-out .3s cubic-bezier(.4, 0, .8, .6) both; }
+/* padding-top moves the text inside a fixed-height, clipped row: it rises in from under the row's lower edge */
+@keyframes tk-roll-in-current {
+  from { padding-top: 24px; color: var(--tk-ink-3); font-size: 12px; }
+  to   { padding-top: 0;    color: var(--tk-ink);   font-size: 14px; }
+}
+@keyframes tk-roll-in-next {
+  from { padding-top: 18px; }
+  to   { padding-top: 0; }
+}
+@keyframes tk-roll-out {
+  from { transform: none; opacity: 1; }
+  65%  { opacity: 0; }
+  to   { transform: translateY(-115%); opacity: 0; }
+}
+
+/* Short windows: names first, then the lyric preview, then the visualizer */
+@container tkinfo (max-height: 150px) { .tk-viz { display: none !important; } }
+@container tkinfo (max-height: 160px) { .tk-lyric-block { height: 24px; } .tk-lyric-block [data-melo="next-lyric"] { display: none !important; } }
+/* with the two-line reel on, a sliver of visualizer is not worth its row */
+html.melo-lyric-skin-on.melo-has-synced-lyrics .tk-viz { --tk-viz-min: 1; }
+@container tkinfo (max-height: 200px) { html.melo-lyric-skin-on.melo-has-synced-lyrics .tk-viz { display: none !important; } }
+@container tkinfo (max-height: 120px) { .tk-label { display: none; } }
+
+/* Embedded queue + lyrics, printed on the paper */
+.tk-info [data-melo="embedded-playlist"],
+.tk-info [data-melo="embedded-lyrics"] { position: absolute; z-index: 4; inset: 0; display: none; padding: 0; overflow: hidden; background: var(--tk-paper); }
+html.melo-show-playlist .tk-info [data-melo="embedded-playlist"],
+html.melo-show-lyrics .tk-info [data-melo="embedded-lyrics"] { display: block; }
+.tk-info .embedded-playlist,
+.tk-info .embedded-lyrics { height: 100% !important; max-height: 100% !important; overflow-y: auto !important; overflow-x: hidden !important; padding: 0 6px 0 0; font-size: 12px !important; color: var(--tk-ink); }
+.tk-info .embedded-lyrics { font-size: 14px !important; padding: 2px 8px 8px 0; }
+.tk-info .embedded-playlist-row, .tk-info .embedded-playlist-row .t-title, .tk-info .embedded-playlist-row .t-dur, .tk-info .embedded-playlist-row .ep-meta { color: inherit; }
+.tk-info .embedded-playlist-row { position: relative; min-height: 34px; padding: 4px 10px; border-radius: 6px; color: var(--tk-ink-2); transition: background .12s ease; }
+.tk-info .embedded-playlist-row:hover { background: var(--tk-hover); color: var(--tk-ink); }
+.tk-info .embedded-playlist-row.active { background: var(--tk-wash); color: var(--tk-ink); }
+.tk-info .embedded-playlist-row.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--tk-band); }
+.tk-info .embedded-playlist-row .t-title { font-size: 12px; font-weight: 600; }
+.tk-info .embedded-playlist-row .t-artist { font-size: 11px; color: var(--tk-ink-3); }
+.tk-info .embedded-playlist-empty, .tk-info .embedded-lyrics-title { color: var(--tk-ink-3); }
+.tk-info .lyric-line { font-size: 14px; font-weight: 500; line-height: 1.55; padding: 2px 6px; border-radius: 4px; text-align: left; color: var(--tk-ink-3); }
+.tk-info .lyric-line.passed { color: var(--tk-ink-3); }
+.tk-info .lyric-line:hover { color: var(--tk-ink-2); }
+.tk-info .lyric-line.active { color: var(--tk-ink); font-weight: 700; }
+.tk-info ::-webkit-scrollbar { width: 8px; }
+.tk-info ::-webkit-scrollbar-track { background: transparent; }
+.tk-info ::-webkit-scrollbar-thumb { background: var(--tk-faint); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+
+/* ── Barcode (seek) ── */
+.tk-scan { position: relative; z-index: 6; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 14px; align-items: end; }
+.tk-clock { min-width: 38px; }
+.tk-clock.end { text-align: right; }
+.tk-clock .tk-label { display: block; }
+.tk-time { display: block; font-size: 15px; line-height: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.tk-bar { position: relative; height: 38px; }
+.tk-bar input[data-melo="seek"] { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tk-seek { -webkit-appearance: none; appearance: none; margin: 0; background: transparent; cursor: pointer; outline: none; -webkit-app-region: no-drag; }
+.tk-seek::-webkit-slider-runnable-track {
+  height: 38px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--tk-ink) 0, var(--tk-ink) var(--progress, 0%), var(--tk-faint) var(--progress, 0%), var(--tk-faint) 100%);
+  -webkit-mask-image:
+    repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(90deg, transparent 0 3px, #000 3px 5px, transparent 5px 13px),
+    repeating-linear-gradient(90deg, transparent 0 8px, #000 8px 11px, transparent 11px 19px),
+    repeating-linear-gradient(90deg, transparent 0 12px, #000 12px 13px, transparent 13px 31px);
+          mask-image:
+    repeating-linear-gradient(90deg, #000 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(90deg, transparent 0 3px, #000 3px 5px, transparent 5px 13px),
+    repeating-linear-gradient(90deg, transparent 0 8px, #000 8px 11px, transparent 11px 19px),
+    repeating-linear-gradient(90deg, transparent 0 12px, #000 12px 13px, transparent 13px 31px);
+}
+.tk-seek::-moz-range-track { height: 38px; background: var(--tk-faint); }
+.tk-seek::-moz-range-progress { height: 38px; background: var(--tk-ink); }
+/* the scanner line */
+.tk-seek::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 38px; margin-top: 0; border: 0; border-radius: 0;
+  background:
+    radial-gradient(circle at 6px 2.5px, var(--tk-band) 0 2.5px, transparent 3px),
+    radial-gradient(circle at 6px calc(100% - 2.5px), var(--tk-band) 0 2.5px, transparent 3px),
+    linear-gradient(90deg, transparent 5px, var(--tk-band) 5px, var(--tk-band) 7px, transparent 7px);
+}
+.tk-seek::-moz-range-thumb { width: 3px; height: 38px; border: 0; border-radius: 0; background: var(--tk-band); }
+
+/* ── Stub ── */
+.tk-stub { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; min-width: 0; min-height: 0; border-left: 2px dashed var(--tk-rule); }
+.tk-cover-wrap { flex: 1 1 0; min-height: 0; container-type: size; display: grid; place-items: center; }
+.tk-cover { position: relative; overflow: hidden; width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); border-radius: 8px; background: var(--tk-hover); box-shadow: inset 0 0 0 1px var(--tk-rule); }
+.tk-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tk-cover-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--tk-ink-3); }
+.tk-cover-fallback svg { width: 38%; height: 38%; }
+
+/* star rating: Melo fills this slot with five .rate-star buttons (.on = filled) for the playing track and keeps its height while empty.
+   Selectors are strong enough to win over the app's own .track-rating / .rate-star styling.
+   The hover preview is driven by Melo itself, which tags stars .pv-add (would be filled) and .pv-remove (would go): unrated track = stars 1..hover
+   in a dimmed band colour; rated track = only the stars that would change, dimmed. */
+.tk-stub .tk-rating { justify-content: center; gap: 2px; margin: -2px 0 -4px; min-height: 22px; }
+.tk-stub .tk-rating .rate-star { width: 22px; height: 22px; padding: 0; border-radius: 5px; font-size: 18px; line-height: 22px; text-align: center; color: var(--tk-ink-3); opacity: .38; transition: color .12s ease, opacity .12s ease, transform .12s ease; }
+.tk-stub .tk-rating .rate-star.on { color: var(--tk-band); opacity: 1; }
+.tk-stub .tk-rating .rate-star.pv-add { color: var(--tk-band); opacity: .5; }
+.tk-stub .tk-rating .rate-star.pv-remove { opacity: .4; }
+.tk-stub .tk-rating .rate-star:hover { transform: scale(1.12); }
+.tk-stub .tk-rating .rate-star:focus-visible { outline: 2px solid var(--tk-band); outline-offset: 1px; }
+@media (max-height: 300px) { .tk-stub .tk-rating { min-height: 18px; margin: -4px 0 -6px; } .tk-stub .tk-rating .rate-star { width: 18px; height: 18px; font-size: 15px; line-height: 18px; } }
+.tk-transport { display: flex; align-items: center; justify-content: space-between; }
+.tk-transport button { flex: 1 1 0; min-width: 22px; max-width: 30px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--tk-ink-2); transition: background .12s ease, color .12s ease; -webkit-app-region: no-drag; }
+.tk-transport button svg { width: 16px; height: 16px; }
+.tk-transport button:hover { background: var(--tk-hover); color: var(--tk-ink); }
+.tk-transport button:active { background: var(--tk-rule); }
+.tk-transport button.active { color: var(--tk-accent-text); background: var(--tk-wash); }
+.tk-transport .play { flex: 0 0 42px; min-width: 42px; max-width: none; width: 42px; height: 42px; border-radius: 50%; background: var(--tk-band); color: var(--tk-band-ink); }
+.tk-transport .play:hover { background: color-mix(in srgb, var(--tk-band) 88%, var(--tk-ink)); color: var(--tk-band-ink); }
+.tk-transport .play svg { width: 18px; height: 18px; }
+.tk-transport .play:focus-visible { outline-offset: 3px; }
+
+.tk-volume { display: flex; align-items: center; gap: 6px; }
+.tk-mute { flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; color: var(--tk-ink-2); -webkit-app-region: no-drag; }
+.tk-mute svg { width: 16px; height: 16px; }
+.tk-mute:hover { background: var(--tk-hover); color: var(--tk-ink); }
+.tk-mute.muted, .tk-mute.muted:hover { color: var(--tk-danger); }
+.tk-vol {
+  -webkit-appearance: none; appearance: none; flex: 1 1 0; min-width: 0; height: 20px; margin: 0; background: transparent; cursor: pointer; outline: none; -webkit-app-region: no-drag;
+}
+.tk-vol::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--tk-ink) 0, var(--tk-ink) var(--vol, 60%), var(--tk-faint) var(--vol, 60%), var(--tk-faint) 100%); }
+.tk-vol::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4px; border-radius: 50%; background: var(--tk-ink); border: 0; transition: transform .1s ease; }
+.tk-vol:hover::-webkit-slider-thumb { transform: scale(1.15); }
+.tk-vol::-moz-range-track { height: 4px; border-radius: 2px; background: var(--tk-faint); }
+.tk-vol::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--tk-ink); }
+.tk-vol::-moz-range-thumb { width: 8px; height: 8px; border: 0; border-radius: 50%; background: var(--tk-ink); }
+.tk-root:has(.tk-mute.muted) .tk-vol::-webkit-slider-runnable-track { background: linear-gradient(90deg, var(--tk-danger) 0, var(--tk-danger) var(--vol, 60%), var(--tk-faint) var(--vol, 60%), var(--tk-faint) 100%); }
+.tk-root:has(.tk-mute.muted) .tk-vol::-webkit-slider-thumb { background: var(--tk-danger); }
+
+/* ── Menu ── */
+.tk-menu {
+  display: none; position: absolute; z-index: 200; top: 42px; right: 10px; width: 212px; padding: 5px;
+  flex-direction: column; gap: 1px; background: var(--tk-paper); color: var(--tk-ink);
+  border-radius: 10px; box-shadow: 0 0 0 1px var(--tk-rule), 0 10px 28px rgba(0,0,0,.28);
+}
+.tk-root:has(#tkMenu:checked) .tk-menu { display: flex; animation: tk-pop .14s ease-out; }
+@keyframes tk-pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.tk-item { height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 11px; border-radius: 7px; font-size: 13px; cursor: pointer; user-select: none; }
+.tk-item svg { width: 16px; height: 16px; color: var(--tk-ink-2); flex: 0 0 16px; }
+.tk-item:hover { background: var(--tk-hover); }
+.tk-sep { height: 1px; margin: 4px 8px; background: var(--tk-rule); }
+.tk-dismiss { display: none; position: fixed; inset: 0; z-index: 150; }
+.tk-root:has(#tkMenu:checked) .tk-dismiss { display: block; }
+
+/* ── Waveform seek bar (optional; skins/README.md §5.7b): replaces the barcode ── */
+[data-melo="waveform"] {
+  --melo-wave-played: var(--tk-ink);
+  --melo-wave-rest: var(--tk-faint);
+  display: none; position: absolute; inset: 5px 0; cursor: pointer; touch-action: none; -webkit-app-region: no-drag; /* inset 3.8px top+bottom: 38px bar -> 30.4px waveform (-20%) */
+}
+html.melo-wave-on [data-melo="waveform"] { display: block; z-index: 2; }
+html.melo-wave-on .tk-bar [data-melo="seek"] { opacity: 0 !important; }
+
+/* ── Narrow windows ── */
+@container tkroot (max-width: 680px) {
+  .tk-tab span { display: none; }
+  .tk-tab { padding: 0 9px; }
+  .tk-tab.active::after { left: 9px; right: 9px; }
+  .tk-fields { column-gap: 12px; }
+  .tk-specs { display: none; }
+}
+@container tkroot (max-width: 600px) {
+  .tk-brand span { display: none; }
+  .tk-brand { padding-right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tk-root *, .tk-root *::before, .tk-root *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body data-window-width="760" data-window-height="320" data-min-width="560" data-min-height="250" data-max-width="1000" data-max-height="440" data-resizable="true">
+
+<div id="melo-player">
+  <div class="tk-root">
+
+    <!-- Band: brand · views · commands · window -->
+    <header class="tk-band" data-tauri-drag-region>
+      <div class="tk-brand" data-tauri-drag-region>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <span>Melo</span>
+      </div>
+
+      <nav class="tk-tabs" aria-label="View">
+        <button type="button" class="tk-tab active" data-melo="toggle-embedded-viz" title="Now playing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M10 20V5M15 20V9M20 20V14"/></svg><span>Playing</span>
+        </button>
+        <button type="button" class="tk-tab" data-melo="toggle-embedded-lyrics" title="Lyrics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M4 12h6M4 17h4"/><path d="M18 17V8l3-.8"/><circle cx="16" cy="17.5" r="2"/></svg><span>Lyrics</span>
+        </button>
+        <button type="button" class="tk-tab" data-melo="toggle-embedded-playlist" title="Queue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h13M4 11h13M4 16h7"/><path d="M15 14.5v6l5-3z" fill="currentColor"/></svg><span>Queue</span>
+        </button>
+      </nav>
+
+      <div class="tk-drag" data-tauri-drag-region></div>
+
+      <button type="button" class="tk-bandbtn" data-melo="toggle-library" title="Library" aria-label="Library">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16M10 4v16"/><path d="m15 5.5 4-1 3 14.5-4 1z" transform="translate(-1.5 0)"/></svg>
+      </button>
+      <button type="button" class="tk-bandbtn" data-melo="toggle-playlist" title="Playlist window" aria-label="Playlist window">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>
+      </button>
+      <button type="button" class="tk-bandbtn" data-melo="toggle-settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+      </button>
+      <input id="tkMenu" type="checkbox" class="tk-sr" aria-label="More options">
+      <label class="tk-bandbtn" for="tkMenu" title="More" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      </label>
+      <span class="gap"></span>
+      <button type="button" class="tk-bandbtn" data-melo="minimize" aria-label="minimize" title="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12"/></svg>
+      </button>
+      <button type="button" class="tk-bandbtn close" data-melo="close" aria-label="close" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7l10 10M17 7 7 17"/></svg>
+      </button>
+    </header>
+
+    <div class="tk-body">
+
+      <!-- Main: what is playing + barcode -->
+      <section class="tk-main">
+        <div class="tk-info">
+          <div class="tk-head">
+            <div class="tk-label">Now playing</div>
+            <div class="tk-title" data-melo="title">Nothing playing</div>
+          </div>
+          <div class="tk-fields">
+            <div class="tk-field"><div class="tk-label">Artist</div><div class="tk-value" data-melo="artist">Add files or a folder</div></div>
+            <div class="tk-field"><div class="tk-label">Album</div><div class="tk-value" data-melo="album"></div></div>
+            <div class="tk-field"><div class="tk-label">Format</div><div class="tk-value tk-format"><span class="tk-codec" data-melo="codec"></span><span class="tk-specs" data-melo="specs"></span></div></div>
+          </div>
+          <div class="tk-viz" data-melo="visualizer" data-bars="56"></div>
+          <div class="tk-lyric-block">
+            <div data-melo="current-lyric" aria-live="polite" title="Click to seek"></div>
+            <div data-melo="next-lyric"></div>
+          </div>
+          <div data-melo="embedded-playlist"></div>
+          <div data-melo="embedded-lyrics"></div>
+        </div>
+
+        <div class="tk-scan">
+          <div class="tk-clock"><span class="tk-label">Elapsed</span><span class="tk-time" data-melo="current-time">0:00</span></div>
+          <div class="tk-bar">
+            <div data-melo="waveform"></div>
+            <input class="tk-seek" type="range" data-melo="seek" min="0" max="100" value="0" aria-label="Seek">
+          </div>
+          <div class="tk-clock end"><span class="tk-label">Length</span><span class="tk-time" data-melo="duration">0:00</span></div>
+        </div>
+      </section>
+
+      <!-- Stub: cover + controls -->
+      <aside class="tk-stub">
+        <div class="tk-cover-wrap">
+          <div class="tk-cover">
+            <img data-melo="cover" alt="Album cover" style="display:none">
+            <div class="tk-cover-fallback" data-melo="cover-fallback" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 36V13l19-4v22"/><circle cx="14" cy="36" r="5"/><circle cx="33" cy="31" r="5"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="tk-rating" data-melo="rating"></div>
+
+        <div class="tk-transport">
+          <button type="button" data-melo="shuffle" title="Shuffle" aria-label="Shuffle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg>
+          </button>
+          <button type="button" data-melo="prev" title="Previous" aria-label="Previous">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
+          </button>
+          <button type="button" class="play" data-melo="play" title="Play / Pause" aria-label="Play or pause">
+            <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button type="button" data-melo="stop" title="Stop" aria-label="Stop">
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg>
+          </button>
+          <button type="button" data-melo="next" title="Next" aria-label="Next">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
+          </button>
+          <button type="button" data-melo="repeat" title="Repeat" aria-label="Repeat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          </button>
+        </div>
+
+        <div class="tk-volume">
+          <button type="button" class="tk-mute" data-melo="volume-icon" title="Mute" aria-label="Mute">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5zM15 9.5a4 4 0 0 1 0 5M18 7a8 8 0 0 1 0 10"/></svg>
+          </button>
+          <input class="tk-vol" type="range" data-melo="volume" min="0" max="100" value="60" aria-label="Volume">
+        </div>
+      </aside>
+    </div>
+
+    <!-- More menu -->
+    <div class="tk-menu" role="menu">
+      <label class="tk-item" for="tkMenu" data-melo="add-files" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+        Add files
+      </label>
+      <label class="tk-item" for="tkMenu" data-melo="add-folder" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 10v6M9 13h6"/></svg>
+        Add folder
+      </label>
+      <div class="tk-sep" role="separator"></div>
+      <label class="tk-item" for="tkMenu" data-melo="toggle-eq" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        Equalizer
+      </label>
+      <label class="tk-item" for="tkMenu" data-melo="toggle-lyrics" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18"/><path d="M12.5 16V11l3.5-.8"/><circle cx="10.2" cy="16" r="2"/></svg>
+        Lyrics window
+      </label>
+      <div class="tk-sep" role="separator"></div>
+      <label class="tk-item" for="tkMenu" data-melo="theme-toggle" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        Toggle theme
+      </label>
+    </div>
+    <label class="tk-dismiss" for="tkMenu" aria-label="Close menu"></label>
+
+  </div>
+</div>
+
+</body>
+</html>

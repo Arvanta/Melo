@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Melo — Tuner</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tuner
+   A hi-fi receiver faceplate. Three ideas carry the whole skin:
+     1. the seek bar is a tuning scale with a needle,
+     2. now-playing lives in a recessed glass display,
+     3. the volume control is a dial whose ring is the level.
+   Everything else is a quiet, matte plate with tactile keys.
+
+   Latest fixes: the seek fill now ends exactly at the needle (it used to trail it at the start and
+   run ahead of it near the end); the needle glows while playing, like the power lamp; the dim
+   text tones are a little stronger for contrast.
+
+   PRO pass (same layout, hooks and resize contract):
+     · a power lamp: the dot by the wordmark glows only while music is playing
+     · a faint brushed-metal grain on the plate and a soft glare across the glass display
+     · the play key is a lit, glossy key; elapsed time reads stronger than remaining time
+     · play / pause icons start in the right state; narrow windows keep square keys (no skewed keys)
+     · RTL-safe text on the display, lyrics and queue (Persian / Arabic)
+   ───────────────────────────────────────────────────────────── */
+/* The engine writes the volume as "72%". This face covers only the % character and
+   scales it to nothing, so the dial shows just the number. */
+@font-face {
+  font-family: "tn-no-percent";
+  src: local("Segoe UI"), local("Arial"), local("Helvetica Neue"), local("Helvetica"), local("Liberation Sans"), local("DejaVu Sans");
+  unicode-range: U+0025;
+  size-adjust: 0%;
+}
+
+:root,
+:root[data-theme="dark"] {
+  --tn-plate: #1b2120;
+  --tn-key: #283130;
+  --tn-trough: #121817;
+  --tn-glass: #0a1110;
+  --tn-text: #e7edea;
+  --tn-text-2: #a9b6b0;
+  --tn-text-3: #87958f;
+  --tn-edge-light: rgba(255,255,255,.07);
+  --tn-edge-dark: rgba(0,0,0,.55);
+  --tn-rim: rgba(255,255,255,.09);
+  --tn-tick: rgba(231,237,234,.55);
+  --tn-tick-soft: rgba(231,237,234,.2);
+  --tn-groove: rgba(255,255,255,.1);
+  --tn-accent: var(--accent, #f0b24a);
+  --tn-danger: #ff6b6b;
+  --tn-grain: rgba(255,255,255,.016);
+}
+:root[data-theme="light"] {
+  --tn-plate: #d8e0db;
+  --tn-key: #f1f4f2;
+  --tn-trough: #c6d0ca;
+  --tn-glass: #0f1a18;
+  --tn-text: #1c2925;
+  --tn-text-2: #45554e;
+  --tn-text-3: #56665f;
+  --tn-edge-light: rgba(255,255,255,.75);
+  --tn-edge-dark: rgba(20,40,32,.22);
+  --tn-rim: rgba(20,40,32,.16);
+  --tn-tick: rgba(28,41,37,.6);
+  --tn-tick-soft: rgba(28,41,37,.22);
+  --tn-groove: rgba(20,40,32,.16);
+  --tn-accent: var(--accent, #d9821b);
+  --tn-danger: #d13438;
+  --tn-grain: rgba(0,0,0,.014);
+}
+.tn-root {
+  /* The glass is always dark, so its text colour is derived from the accent but kept light. */
+  --tn-ph: color-mix(in srgb, var(--tn-accent) 55%, #f4fff9);
+  --tn-ph-dim: color-mix(in srgb, var(--tn-ph) 62%, transparent);
+  --tn-ph-faint: color-mix(in srgb, var(--tn-ph) 34%, transparent);
+  --tn-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+:root[data-theme="light"] .tn-root { color-scheme: light; }
+
+/* ── Shell ── */
+body:not(.tauri-main):has(#melo-player) {
+  min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #0c1110;
+}
+:root[data-theme="light"] body:not(.tauri-main):has(#melo-player) { background: #b9c4be; }
+
+#melo-player,
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  position: relative;
+  width: 760px; height: 380px;
+  min-width: 610px; min-height: 300px;
+  overflow: hidden;
+  color: var(--tn-text);
+  background: var(--tn-plate);
+  border: 1px solid var(--tn-rim);
+  border-radius: 16px;
+  box-shadow: none;
+}
+body.tauri-main,
+body.tauri-main .app-shell { min-width: 0 !important; }
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  width: 100% !important; height: 100vh !important;
+  min-width: 610px !important; min-height: 300px !important;
+  max-width: 1100px !important; max-height: 620px !important;
+  margin: 0 auto !important; border-radius: 16px !important; box-shadow: none !important;
+}
+
+.tn-root, .tn-root *, .tn-root *::before, .tn-root *::after { box-sizing: border-box; }
+.tn-root {
+  position: absolute; inset: 0;
+  display: grid; grid-template-rows: 32px minmax(0, 1fr);
+  container: tnroot / size;
+  font-family: var(--tn-sans); font-size: 13px; line-height: 1.4;
+  color: var(--tn-text); background: repeating-linear-gradient(90deg, var(--tn-grain) 0 1px, transparent 1px 3px), var(--tn-plate);
+  -webkit-font-smoothing: antialiased;
+}
+:where(.tn-root button) { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
+.tn-root svg { display: block; }
+.tn-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); opacity: 0; }
+
+.tn-root button:focus-visible,
+.tn-root input[type="range"]:focus-visible,
+.tn-sr:focus-visible + .tn-mini {
+  outline: 2px solid var(--tn-accent); outline-offset: 2px;
+}
+
+/* ── Keys (shared) ── */
+.tn-key {
+  display: grid; place-items: center;
+  background: var(--tn-key); color: var(--tn-text-2);
+  border-radius: 9px;
+  box-shadow: 0 1px 0 var(--tn-edge-dark), inset 0 1px 0 var(--tn-edge-light);
+  transition: background .12s ease, color .12s ease, transform .06s ease, box-shadow .06s ease;
+  -webkit-app-region: no-drag;
+}
+.tn-key:hover { background: color-mix(in srgb, var(--tn-key) 90%, var(--tn-text)); color: var(--tn-text); }
+.tn-key:active { transform: translateY(1px); box-shadow: inset 0 1px 3px var(--tn-edge-dark); }
+
+/* ── Title bar ── */
+.tn-titlebar { display: flex; align-items: center; gap: 4px; padding: 0 12px 0 18px; }
+.tn-wordmark { display: flex; align-items: center; gap: 8px; margin-right: 6px; font: 600 13px var(--tn-sans); letter-spacing: -.01em; color: var(--tn-text); user-select: none; padding-right: 8px; }
+.tn-wordmark i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--tn-accent) 30%, var(--tn-trough)); box-shadow: inset 0 0 0 1px var(--tn-edge-dark); transition: background .2s ease, box-shadow .2s ease; }
+.tn-root:has([data-melo="pause-icon"][style*="block"]) .tn-wordmark i { background: var(--tn-accent); box-shadow: 0 0 8px var(--tn-accent); }
+.tn-drag { flex: 1 1 auto; align-self: stretch; }
+.tn-mini { width: 28px; height: 24px; border-radius: 7px; cursor: pointer; }
+.tn-mini svg { width: 14px; height: 14px; }
+.tn-mini.close:hover { background: #c4392b; color: #fff; }
+.tn-titlebar .gap { width: 8px; }
+.tn-root:has(#tnMenu:checked) .tn-mini[for="tnMenu"] { transform: translateY(1px); box-shadow: inset 0 1px 3px var(--tn-edge-dark); color: var(--tn-text); }
+
+/* ── Main ── */
+.tn-main {
+  display: grid;
+  /* cqh/cqw resolve against .tn-root; 46px = title bar (32) + bottom padding (14) */
+  grid-template-columns: clamp(112px, min(calc(100cqh - 46px), 44cqw), 640px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 14px; padding: 0 14px 14px; min-height: 0; min-width: 0; overflow: hidden;
+}
+
+/* Cover in a bezel */
+.tn-bezel {
+  align-self: start; width: 100%; max-height: 100%; aspect-ratio: 1; padding: 6px;
+  border-radius: 14px; background: var(--tn-trough);
+  box-shadow: inset 0 2px 5px var(--tn-edge-dark), 0 1px 0 var(--tn-edge-light);
+}
+.tn-cover { position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 9px; background: var(--tn-glass); }
+.tn-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tn-cover-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--tn-ph-dim); }
+.tn-cover-fallback svg { width: 34%; height: 34%; }
+
+.tn-right { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 10px; min-width: 0; min-height: 0; }
+
+/* ── Glass display ── */
+.tn-glass {
+  position: relative; min-height: 0; overflow: hidden;
+  container: glass / size;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 12px 14px 10px;
+  background: var(--tn-glass); border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05), inset 0 3px 10px rgba(0,0,0,.6), 0 1px 0 var(--tn-edge-light);
+}
+.tn-viz {
+  grid-row: 2; position: relative !important; inset: auto !important;
+  width: auto !important; height: auto !important; min-height: 0; align-self: stretch; justify-self: stretch;
+  margin: 8px 0 8px; display: block !important; overflow: hidden !important; cursor: pointer;
+}
+.tn-viz canvas { display: block; width: 100% !important; height: 100% !important; }
+html.melo-show-playlist .tn-viz,
+html.melo-show-lyrics .tn-viz { display: none !important; }
+
+.tn-now { grid-row: 1; position: relative; z-index: 2; min-width: 0; }
+.tn-title {
+  font: 600 20px/1.25 var(--tn-sans); letter-spacing: -.015em; color: color-mix(in srgb, var(--tn-ph) 40%, #fff);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--tn-ph) 42%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tn-sub { margin-top: 2px; font-size: 13px; color: var(--tn-ph-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tn-album:not(:empty)::before { content: ""; display: inline-block; width: 1px; height: 11px; margin: 0 9px; vertical-align: -1px; background: var(--tn-ph-faint); }
+
+.tn-foot { grid-row: 3; position: relative; z-index: 2; min-width: 0; display: flex; flex-direction: column; gap: 6px; align-self: end; }
+.tn-tech { display: flex; align-items: center; gap: 8px; min-width: 0; height: 16px; }
+.tn-codec { flex: 0 0 auto; padding: 0 6px; line-height: 14px; font-size: 10px; font-weight: 600; color: var(--tn-ph); border: 1px solid var(--tn-ph-faint); border-radius: 4px; }
+.tn-codec:empty { display: none; }
+.tn-specs { font-size: 11px; color: var(--tn-ph-dim); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tn-specs:empty { display: none; }
+.tn-specs { flex: 0 1 auto; min-width: 0; }
+
+/* Star rating (Melo fills [data-melo="rating"] with five .rate-star buttons; .on = filled).
+   Pinned to the right end of the codec / specs row. The app's default .track-rating spacing
+   (margin-top, min-height, 17px stars) is overridden here to fit the 16px row. */
+.tn-tech .tn-rating.track-rating { flex: 0 0 auto; margin: 0 0 0 auto; min-height: 0; height: 16px; gap: 0; align-items: center; }
+.tn-tech .tn-rating .rate-star { padding: 0 1px; font-size: 14px; line-height: 16px; opacity: 1;
+  color: color-mix(in srgb, var(--tn-ph-dim) 55%, transparent); }
+.tn-tech .tn-rating .rate-star.on { color: var(--tn-accent); }
+/* Hover preview — Melo marks the stars a click would change while the pointer is over the row:
+   .pv-add    = stars that would become filled   -> accent colour, dimmed
+   .pv-remove = stars that would be emptied      -> still filled, but dimmed
+   Unrated track, pointer on star 4: 1-4 get .pv-add. Track with 3 stars, pointer on 4: only 4 is .pv-add;
+   pointer on 1: 2 and 3 are .pv-remove; pointer on the current rating: nothing. The :hover variants
+   out-rank the app's own .rate-star.pv-*:hover rules so the preview always uses this skin's accent. */
+.tn-tech .tn-rating .rate-star { transition: color .12s ease, opacity .12s ease; }
+.tn-tech .tn-rating .rate-star.pv-add,
+.tn-tech .tn-rating .rate-star.pv-add:hover { color: var(--tn-accent); opacity: .5; }
+.tn-tech .tn-rating .rate-star.pv-remove,
+.tn-tech .tn-rating .rate-star.pv-remove:hover { color: var(--tn-accent); opacity: .4; }
+.tn-tech .tn-rating .rate-star:focus-visible { outline: 2px solid var(--tn-accent); outline-offset: 1px; border-radius: 3px; }
+
+/* Synced lyric lines: only reserved while the setting is on and the track has them */
+.tn-lyric-block { display: none; }
+html.melo-lyric-skin-on.melo-has-synced-lyrics:not(.melo-show-lyrics):not(.melo-show-playlist) .tn-lyric-block { display: block; }
+.tn-lyric-block [data-melo="current-lyric"] {
+  padding-bottom: 3px; font-size: 14px; font-weight: 600; color: var(--tn-ph);
+  background: linear-gradient(var(--tn-ph), var(--tn-ph)) left bottom / calc(var(--melo-lyric-progress, 0) * 100%) 1px no-repeat;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.tn-lyric-block [data-melo="next-lyric"] { margin-top: 1px; font-size: 12px; font-weight: 500; opacity: 1; color: var(--tn-ph-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Animate only the current line. The app gives next-lyric opacity .55, and a fade-in
+   to opacity 1 would flash the upcoming line at full brightness before it dims. */
+.tn-lyric-block [data-melo="current-lyric"].melo-lyric-tick { animation: tn-line .25s ease-out; }
+@keyframes tn-line { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* Short windows: text first, then the lyric preview, then the visualizer */
+@container glass (max-height: 190px) { .tn-lyric-block [data-melo="next-lyric"] { display: none !important; } }
+@container glass (max-height: 150px) { .tn-viz { display: none !important; } .tn-glass { padding-top: 10px; padding-bottom: 8px; } }
+@container glass (max-height: 104px) { .tn-tech { display: none; } .tn-sub { display: none; } }
+
+.tn-title, .tn-sub > span, .tn-lyric-block [data-melo="current-lyric"], .tn-lyric-block [data-melo="next-lyric"] { unicode-bidi: plaintext; }
+.tn-glass .lyric-line, .tn-glass .embedded-playlist-row .t-title, .tn-glass .embedded-playlist-row .t-artist { unicode-bidi: plaintext; }
+
+/* Display modes: a segmented control in the title bar */
+.tn-modes { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--tn-trough); box-shadow: inset 0 1px 3px var(--tn-edge-dark), 0 1px 0 var(--tn-edge-light); -webkit-app-region: no-drag; }
+/* The engine marks the current mode by toggling .active on .stage-btn elements, so these carry that class; the selectors below are
+   strong enough to beat the app's own .stage-btn / .stage-btn.active styling (size, border, accent tint). */
+.tn-modes .tn-mode.stage-btn { position: relative; width: 30px; height: 22px; padding: 0; border: 0; display: grid; place-items: center; border-radius: 7px; background: transparent; box-shadow: none; color: var(--tn-text-3); transition: color .12s ease, background .12s ease; }
+.tn-modes .tn-mode.stage-btn svg { width: 14px; height: 14px; }
+.tn-modes .tn-mode.stage-btn:hover { color: var(--tn-text); background: transparent; }
+.tn-modes .tn-mode.stage-btn.active { color: var(--tn-text); background: var(--tn-key); box-shadow: 0 1px 0 var(--tn-edge-dark), inset 0 1px 0 var(--tn-edge-light); }
+.tn-modes .tn-mode.stage-btn.active svg { color: var(--tn-accent); }
+
+/* soft glare across the top of the glass; sits under the embedded panels (z 4) and never catches the mouse */
+.tn-glass::after { content: ""; position: absolute; z-index: 3; left: 0; right: 0; top: 0; height: 46%; pointer-events: none; border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,0)); }
+
+/* Embedded queue / lyrics replace the glass content */
+.tn-glass {
+  /* the app's own queue/lyrics rules read these; in the light theme they would be dark-on-dark */
+  --text: color-mix(in srgb, var(--tn-ph) 40%, #fff);
+  --text-soft: var(--tn-ph);
+  --text-muted: var(--tn-ph-dim);
+  --track-bg: rgba(255,255,255,.07);
+}
+.tn-glass [data-melo="embedded-playlist"],
+.tn-glass [data-melo="embedded-lyrics"] { position: absolute; z-index: 4; inset: 0; display: none; padding: 0; overflow: hidden; }
+html.melo-show-playlist .tn-glass [data-melo="embedded-playlist"],
+html.melo-show-lyrics .tn-glass [data-melo="embedded-lyrics"] { display: block; }
+html.melo-show-playlist .tn-now, html.melo-show-lyrics .tn-now,
+html.melo-show-playlist .tn-foot, html.melo-show-lyrics .tn-foot { visibility: hidden; }
+.tn-glass .embedded-playlist,
+.tn-glass .embedded-lyrics {
+  height: 100% !important; max-height: 100% !important;
+  overflow-y: auto !important; overflow-x: hidden !important;
+  padding: 12px 8px 8px; color: var(--tn-ph); font-size: 12px !important;
+}
+.tn-glass .embedded-lyrics { padding: 14px 18px 24px; font-size: 14px !important; }
+.tn-glass .embedded-playlist-row, .tn-glass .embedded-playlist-row .t-title, .tn-glass .embedded-playlist-row .t-dur, .tn-glass .embedded-playlist-row .ep-meta { color: inherit; }
+.tn-glass .embedded-playlist-empty { color: var(--tn-ph-dim); }
+.tn-glass .embedded-lyrics-title { color: var(--tn-ph-dim); }
+.tn-glass .lyric-line.passed { color: var(--tn-ph-faint); }
+.tn-glass .lyric-line:hover { color: var(--tn-ph); }
+.tn-glass .embedded-playlist-row { min-height: 34px; padding: 4px 10px; border-radius: 8px; color: var(--tn-ph-dim); transition: background .12s ease; }
+.tn-glass .embedded-playlist-row .t-title { font-size: 12px; }
+.tn-glass .embedded-playlist-row .t-artist { font-size: 11px; color: var(--tn-ph-faint); }
+.tn-glass .embedded-playlist-row.active .t-artist { color: var(--tn-ph-dim); }
+.tn-glass .embedded-playlist-row:hover { background: rgba(255,255,255,.06); color: var(--tn-ph); }
+.tn-glass .embedded-playlist-row.active { background: rgba(255,255,255,.1); color: var(--tn-ph); }
+.tn-glass .lyric-line { font: 500 14px/1.55 var(--tn-sans); padding: 2px 6px; text-align: left; color: var(--tn-ph-faint); }
+.tn-glass .lyric-line.active { color: color-mix(in srgb, var(--tn-ph) 40%, #fff); font-weight: 600; }
+
+.tn-glass ::-webkit-scrollbar { width: 8px; }
+.tn-glass ::-webkit-scrollbar-track { background: transparent; }
+.tn-glass ::-webkit-scrollbar-thumb { background: var(--tn-ph-faint); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+
+/* ── Tuning scale (seek) ── */
+.tn-scale-row { position: relative; z-index: 6; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; }
+.tn-time { min-width: 34px; font-size: 12px; color: var(--tn-text-2); font-variant-numeric: tabular-nums; }
+.tn-time.end { text-align: right; color: var(--tn-text-3); }
+.tn-scale-row > .tn-time:first-child { color: var(--tn-text); }
+.tn-scale {
+  position: relative; height: 36px; border-radius: 9px;
+  background: var(--tn-trough);
+  box-shadow: inset 0 2px 5px var(--tn-edge-dark), 0 1px 0 var(--tn-edge-light);
+}
+.tn-scale input[data-melo="seek"] { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tn-seek {
+  --tn-fill: color-mix(in srgb, var(--tn-accent) 22%, transparent);
+  -webkit-appearance: none; appearance: none; margin: 0; background: transparent; cursor: pointer; outline: none;
+  border-radius: 9px; overflow: hidden; -webkit-app-region: no-drag;
+}
+.tn-seek::-webkit-slider-runnable-track {
+  height: 36px;
+  /* The native thumb (12px wide, needle at its centre) travels (width − 12px), not the full width, while --progress is a share of
+     whatever box the gradient is painted in. So the fill is painted in a box that is 12px narrower and starts 6px in: its edge
+     then lands exactly on the needle, and a 6px cap covers the stretch left of the needle's start. */
+  background:
+    linear-gradient(90deg, var(--tn-fill) 0, var(--tn-fill) var(--progress, 0%), transparent var(--progress, 0%)) 6px 0 / calc(100% - 12px) 100% no-repeat,
+    linear-gradient(var(--tn-fill), var(--tn-fill)) 0 0 / 6px 100% no-repeat,
+    linear-gradient(90deg, var(--tn-tick) 1.5px, transparent 1.5px) 0 100% / 40px 14px repeat-x,
+    linear-gradient(90deg, var(--tn-tick-soft) 1px, transparent 1px) 0 100% / 8px 8px repeat-x;
+}
+.tn-seek::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 36px; border: 0; border-radius: 0; margin-top: 0;
+  background:
+    radial-gradient(circle at 6px 5px, var(--tn-accent) 0 3.5px, transparent 4px),
+    linear-gradient(90deg, transparent 5px, var(--tn-accent) 5px, var(--tn-accent) 7px, transparent 7px);
+}
+.tn-root:has([data-melo="pause-icon"][style*="block"]) .tn-seek::-webkit-slider-thumb { filter: drop-shadow(0 0 3px var(--tn-accent)); }
+.tn-seek::-moz-range-track { height: 36px; background: transparent; }
+.tn-seek::-moz-range-thumb { width: 4px; height: 36px; border: 0; border-radius: 0; background: var(--tn-accent); }
+
+/* ── Controls row ── */
+.tn-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.tn-transport { display: flex; align-items: center; gap: 8px; }
+.tn-transport .tn-key { position: relative; flex: 0 0 auto; width: 40px; height: 38px; }
+.tn-transport .tn-key svg { width: 17px; height: 17px; }
+.tn-transport .tn-key.active { color: var(--tn-text); }
+.tn-transport .tn-key.active::after {
+  content: ""; position: absolute; top: 5px; left: 50%; width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%; background: var(--tn-accent); box-shadow: 0 0 6px var(--tn-accent);
+}
+.tn-transport .play {
+  width: 62px; height: 42px; border-radius: 11px;
+  background: var(--tn-accent); color: #fff;
+  color: oklch(from var(--tn-accent) clamp(0, (0.7 - l) * 1000, 1) 0 0);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.34), inset 0 -2px 0 rgba(0,0,0,.14), 0 4px 14px color-mix(in srgb, var(--tn-accent) 32%, transparent);
+}
+.tn-transport .play:hover { background: color-mix(in srgb, var(--tn-accent) 90%, var(--tn-text)); }
+.tn-transport .play:active { transform: translateY(1px); box-shadow: inset 0 1px 3px rgba(0,0,0,.35); }
+.tn-transport .play svg { width: 20px; height: 20px; }
+.tn-transport .play:focus-visible { outline-offset: 3px; }
+
+.tn-level { display: flex; align-items: center; flex: 0 0 auto; }
+
+/* Volume dial: the range input is the knob and its ring is the level.
+   The centre button (percentage) toggles mute. */
+.tn-dial-wrap { position: relative; width: 54px; height: 54px; flex: 0 0 54px; --tn-ring: var(--tn-accent); }
+.tn-dial {
+  -webkit-appearance: none; appearance: none; margin: 0; width: 54px; height: 54px; border-radius: 50%;
+  background:
+    radial-gradient(circle closest-side, var(--tn-key) 0 62%, transparent 64%),
+    conic-gradient(from 225deg, var(--tn-ring) 0, var(--tn-ring) calc(var(--vol, 60%) * .75), var(--tn-groove) calc(var(--vol, 60%) * .75), var(--tn-groove) 75%, transparent 75%);
+  cursor: pointer; outline: none; -webkit-app-region: no-drag;
+}
+.tn-dial::-webkit-slider-runnable-track { height: 54px; background: transparent; }
+.tn-dial::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 54px; opacity: 0; }
+.tn-dial::-moz-range-track { background: transparent; }
+.tn-dial::-moz-range-thumb { width: 2px; height: 54px; border: 0; opacity: 0; }
+.tn-dial-mute {
+  position: absolute; z-index: 2; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px;
+  display: grid; place-items: center; border-radius: 50%;
+  font-family: "tn-no-percent", var(--tn-sans);
+  font-size: 12px; font-weight: 600; color: var(--tn-text-2); font-variant-numeric: tabular-nums;
+  transition: background .12s ease, color .12s ease; -webkit-app-region: no-drag;
+}
+.tn-dial-mute:hover { background: var(--tn-groove); color: var(--tn-text); }
+.tn-dial-mute:focus-visible { outline-offset: 0; }
+.tn-dial-wrap:has(.tn-dial-mute.muted) { --tn-ring: var(--tn-danger); }
+.tn-dial-mute.muted, .tn-dial-mute.muted:hover { color: var(--tn-danger); }
+
+/* ── Menu ── */
+.tn-menu {
+  display: none; position: absolute; z-index: 200; top: 34px; right: 14px; width: 212px; padding: 5px;
+  flex-direction: column; gap: 1px; background: var(--tn-key); border-radius: 12px;
+  border: 1px solid var(--tn-rim); box-shadow: 0 10px 28px rgba(0,0,0,.3);
+}
+.tn-root:has(#tnMenu:checked) .tn-menu { display: flex; animation: tn-pop .14s ease-out; }
+@keyframes tn-pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.tn-item { height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 11px; border-radius: 8px; color: var(--tn-text); font-size: 13px; cursor: pointer; user-select: none; }
+.tn-item svg { width: 16px; height: 16px; color: var(--tn-text-2); flex: 0 0 16px; }
+.tn-item:hover { background: var(--tn-groove); }
+.tn-sep { height: 1px; margin: 4px 8px; background: var(--tn-groove); }
+.tn-dismiss { display: none; position: fixed; inset: 0; z-index: 150; }
+.tn-root:has(#tnMenu:checked) .tn-dismiss { display: block; }
+
+/* ── Waveform seek bar (optional; skins/README.md §5.7b): takes the scale's place ── */
+[data-melo="waveform"] {
+  --melo-wave-played: var(--tn-accent);
+  --melo-wave-rest: color-mix(in srgb, var(--tn-text) 30%, transparent);
+  display: none; position: absolute; inset: 5px 10px; cursor: pointer; touch-action: none; -webkit-app-region: no-drag;
+}
+html.melo-wave-on [data-melo="waveform"] { display: block; z-index: 2; }
+html.melo-wave-on .tn-scale [data-melo="seek"] { opacity: 0 !important; }
+
+/* ── Narrow windows ── */
+@container tnroot (max-width: 680px) {
+  .tn-wordmark span { display: none; }
+  .tn-transport { gap: 4px; }
+  .tn-transport .tn-key { flex: 0 0 auto; width: 34px; height: 36px; }
+  .tn-transport .play { width: 54px; height: 40px; }
+  .tn-controls { gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tn-root *, .tn-root *::before, .tn-root *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body data-window-width="760" data-window-height="380" data-min-width="610" data-min-height="300" data-max-width="1100" data-max-height="620" data-resizable="true">
+
+<div id="melo-player">
+  <div class="tn-root">
+
+    <!-- Title bar -->
+    <header class="tn-titlebar" data-tauri-drag-region>
+      <div class="tn-wordmark" data-tauri-drag-region><i></i><span>Melo</span></div>
+      <div class="tn-modes" role="group" aria-label="Display">
+        <button type="button" class="tn-mode stage-btn active" data-melo="toggle-embedded-viz" title="Now playing" aria-label="Now playing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 20V12M10 20V5M15 20V9M20 20V14"/></svg>
+        </button>
+        <button type="button" class="tn-mode stage-btn" data-melo="toggle-embedded-lyrics" title="Lyrics" aria-label="Lyrics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M4 12h6M4 17h4"/><path d="M18 17V8l3-.8"/><circle cx="16" cy="17.5" r="2"/></svg>
+        </button>
+        <button type="button" class="tn-mode stage-btn" data-melo="toggle-embedded-playlist" title="Queue" aria-label="Queue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h13M4 11h13M4 16h7"/><path d="M15 14.5v6l5-3z" fill="currentColor"/></svg>
+        </button>
+      </div>
+      <div class="tn-drag" data-tauri-drag-region></div>
+
+      <button type="button" class="tn-key tn-mini" data-melo="toggle-library" title="Library" aria-label="Library">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16M10 4v16"/><path d="m15 5.5 4-1 3 14.5-4 1z" transform="translate(-1.5 0)"/></svg>
+      </button>
+      <button type="button" class="tn-key tn-mini" data-melo="toggle-playlist" title="Playlist window" aria-label="Playlist window">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>
+      </button>
+      <button type="button" class="tn-key tn-mini" data-melo="toggle-settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.86 2.86A1.7 1.7 0 0 0 15 19.4 1.7 1.7 0 0 0 14 21h-4a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.88.34l-2.86-2.86A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14v-4a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.34-1.88l2.86-2.86A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.88-.34l2.86 2.86A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10v4a1.7 1.7 0 0 0-1.6 1z"/></svg>
+      </button>
+      <input id="tnMenu" type="checkbox" class="tn-sr" aria-label="More options">
+      <label class="tn-key tn-mini" for="tnMenu" title="More" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      </label>
+      <span class="gap"></span>
+      <button type="button" class="tn-key tn-mini" data-melo="minimize" aria-label="minimize" title="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12"/></svg>
+      </button>
+      <button type="button" class="tn-key tn-mini close" data-melo="close" aria-label="close" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7l10 10M17 7 7 17"/></svg>
+      </button>
+    </header>
+
+    <main class="tn-main">
+
+      <!-- Cover -->
+      <div class="tn-bezel">
+        <div class="tn-cover">
+          <img data-melo="cover" alt="Album cover" style="display:none">
+          <div class="tn-cover-fallback" data-melo="cover-fallback" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 36V13l19-4v22"/><circle cx="14" cy="36" r="5"/><circle cx="33" cy="31" r="5"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="tn-right">
+
+        <!-- Glass display -->
+        <section class="tn-glass">
+
+
+          <div class="tn-now">
+            <div class="tn-title" data-melo="title">Nothing playing</div>
+            <div class="tn-sub"><span data-melo="artist">Add files or a folder to start</span><span class="tn-album" data-melo="album"></span></div>
+          </div>
+          <div class="tn-viz" data-melo="visualizer" data-bars="44"></div>
+          <div class="tn-foot">
+            <div class="tn-lyric-block">
+              <div data-melo="current-lyric" aria-live="polite" title="Click to seek"></div>
+              <div data-melo="next-lyric"></div>
+            </div>
+            <div class="tn-tech"><span class="tn-codec" data-melo="codec"></span><span class="tn-specs" data-melo="specs"></span><div class="tn-rating" data-melo="rating"></div></div>
+          </div>
+
+          <div data-melo="embedded-playlist"></div>
+          <div data-melo="embedded-lyrics"></div>
+        </section>
+
+        <!-- Tuning scale -->
+        <div class="tn-scale-row">
+          <span class="tn-time" data-melo="current-time">0:00</span>
+          <div class="tn-scale">
+            <div data-melo="waveform"></div>
+            <input class="tn-seek" type="range" data-melo="seek" min="0" max="100" value="0" aria-label="Seek">
+          </div>
+          <span class="tn-time end" data-melo="duration">0:00</span>
+        </div>
+
+        <!-- Transport + level -->
+        <div class="tn-controls">
+          <div class="tn-transport">
+            <button type="button" class="tn-key" data-melo="shuffle" title="Shuffle" aria-label="Shuffle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20l8-8M21 3l-8 8M16 21h5v-5M4 4l5 5"/></svg>
+            </button>
+            <button type="button" class="tn-key" data-melo="prev" title="Previous" aria-label="Previous">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 12 20 6v12zm-7-6h3v12H4z"/></svg>
+            </button>
+            <button type="button" class="tn-key play" data-melo="play" title="Play / Pause" aria-label="Play or pause">
+              <svg data-melo="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+              <svg data-melo="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button type="button" class="tn-key" data-melo="stop" title="Stop" aria-label="Stop">
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+            <button type="button" class="tn-key" data-melo="next" title="Next" aria-label="Next">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="m4 6 9 6-9 6zm11 0h3v12h-3z"/></svg>
+            </button>
+            <button type="button" class="tn-key" data-melo="repeat" title="Repeat" aria-label="Repeat">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m17 1 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            </button>
+          </div>
+
+          <div class="tn-level">
+            <div class="tn-dial-wrap">
+              <input class="tn-dial" type="range" data-melo="volume" min="0" max="100" value="60" aria-label="Volume">
+              <button type="button" class="tn-dial-mute" data-melo="volume-icon" title="Mute" aria-label="Mute"><span data-melo="volume-pct">60</span></button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- More menu -->
+    <div class="tn-menu" role="menu">
+      <label class="tn-item" for="tnMenu" data-melo="add-files" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6"/></svg>
+        Add files
+      </label>
+      <label class="tn-item" for="tnMenu" data-melo="add-folder" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 10v6M9 13h6"/></svg>
+        Add folder
+      </label>
+      <div class="tn-sep" role="separator"></div>
+      <label class="tn-item" for="tnMenu" data-melo="toggle-eq" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        Equalizer
+      </label>
+      <label class="tn-item" for="tnMenu" data-melo="toggle-lyrics" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18"/><path d="M12.5 16V11l3.5-.8"/><circle cx="10.2" cy="16" r="2"/></svg>
+        Lyrics window
+      </label>
+      <div class="tn-sep" role="separator"></div>
+      <label class="tn-item" for="tnMenu" data-melo="theme-toggle" role="menuitem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        Toggle theme
+      </label>
+    </div>
+    <label class="tn-dismiss" for="tnMenu" aria-label="Close menu"></label>
+
+  </div>
+</div>
+
+</body>
+</html>

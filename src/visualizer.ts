@@ -9,7 +9,8 @@ export type VizMode =
   | "Velvet"
   | "Ashes" | "Waves" | "Charge"
   | "Puddle Ripples"
-  | "Frequency Terrain" | "Kaleidoscope";
+  | "Frequency Terrain" | "Kaleidoscope"
+  | "Skyline" | "Strings" | "Electric Arc" | "Pearls" | "Sidechain" | "Bounce" | "Spring Curtain";
 
 export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "Classic Bars", label: "Classic Bars" },
@@ -51,6 +52,13 @@ export const VIZ_MODES: { id: VizMode; label: string }[] = [
   { id: "Puddle Ripples", label: "Puddle Ripples" },
   { id: "Frequency Terrain", label: "Frequency Terrain" },
   { id: "Kaleidoscope", label: "Kaleidoscope" },
+  { id: "Skyline", label: "Skyline" },
+  { id: "Strings", label: "Strings" },
+  { id: "Electric Arc", label: "Electric Arc" },
+  { id: "Pearls", label: "Pearls" },
+  { id: "Sidechain", label: "Sidechain" },
+  { id: "Bounce", label: "Bounce" },
+  { id: "Spring Curtain", label: "Spring Curtain" },
 
 
 ];
@@ -2900,6 +2908,780 @@ export function setupVisualizer(audio: HTMLAudioElement) {
     g2d.beginPath(); g2d.arc(cx, cy, rim, 0, Math.PI * 2); g2d.stroke();
   }
 
+  // ---------------------------------------------------------------------
+  // Round 135 — seven scenes (Skyline, Strings, Electric Arc, Pearls,
+  // Sidechain, Bounce, Spring Curtain). They use their OWN tempo-aware
+  // rhythm layer (`wideSignals`, state prefixed `w`), so the older beat
+  // scenes keep the exact `punchSignals` behaviour they were tuned with.
+  // ---------------------------------------------------------------------
+  interface WideSignals {
+    d: number[]; low: number; mid: number; high: number; all: number;
+    beat: number; kick: number; hit: boolean; period: number; phase: number; dt: number; t: number;
+  }
+  let wLowAvg = 0, wLowDev = 0, wBeat = 0, wLast = 0, wLastHit = 0, wFlow = 0, wEnergy = 0;
+  let wKick = 0, wKickT = 0, wPeriod = 0.5, wIntervals: number[] = [];
+
+  function wideSignals(n: number): WideSignals {
+    const now = performance.now();
+    const dt = wLast ? Math.min(0.1, (now - wLast) / 1000) : 1 / 60;
+    wLast = now;
+    const d = getLevels(n);
+    const silent = audio.paused && !useFake;
+    const q = Math.max(1, Math.floor(n / 4));
+    let low = 0, mid = 0, high = 0;
+    for (let i = 0; i < n; i++) {
+      if (i < q) low += d[i]; else if (i >= n - q) high += d[i]; else mid += d[i];
+    }
+    low /= q; high /= q; mid /= Math.max(1, n - 2 * q);
+    let all = (low + mid + high) / 3;
+    if (silent) low = mid = high = all = 0;
+
+    // Bass-onset detector. The threshold adapts to how much the bass normally
+    // moves (mean absolute deviation) and the refractory time follows the
+    // tempo, so a busy bassline is not mistaken for a kick on every wiggle.
+    const onset = low - wLowAvg;
+    wLowDev += (Math.abs(onset) - wLowDev) * (1 - Math.exp(-dt / 1.5));
+    wLowAvg += (low - wLowAvg) * (1 - Math.exp(-dt / 0.7));
+    const refractory = Math.min(0.45, Math.max(0.2, wPeriod * 0.55)) * 1000;
+    let hit = false;
+    if (!silent && onset > Math.max(0.07, 1.2 * wLowDev) && low > 0.22 && now - wLastHit > refractory) {
+      hit = true;
+      const interval = (now - wLastHit) / 1000;
+      if (interval > 0.28 && interval < 1.3) {
+        wIntervals.push(interval);
+        if (wIntervals.length > 6) wIntervals.shift();
+        const sorted = wIntervals.slice().sort((a, b) => a - b);
+        wPeriod += (sorted[Math.floor(sorted.length / 2)] - wPeriod) * 0.5;
+      } else if (interval >= 1.3) {
+        wIntervals = []; // long gap: forget the tempo
+      }
+      wLastHit = now; wBeat = 1; wKickT = 1;
+    } else {
+      wBeat *= Math.exp(-dt / 0.16);
+    }
+    if (silent) { wBeat = 0; wKickT = 0; }
+    wKickT *= Math.exp(-dt / 0.10);
+    wKick += (wKickT - wKick) * (1 - Math.exp(-dt / (wKickT > wKick ? 0.03 : 0.22)));
+    wEnergy += (all - wEnergy) * (1 - Math.exp(-dt / (all > wEnergy ? 0.05 : 0.3)));
+    wFlow += dt * (0.6 + 1.4 * wEnergy);
+    const phase = Math.min(1.5, (now - wLastHit) / 1000 / Math.max(0.2, wPeriod));
+    return { d, low, mid, high, all: wEnergy, beat: wBeat, kick: wKick, hit, period: wPeriod, phase, dt, t: wFlow };
+  }
+
+  // =====================================================================
+  // Scenes: Skyline · Strings · Electric Arc · Pearls · Sidechain · Bounce ·
+  //         Spring Curtain
+  // =====================================================================
+  function wideHash(a: number, b: number): number {
+    let x = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0;
+    x = Math.imul(x ^ (x >>> 13), 1274126177);
+    return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+  }
+  const wideClamp = (v: number, lo = 0, hi = 1) => (v < lo ? lo : v > hi ? hi : v);
+  const TAU = Math.PI * 2;
+  function wideRect(p: Path2D, x: number, y: number, rw: number, rh: number, r: number, topOnly = false, bottomOnly = false) {
+    const rad = Math.min(r, rw / 2, rh / 2);
+    if (rad > 0.5 && (p as any).roundRect) {
+      (p as any).roundRect(x, y, rw, rh, topOnly ? [rad, rad, 0, 0] : bottomOnly ? [0, 0, rad, rad] : rad);
+    } else p.rect(x, y, rw, rh);
+  }
+  // Rise fast, fall slowly (gravity feel) — used by every scene that draws bars/beads.
+  function wideFollow(arr: number[], i: number, target: number, up: number, down: number) {
+    arr[i] += (target - arr[i]) * (target > arr[i] ? up : down);
+    return arr[i];
+  }
+  function inkOf() {
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = accentOrDarker(c1);
+    const P1 = painter(c1), P2 = painter(c2);
+    return { c1, c2, P1, P2, HOT: hotInk(P1) };
+  }
+  // A short colour ramp c1 -> c2 (painters), so a scene can tint along its width.
+  function rampOf(c1: string, c2: string, steps = 8): ((a: number) => string)[] {
+    const out: ((a: number) => string)[] = [];
+    for (let i = 0; i < steps; i++) out.push(painter(mix(c1, c2, i / (steps - 1))));
+    return out;
+  }
+
+  // ---------------------------------------------------------------------
+  // Skyline — a city across the whole width, two layers deep. Towers rise on
+  // the spectrum and fall back under gravity, windows light up with each
+  // tower's level, beacons blink on the tallest roofs and the whole skyline
+  // flares on every kick. "Mirror fade" adds a water reflection, "Peak hold"
+  // the falling caps, "Paler tops" a bright crown.
+  // ---------------------------------------------------------------------
+  let skyFlash = 0, skyH: number[] = [], skyBack: number[] = [];
+  function drawSkyline(w: number, h: number) {
+    const dpr = dprOf();
+    const n = wideClamp(Math.floor(w / (11 * dpr)), 24, 120);
+    const S = wideSignals(n);
+    const { c1, P1, P2, HOT } = inkOf();
+    if (S.hit) skyFlash = Math.max(skyFlash, 0.55 + 0.45 * S.low); else skyFlash *= Math.exp(-S.dt / 0.22);
+    if (skyH.length !== n) { skyH = new Array(n).fill(0); skyBack = new Array(n).fill(0); }
+    const refl = fx.mirrorFade ? 0.2 : 0;
+    const base = h * (1 - refl) - 1.5 * dpr;
+    const maxH = base - 2 * dpr;
+    const slot = w / n;
+    const gap = Math.max(1, slot * 0.16);
+    const bw = slot - gap;
+
+    // night sky: horizon haze + a few twinkling stars (only where there is room)
+    const sky = g2d.createLinearGradient(0, 0, 0, base);
+    sky.addColorStop(0, P2(0));
+    sky.addColorStop(1, P2(0.10 + 0.10 * skyFlash));
+    g2d.fillStyle = sky;
+    g2d.fillRect(0, 0, w, base);
+    if (h > 70 * dpr) {
+      for (let k = 0; k < 34; k++) {
+        const a = (0.15 + 0.35 * wideHash(k, 3)) * (0.6 + 0.4 * Math.sin(S.t * 2 + k * 1.7));
+        g2d.fillStyle = HOT(a);
+        g2d.fillRect(wideHash(k, 1) * w, wideHash(k, 2) * base * 0.55, dpr, dpr);
+      }
+    }
+    // back layer: shorter, dimmer towers shifted half a slot, driven by neighbourhood averages
+    const back = new Path2D();
+    for (let i = 0; i < n; i++) {
+      const nb = ((S.d[i - 1] ?? S.d[i]) + S.d[i] + (S.d[i + 1] ?? S.d[i])) / 3;
+      const t = 0.10 + 0.50 * Math.pow(nb, 1.1);
+      const bh = Math.max(2 * dpr, wideFollow(skyBack, i, t, 0.25, 0.08) * maxH * 0.62);
+      wideRect(back, i * slot + slot * 0.1, base - bh, slot * 0.9, bh, 1.2 * dpr, true);
+    }
+    const bg = g2d.createLinearGradient(0, base - maxH * 0.62, 0, base);
+    bg.addColorStop(0, P2(0.30));
+    bg.addColorStop(1, P2(0.08));
+    g2d.fillStyle = bg;
+    g2d.fill(back);
+
+    const win = Math.max(2 * dpr, 2.4 * dpr), step = win * 1.9;
+    const body = new Path2D(), caps = new Path2D(), dim = new Path2D(), bright = new Path2D(), peaks = new Path2D();
+    let tallest = [-1, -1, -1];
+    let tallH = [0, 0, 0];
+    for (let i = 0; i < n; i++) {
+      const v = S.d[i];
+      const t = Math.pow(v, 1.08) * (1 + 0.06 * S.beat);
+      const bh = Math.min(maxH, Math.max(2 * dpr, wideFollow(skyH, i, t, 0.55, 0.16) * maxH));
+      const x = i * slot + gap / 2, y = base - bh;
+      wideRect(body, x, y, bw, bh, 1.4 * dpr, true);
+      caps.rect(x, y, bw, Math.max(1, 1.5 * dpr));
+      for (let k = 0; k < 3; k++) {
+        if (bh > tallH[k]) { for (let j = 2; j > k; j--) { tallH[j] = tallH[j - 1]; tallest[j] = tallest[j - 1]; } tallH[k] = bh; tallest[k] = i; break; }
+      }
+      if (fx.peak && peakHold[i] !== undefined) {
+        const py = base - Math.min(maxH, peakHold[i] * maxH) - 3 * dpr;
+        peaks.rect(x, py, bw, Math.max(1, dpr));
+      }
+      if (bw >= 5 * dpr && bh > 7 * dpr) {
+        const cols = Math.max(1, Math.floor((bw - win) / step) + 1);
+        const totalW = (cols - 1) * step + win;
+        const sx = x + (bw - totalW) / 2;
+        const rows = Math.floor((bh - 4 * dpr) / step);
+        const thr = 0.16 + 0.64 * v;
+        const tick = Math.floor(S.t * 2.2);
+        for (let r = 0; r < rows; r++) {
+          const wy = base - 2.5 * dpr - r * step - win;
+          for (let c = 0; c < cols; c++) {
+            if (wideHash(i * 7 + c, r) >= thr) continue;
+            const hot = wideHash(i * 13 + c, r + tick) < 0.10 + 0.55 * skyFlash * v;
+            (hot ? bright : dim).rect(sx + c * step, wy, win, win);
+          }
+        }
+      }
+    }
+    // horizon glow that flares with the kick
+    const hz = g2d.createLinearGradient(0, base - h * 0.16, 0, base);
+    hz.addColorStop(0, P1(0));
+    hz.addColorStop(1, P1(0.06 + 0.26 * skyFlash));
+    g2d.fillStyle = hz;
+    g2d.fillRect(0, base - h * 0.16, w, h * 0.16);
+    g2d.fillStyle = P1(0.32);
+    g2d.fillRect(0, base, w, Math.max(1, 1.2 * dpr));
+
+    const grad = g2d.createLinearGradient(0, base - maxH, 0, base);
+    grad.addColorStop(0, fx.pale ? HOT(0.60) : P1(0.64));
+    grad.addColorStop(0.35, P1(0.58));
+    grad.addColorStop(1, P2(0.26));
+    g2d.fillStyle = grad;
+    g2d.fill(body);
+    g2d.fillStyle = HOT(0.50);
+    g2d.fill(dim);
+    g2d.fillStyle = HOT(0.96);
+    g2d.fill(bright);
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
+    g2d.fillStyle = HOT(0.34 + 0.50 * skyFlash);
+    g2d.fill(caps);
+    g2d.shadowBlur = 0;
+    if (fx.peak) { g2d.fillStyle = HOT(0.55); g2d.fill(peaks); }
+    // roof beacons on the three tallest towers
+    if (h > 40 * dpr && bw >= 4 * dpr) {
+      for (let k = 0; k < 3; k++) {
+        const i = tallest[k];
+        if (i < 0 || tallH[k] < maxH * 0.25) continue;
+        const blink = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(S.t * 3.4 + k * 2.1));
+        const bx = i * slot + slot / 2, by = base - tallH[k] - 3 * dpr;
+        const hg = g2d.createRadialGradient(bx, by, 0, bx, by, 6 * dpr);
+        hg.addColorStop(0, HOT(0.9 * blink));
+        hg.addColorStop(1, P1(0));
+        g2d.fillStyle = hg;
+        g2d.beginPath(); g2d.arc(bx, by, 6 * dpr, 0, TAU); g2d.fill();
+      }
+    }
+    // water reflection of the front layer
+    if (refl > 0) {
+      g2d.save();
+      g2d.beginPath(); g2d.rect(0, base, w, h - base); g2d.clip();
+      g2d.translate(0, 2 * base);
+      g2d.scale(1, -1);
+      const rg = g2d.createLinearGradient(0, base, 0, base - (h - base));
+      rg.addColorStop(0, P1(0.26));
+      rg.addColorStop(1, P1(0));
+      g2d.fillStyle = rg;
+      g2d.fill(body);
+      g2d.restore();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Strings — horizontal strings pinned at both screen edges, each driven by
+  // its own part of the spectrum (bass at the bottom, thick and slow; treble
+  // at the top, thin and fast). Every string is four vibration modes: the
+  // spectrum sustains them, a kick PLUCKS the low strings and the pluck dies
+  // away physically (higher modes first). A glint travels along loud strings
+  // and the pinned ends glow with the string's energy.
+  // ---------------------------------------------------------------------
+  let strModes: number[][] = [], strPh: number[] = [], strPluck: number[] = [];
+  function drawStrings(w: number, h: number) {
+    const dpr = dprOf();
+    const S = wideSignals(30);
+    const count = wideClamp(Math.floor(h / (13 * dpr)), 3, 7);
+    if (strModes.length !== count) {
+      strModes = Array.from({ length: count }, () => [0, 0, 0, 0]);
+      strPh = new Array(count).fill(0);
+      strPluck = new Array(count).fill(0);
+    }
+    const { c1, c2, P1, HOT } = inkOf();
+    const rowH = h / count;
+    const px = Math.max(3 * dpr, w / 220);
+    g2d.lineJoin = "round";
+    g2d.lineCap = "round";
+    for (let s = 0; s < count; s++) {
+      const band = count - 1 - s;
+      const lo = Math.floor((band * 30) / count);
+      const hi = Math.max(lo + 1, Math.floor(((band + 1) * 30) / count));
+      let avg = 0;
+      for (let k = lo; k < hi; k++) avg += S.d[k];
+      avg /= hi - lo;
+      const target = Math.pow(avg, 0.75);
+      const m = strModes[s];
+      for (let k = 0; k < 4; k++) {
+        const tk = target / Math.pow(k + 1, 1.15);
+        m[k] += (tk - m[k]) * (tk > m[k] ? 0.45 : 0.06);
+      }
+      if (S.hit && band < 3) strPluck[s] = Math.min(1, strPluck[s] + 0.85 - 0.2 * band);
+      strPluck[s] *= Math.exp(-S.dt / 0.5);
+      const pl = strPluck[s];
+      const energy = Math.min(1, m[0] * 1.2 + pl * 0.8);
+      strPh[s] += S.dt * (4 + 7 * (1 - s / Math.max(1, count - 1)) + 5 * energy);
+      const y0 = (s + 0.5) * rowH, A = rowH * 0.56;
+      const ph = strPh[s];
+      const path = new Path2D();
+      for (let x = 0; ; x += px) {
+        const xx = Math.min(x, w), u = xx / w;
+        let disp = 0;
+        for (let k = 1; k <= 4; k++) {
+          // sustained part + plucked part (higher modes decay faster)
+          const a = m[k - 1] + Math.pow(pl, 1 + 0.55 * (k - 1)) * 0.95 / Math.pow(k, 1.3);
+          disp += a * Math.sin(k * Math.PI * u) * Math.sin(ph * (1 + (k - 1) * 0.38) + k * 1.3 + s);
+        }
+        const y = y0 + A * disp * 1.1;
+        if (x === 0) path.moveTo(xx, y); else path.lineTo(xx, y);
+        if (xx >= w) break;
+      }
+      const tone = s / Math.max(1, count - 1);
+      const col = mix(c1, c2, tone);
+      if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 7 * dpr; }
+      g2d.strokeStyle = col;
+      g2d.globalAlpha = 0.08 + 0.22 * energy;
+      g2d.lineWidth = (4.5 + 2 * pl) * dpr;
+      g2d.stroke(path);
+      g2d.shadowBlur = 0;
+      g2d.globalAlpha = 0.55 + 0.45 * Math.min(1, energy * 1.4);
+      g2d.lineWidth = (0.9 + 0.55 * tone) * dpr;
+      g2d.stroke(path);
+      g2d.globalAlpha = 1;
+      g2d.strokeStyle = HOT(0.18 + 0.50 * energy);
+      g2d.lineWidth = 0.6 * dpr;
+      g2d.stroke(path);
+      // a glint running along the string while it is loud
+      if (energy > 0.18) {
+        const gu = (S.t * (0.16 + 0.07 * s) + s * 0.37) % 1;
+        let gd = 0;
+        for (let k = 1; k <= 4; k++) {
+          const a = m[k - 1] + Math.pow(pl, 1 + 0.55 * (k - 1)) * 0.95 / Math.pow(k, 1.3);
+          gd += a * Math.sin(k * Math.PI * gu) * Math.sin(ph * (1 + (k - 1) * 0.38) + k * 1.3 + s);
+        }
+        const gx = gu * w, gy = y0 + A * gd * 1.1;
+        const gg = g2d.createRadialGradient(gx, gy, 0, gx, gy, 9 * dpr);
+        gg.addColorStop(0, HOT(0.85 * energy));
+        gg.addColorStop(1, P1(0));
+        g2d.fillStyle = gg;
+        g2d.beginPath(); g2d.arc(gx, gy, 9 * dpr, 0, TAU); g2d.fill();
+      }
+      // pinned ends glow with the string's energy
+      for (const ex of [0, w]) {
+        const er = (3 + 4 * energy) * dpr;
+        const eg = g2d.createRadialGradient(ex, y0, 0, ex, y0, er * 2.2);
+        eg.addColorStop(0, col);
+        eg.addColorStop(1, P1(0));
+        g2d.globalAlpha = 0.35 + 0.5 * energy;
+        g2d.fillStyle = eg;
+        g2d.beginPath(); g2d.arc(ex, y0, er * 2.2, 0, TAU); g2d.fill();
+        g2d.globalAlpha = 1;
+        g2d.fillStyle = col;
+        g2d.beginPath(); g2d.arc(ex, y0, 2.2 * dpr, 0, TAU); g2d.fill();
+      }
+    }
+    g2d.lineCap = "butt";
+  }
+
+  // ---------------------------------------------------------------------
+  // Electric Arc — a bolt strung between two electrodes at the far left and
+  // right. Jitter follows the spectrum along the bolt (bass left, treble
+  // right) as correlated noise plus fine crackle, two fading ghosts of the
+  // previous bolt give it persistence, and each kick throws FORKED branches
+  // (midpoint-displaced, with sub-branches) off the main channel.
+  // ---------------------------------------------------------------------
+  let arcY: number[] = [], arcT: number[] = [], arcAcc = 0;
+  let arcGhost: number[][] = [];
+  let arcBranches: { pts: [number, number][]; life: number }[] = [];
+  function arcBolt(x0: number, y0: number, x1: number, y1: number, rough: number, depth: number, out: [number, number][]) {
+    if (depth === 0) { out.push([x1, y1]); return; }
+    const mx = (x0 + x1) / 2 + (Math.random() - 0.5) * rough * 0.5;
+    const my = (y0 + y1) / 2 + (Math.random() - 0.5) * rough;
+    arcBolt(x0, y0, mx, my, rough * 0.55, depth - 1, out);
+    arcBolt(mx, my, x1, y1, rough * 0.55, depth - 1, out);
+  }
+  function drawArc(w: number, h: number) {
+    const dpr = dprOf();
+    const M = wideClamp(Math.floor(w / (13 * dpr)), 28, 150);
+    const S = wideSignals(32);
+    const { c1, P1, P2, HOT } = inkOf();
+    const cy = h / 2, lim = h / 2 - 2 * dpr;
+    if (arcY.length !== M + 1) { arcY = new Array(M + 1).fill(0); arcT = new Array(M + 1).fill(0); arcGhost = []; }
+    arcAcc += S.dt;
+    if (arcAcc > 0.034 - 0.012 * S.all) {
+      arcAcc = 0;
+      const lf1 = Math.random() * TAU, lf2 = Math.random() * TAU;
+      for (let i = 0; i <= M; i++) {
+        const u = i / M;
+        const env = Math.pow(Math.sin(Math.PI * u), 0.35);
+        const lv = bandAt(S.d, u);
+        const amp = h * 0.5 * (0.04 + 0.96 * Math.pow(lv, 0.8)) * (1 + 0.35 * S.beat);
+        const smooth = Math.sin(u * TAU * 2 + lf1) * 0.6 + Math.sin(u * TAU * 5 + lf2) * 0.4;   // correlated, bolt-shaped
+        const crackle = Math.random() * 2 - 1;                                                   // fine electrical noise
+        arcT[i] = (smooth * 0.5 + crackle * 0.5) * amp * env + Math.sin(u * Math.PI * 4 + S.t * 3) * h * 0.03 * S.all * env;
+      }
+      arcGhost.unshift(arcY.slice());
+      if (arcGhost.length > 2) arcGhost.length = 2;
+    }
+    const k = 1 - Math.exp(-S.dt / 0.03);
+    for (let i = 0; i <= M; i++) arcY[i] += (arcT[i] - arcY[i]) * k;
+
+    if (S.hit) {
+      const forks = 2 + Math.floor(Math.random() * 2 + S.low * 2);
+      for (let f = 0; f < forks; f++) {
+        const i = Math.floor(M * (0.12 + 0.76 * Math.random()));
+        const x = (i / M) * w, y = cy + wideClamp(arcY[i], -lim, lim);
+        const sx = Math.random() < 0.5 ? -1 : 1, up = Math.random() < 0.5 ? -1 : 1;
+        const ex = x + sx * (0.04 + Math.random() * 0.09) * w;
+        const ey = wideClamp(y + up * h * (0.25 + Math.random() * 0.25), 1.5 * dpr, h - 1.5 * dpr);
+        const pts: [number, number][] = [[x, y]];
+        arcBolt(x, y, ex, ey, h * 0.22, 3, pts);
+        arcBranches.push({ pts, life: 1 });
+        if (Math.random() < 0.6) {            // a sub-branch from the middle of the fork
+          const mid = pts[Math.floor(pts.length / 2)];
+          const sub: [number, number][] = [[mid[0], mid[1]]];
+          arcBolt(mid[0], mid[1], mid[0] + sx * 0.04 * w, wideClamp(mid[1] + up * h * 0.22, 1.5 * dpr, h - 1.5 * dpr), h * 0.12, 2, sub);
+          arcBranches.push({ pts: sub, life: 0.8 });
+        }
+      }
+    }
+    g2d.fillStyle = P1(0.12);
+    g2d.fillRect(0, cy - 0.5 * dpr, w, Math.max(1, dpr));
+    g2d.lineJoin = "round";
+    g2d.lineCap = "round";
+    const trace = (ys: number[]) => {
+      const p = new Path2D();
+      for (let i = 0; i <= M; i++) {
+        const x = (i / M) * w, y = cy + wideClamp(ys[i], -lim, lim);
+        if (i === 0) p.moveTo(x, y); else p.lineTo(x, y);
+      }
+      return p;
+    };
+    // ghosts of the previous bolts
+    for (let gi = arcGhost.length - 1; gi >= 0; gi--) {
+      g2d.strokeStyle = P1(gi === 0 ? 0.22 : 0.10);
+      g2d.lineWidth = (gi === 0 ? 2 : 1.6) * dpr;
+      g2d.stroke(trace(arcGhost[gi]));
+    }
+    const bolt = trace(arcY);
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 9 * dpr; }
+    g2d.strokeStyle = P2(0.14 + 0.16 * S.all);
+    g2d.lineWidth = 7 * dpr;
+    g2d.stroke(bolt);
+    g2d.shadowBlur = 0;
+    g2d.strokeStyle = P1(0.38 + 0.30 * S.beat);
+    g2d.lineWidth = 3 * dpr;
+    g2d.stroke(bolt);
+    g2d.strokeStyle = HOT(0.90);
+    g2d.lineWidth = Math.max(1, 1.3 * dpr);
+    g2d.stroke(bolt);
+    for (let b = arcBranches.length - 1; b >= 0; b--) {
+      const br = arcBranches[b];
+      br.life -= S.dt / 0.16;
+      if (br.life <= 0) { arcBranches.splice(b, 1); continue; }
+      const p = new Path2D();
+      p.moveTo(br.pts[0][0], br.pts[0][1]);
+      for (let q = 1; q < br.pts.length; q++) p.lineTo(br.pts[q][0], br.pts[q][1]);
+      g2d.strokeStyle = P1(0.25 * br.life);
+      g2d.lineWidth = 4 * dpr;
+      g2d.stroke(p);
+      g2d.strokeStyle = HOT(0.75 * br.life);
+      g2d.lineWidth = Math.max(1, 1.1 * dpr);
+      g2d.stroke(p);
+    }
+    // electrodes: glow + a ring of tiny sparks that spins faster with the energy
+    const er = (12 + 10 * S.beat) * dpr;
+    for (const ex of [0, w]) {
+      const dir = ex === 0 ? 1 : -1;
+      const eg = g2d.createRadialGradient(ex, cy, 0, ex, cy, er);
+      eg.addColorStop(0, HOT(0.65 + 0.3 * S.beat));
+      eg.addColorStop(0.4, P1(0.35));
+      eg.addColorStop(1, P1(0));
+      g2d.fillStyle = eg;
+      g2d.beginPath(); g2d.arc(ex, cy, er, 0, TAU); g2d.fill();
+      g2d.strokeStyle = HOT(0.35 + 0.4 * S.beat);
+      g2d.lineWidth = Math.max(0.8, 0.9 * dpr);
+      for (let sp = 0; sp < 5; sp++) {
+        const a = S.t * 3 * dir + sp * (TAU / 5);
+        const r0 = er * 0.35, r1 = er * (0.7 + 0.3 * Math.abs(Math.sin(a * 2.3 + sp)));
+        g2d.beginPath();
+        g2d.moveTo(ex + dir * Math.abs(Math.cos(a)) * r0, cy + Math.sin(a) * r0);
+        g2d.lineTo(ex + dir * Math.abs(Math.cos(a)) * r1, cy + Math.sin(a) * r1);
+        g2d.stroke();
+      }
+    }
+    g2d.lineCap = "butt";
+  }
+
+  // ---------------------------------------------------------------------
+  // Pearls — a string of beads across the whole width. Bead size follows
+  // the spectrum, the string undulates, and each bass hit sends a ripple
+  // from the centre out to both ends.
+  // ---------------------------------------------------------------------
+  let pearlWaves: { p: number }[] = [];
+  function drawPearls(w: number, h: number) {
+    const dpr = dprOf();
+    const n = wideClamp(Math.floor(w / (12 * dpr)), 28, 110);
+    const S = wideSignals(40);
+    const c1 = cssVar("--visualizer", "#38bdf8");
+    const c2 = accentOrDarker(c1);
+    const P1 = painter(c1), P2 = painter(c2);
+    const HOT = hotInk(P1);
+    const cy = h * 0.5;
+    const rCap = Math.min(h * 0.2, 9 * dpr, (w / n) * 0.6);
+    const margin = Math.min(rCap, 6 * dpr);
+    if (S.hit && pearlWaves.length < 6) pearlWaves.push({ p: 0 });
+    for (let k = pearlWaves.length - 1; k >= 0; k--) {
+      pearlWaves[k].p += S.dt * 1.6;
+      if (pearlWaves[k].p > 1.2) pearlWaves.splice(k, 1);
+    }
+    const xs: number[] = [], ys: number[] = [], rs: number[] = [], ts: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const u = i / (n - 1);
+      const x = margin + u * (w - 2 * margin);
+      const dc = Math.abs(u - 0.5) * 2;
+      let pulse = 0;
+      for (const wv of pearlWaves) {
+        const d = dc - wv.p;
+        pulse += Math.max(0, 1 - wv.p * 0.8) * Math.exp(-(d * d) / (2 * 0.07 * 0.07));
+      }
+      pulse = Math.min(1.4, pulse);
+      const v = bandAt(S.d, u);
+      const wob = Math.sin(u * Math.PI * 4 + S.t * 1.7) * h * (0.06 + 0.12 * S.all);
+      xs.push(x);
+      ys.push(cy + wob - pulse * h * 0.08);
+      rs.push(Math.min(rCap, dpr * (1.6 + v * 5.2) + pulse * 3 * dpr));
+      ts.push(wideClamp(v * 0.8 + pulse * 0.7));
+    }
+    g2d.beginPath();
+    for (let i = 0; i < n; i++) { if (i === 0) g2d.moveTo(xs[i], ys[i]); else g2d.lineTo(xs[i], ys[i]); }
+    g2d.strokeStyle = P1(0.28);
+    g2d.lineWidth = Math.max(1, dpr);
+    g2d.stroke();
+    for (let i = 0; i < n; i++) {
+      const r = rs[i], t = ts[i];
+      if (t > 0.45 && r > 3.5 * dpr) {
+        g2d.fillStyle = P1(0.10 + 0.12 * t);
+        g2d.beginPath(); g2d.arc(xs[i], ys[i], r * 2.1, 0, Math.PI * 2); g2d.fill();
+      }
+      g2d.fillStyle = t > 0.7 ? HOT(0.95) : t > 0.35 ? P1(0.92) : P2(0.78);
+      g2d.beginPath(); g2d.arc(xs[i], ys[i], r, 0, Math.PI * 2); g2d.fill();
+      if (r > 3 * dpr) {
+        g2d.fillStyle = HOT(0.55);
+        g2d.beginPath(); g2d.arc(xs[i] - r * 0.3, ys[i] - r * 0.3, r * 0.26, 0, Math.PI * 2); g2d.fill();
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Sidechain — layered waves across the full width that behave like a
+  // sidechained pad: on every kick they DUCK gently and swell back before the
+  // next one. v2: the duck follows the smooth `kick` envelope (30 ms attack,
+  // ~220 ms release) instead of an instant slam to 20 %, its depth shrinks when
+  // kicks come fast, the waves' vertical offset barely moves, and the phase
+  // runs on a low-passed speed so the motion never restarts.
+  // ---------------------------------------------------------------------
+  let scPh: number[] = [0, 0, 0, 0, 0], scSpeed = 1, scDuckSm = 0;
+  function drawSidechain(w: number, h: number) {
+    const dpr = dprOf();
+    const S = wideSignals(48);
+    const { c1, P1, P2, HOT } = inkOf();
+    const layers = h > 120 * dpr ? 5 : 4;
+    const depth = 0.34 * wideClamp(S.period / 0.5, 0.45, 1);
+    // duck = smoothed kick envelope, re-smoothed once more so it can never jump
+    scDuckSm += (S.kick - scDuckSm) * (1 - Math.exp(-S.dt / 0.05));
+    const duck = scDuckSm;
+    const pump = 1 - depth * duck;
+    scSpeed += (0.8 + 1.6 * S.all - scSpeed) * (1 - Math.exp(-S.dt / 0.6));
+    const step = Math.max(3 * dpr, w / 180);
+    if (S.beat > 0.02) { g2d.fillStyle = P1(0.05 * S.beat); g2d.fillRect(0, 0, w, h); }
+    for (let l = 0; l < layers; l++) {
+      const f = l / (layers - 1);
+      scPh[l] += S.dt * (scSpeed + 0.5 * l) * (l % 2 ? -1 : 1);
+      const base = h * (0.30 + 0.55 * f) + duck * h * 0.03 * (0.5 + f);
+      const A = h * (0.15 + 0.15 * f) * (0.4 + 0.9 * S.all) * pump;
+      const path = new Path2D();
+      const k1 = TAU * (1.3 + 0.5 * l), k2 = TAU * (3.1 + l * 0.7);
+      for (let x = 0; ; x += step) {
+        const xx = Math.min(x, w), u = xx / w;
+        let y = base - A * (Math.sin(u * k1 + scPh[l]) * 0.6 + Math.sin(u * k2 - scPh[l] * 1.4) * 0.4)
+          - bandAt(S.d, u) * h * 0.42 * (0.4 + 0.6 * f) * (1 - depth * 0.8 * duck);
+        y = Math.max(dpr, y);
+        if (x === 0) path.moveTo(xx, y); else path.lineTo(xx, y);
+        if (xx >= w) break;
+      }
+      const P = l % 2 ? P1 : P2;
+      const fill = new Path2D(path);
+      fill.lineTo(w, h + dpr); fill.lineTo(0, h + dpr); fill.closePath();
+      const g = g2d.createLinearGradient(0, h * 0.2, 0, h);
+      const dim = 1 - 0.22 * duck;                      // the pad dims while ducked
+      g.addColorStop(0, P((0.20 + 0.22 * f) * dim));
+      g.addColorStop(1, P(0.03));
+      g2d.fillStyle = g;
+      g2d.fill(fill);
+      g2d.lineJoin = "round";
+      if (fx.bloom && l === layers - 1) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
+      g2d.strokeStyle = l === layers - 1 ? HOT(0.62 + 0.3 * S.kick) : P((0.45 + 0.4 * f) * dim);
+      g2d.lineWidth = (1 + 0.8 * f) * dpr;
+      g2d.stroke(path);
+      g2d.shadowBlur = 0;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Bounce — a row of balls across the entire width. Every kick launches them
+  // in a wave from a random point, loud bands make their own balls jump, idle
+  // balls hop now and then so the edges never sleep, and hard landings send a
+  // small shockwave along the floor. Ball size follows the spectrum and the
+  // colour runs c1 -> c2 across the width.
+  // ---------------------------------------------------------------------
+  let bnY: number[] = [], bnV: number[] = [], bnArm: number[] = [], bnSq: number[] = [], bnPrev: number[] = [], bnR: number[] = [];
+  let bnRings: { x: number; age: number; a: number }[] = [];
+  function drawBounce(w: number, h: number) {
+    const dpr = dprOf();
+    const m = wideClamp(Math.round(w / (30 * dpr)), 10, 48);
+    const S = wideSignals(m);
+    const { c1, c2, P1, HOT } = inkOf();
+    const ramp = rampOf(c1, c2);
+    if (bnY.length !== m) {
+      bnY = new Array(m).fill(0); bnV = new Array(m).fill(0); bnArm = new Array(m).fill(-1);
+      bnSq = new Array(m).fill(0); bnPrev = new Array(m).fill(0); bnR = new Array(m).fill(0); bnRings = [];
+    }
+    const slot = w / m;
+    const rMax = Math.max(2 * dpr, Math.min(slot * 0.4, h * 0.12));
+    const floorY = h - 2.5 * dpr;
+    const g = h * 22;
+    const Hmax = Math.max(rMax, h - 2 * rMax - 6 * dpr);
+    if (S.hit) {
+      const origin = Math.floor(Math.random() * m);
+      for (let i = 0; i < m; i++) bnArm[i] = Math.abs(i - origin) * 0.008;
+    }
+    g2d.fillStyle = P1(0.15 + 0.5 * S.beat);
+    g2d.fillRect(0, floorY - 2 * dpr, w, 4 * dpr);
+    g2d.fillStyle = P1(0.35);
+    g2d.fillRect(0, floorY, w, Math.max(1, 1.2 * dpr));
+    // floor shockwaves
+    for (let k = bnRings.length - 1; k >= 0; k--) {
+      const rg = bnRings[k];
+      rg.age += S.dt / 0.45;
+      if (rg.age >= 1) { bnRings.splice(k, 1); continue; }
+      const rx = rMax * (1 + 5 * rg.age);
+      g2d.strokeStyle = P1(0.35 * (1 - rg.age) * rg.a);
+      g2d.lineWidth = Math.max(1, 1.2 * dpr);
+      g2d.beginPath(); g2d.ellipse(rg.x, floorY, rx, Math.max(1, rx * 0.12), 0, 0, TAU); g2d.stroke();
+    }
+    for (let i = 0; i < m; i++) {
+      const r = wideFollow(bnR, i, Math.max(2 * dpr, rMax * (0.72 + 0.4 * S.d[i])), 0.4, 0.1);
+      if (bnArm[i] >= 0) {
+        bnArm[i] -= S.dt;
+        if (bnArm[i] <= 0) {
+          bnArm[i] = -1;
+          const H = Math.min(Hmax, h * (0.5 + 0.35 * S.d[i]));
+          // aim for an absolute apex of H, so a kick that catches a ball mid-air never overshoots
+          bnV[i] = Math.max(bnV[i], Math.sqrt(2 * g * Math.max(0, H - bnY[i])));
+        }
+      }
+      if (bnY[i] <= 0.5 * dpr) {
+        if (S.d[i] > 0.62 && Math.random() < 0.25) bnV[i] = Math.sqrt(2 * g * Math.min(Hmax, h * 0.45 * S.d[i]));
+        else if (S.all > 0.04 && Math.random() < 0.004) bnV[i] = Math.sqrt(2 * g * h * 0.10);   // idle hop
+      }
+      bnV[i] -= g * S.dt;
+      bnY[i] += bnV[i] * S.dt;
+      if (bnY[i] > Hmax) { bnY[i] = Hmax; if (bnV[i] > 0) bnV[i] = 0; }
+      if (bnY[i] < 0) {
+        bnSq[i] = Math.min(1, -bnV[i] / (h * 6));
+        if (bnSq[i] > 0.45 && bnRings.length < 24) bnRings.push({ x: (i + 0.5) * slot, age: 0, a: bnSq[i] });
+        bnY[i] = 0; bnV[i] = 0;
+      }
+      bnSq[i] *= Math.exp(-S.dt / 0.08);
+      const x = (i + 0.5) * slot;
+      const yc = floorY - r - bnY[i];
+      const stretch = wideClamp(Math.abs(bnV[i]) / (h * 8), 0, 0.25);
+      const sy = 1 + stretch - 0.35 * bnSq[i];
+      const sx = 1 - (sy - 1) * 0.7;
+      const P = ramp[Math.min(ramp.length - 1, Math.floor((i / Math.max(1, m - 1)) * ramp.length))];
+      const frac = wideClamp(bnY[i] / Hmax);
+      g2d.fillStyle = P(0.25 * (1 - frac));
+      g2d.beginPath(); g2d.ellipse(x, floorY, r * (1 - 0.5 * frac), Math.max(1, r * 0.18), 0, 0, TAU); g2d.fill();
+      if (Math.abs(bnPrev[i] - yc) > 1) {
+        g2d.strokeStyle = P(0.22);
+        g2d.lineWidth = r * 1.2;
+        g2d.lineCap = "round";
+        g2d.beginPath(); g2d.moveTo(x, bnPrev[i]); g2d.lineTo(x, yc); g2d.stroke();
+        g2d.lineCap = "butt";
+      }
+      bnPrev[i] = yc;
+      const cyb = yc + r * (1 - sy);
+      const rg2 = g2d.createRadialGradient(x - r * 0.3, cyb - r * 0.3, r * 0.1, x, cyb, r * 1.1);
+      rg2.addColorStop(0, HOT(0.95));
+      rg2.addColorStop(0.5, P(0.95));
+      rg2.addColorStop(1, P(0.7));
+      g2d.fillStyle = rg2;
+      g2d.beginPath(); g2d.ellipse(x, cyb, r * sx, r * sy, 0, 0, TAU); g2d.fill();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Spring Curtain — columns hang from the ceiling on springs, now COUPLED to
+  // their neighbours so a kick sends a visible wave across the cloth. The
+  // spectrum sets how far each column hangs; every kick slams them down in a
+  // sweep (left, right or centre-out). The hem is a smooth glowing curve,
+  // the cloth has soft folds, fast-moving tips shed droplets.
+  // ---------------------------------------------------------------------
+  let scX: number[] = [], scV: number[] = [], scArm: number[] = [], scHits = 0;
+  let scDrops: { x: number; y: number; v: number; life: number }[] = [];
+  function drawSpringCurtain(w: number, h: number) {
+    const dpr = dprOf();
+    const m = wideClamp(Math.round(w / (14 * dpr)), 24, 100);
+    const S = wideSignals(m);
+    const { c1, P1, P2, HOT } = inkOf();
+    if (scX.length !== m) { scX = new Array(m).fill(0.15); scV = new Array(m).fill(0); scArm = new Array(m).fill(-1); scDrops = []; }
+    if (S.hit) {
+      scHits++;
+      const mode = scHits % 3;
+      for (let i = 0; i < m; i++) {
+        const u = i / (m - 1);
+        scArm[i] = mode === 0 ? u * 0.16 : mode === 1 ? (1 - u) * 0.16 : Math.abs(u - 0.5) * 2 * 0.16;
+      }
+    }
+    const slot = w / m, bw = slot * 0.62;
+    for (let i = 0; i < m; i++) {
+      if (scArm[i] >= 0) {
+        scArm[i] -= S.dt;
+        if (scArm[i] <= 0) { scArm[i] = -1; scV[i] += 5.5 + 3 * S.d[i]; }
+      }
+    }
+    const sub = Math.max(1, Math.ceil(S.dt / 0.008));
+    const sdt = S.dt / sub;
+    const acc = new Array(m).fill(0);
+    for (let s = 0; s < sub; s++) {
+      for (let i = 0; i < m; i++) {
+        const target = 0.10 + 0.62 * S.d[i];
+        const l = scX[Math.max(0, i - 1)], r = scX[Math.min(m - 1, i + 1)];
+        acc[i] = 260 * (target - scX[i]) - 9 * scV[i] + 90 * (l + r - 2 * scX[i]);   // spring + damping + neighbour coupling
+      }
+      for (let i = 0; i < m; i++) {
+        scV[i] += acc[i] * sdt;
+        scX[i] += scV[i] * sdt;
+        if (scX[i] > 0.97) { scX[i] = 0.97; scV[i] *= -0.3; }
+        if (scX[i] < 0.03) { scX[i] = 0.03; scV[i] *= -0.3; }
+      }
+    }
+    const body = new Path2D(), folds = new Path2D();
+    const tips: [number, number, number][] = [];
+    for (let i = 0; i < m; i++) {
+      const x = i * slot + (slot - bw) / 2, len = scX[i] * h;
+      wideRect(body, x, 0, bw, len, bw / 2, false, true);
+      if (bw > 3 * dpr) folds.rect(x + bw * 0.28, 0, Math.max(1, bw * 0.12), Math.max(0, len - bw * 0.4));
+      const sp = wideClamp(Math.abs(scV[i]) / 4);
+      tips.push([x + bw / 2, len, sp]);
+      if (scV[i] > 2.5 && Math.random() < 0.35 && scDrops.length < 30) {
+        scDrops.push({ x: x + bw / 2, y: len, v: scV[i] * h * 0.12, life: 1 });
+      }
+    }
+    const g = g2d.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, P2(0.18));
+    g.addColorStop(1, P1(0.85));
+    g2d.fillStyle = g;
+    g2d.fill(body);
+    g2d.fillStyle = HOT(0.07);
+    g2d.fill(folds);
+    // smooth glowing hem through the tips
+    if (m > 3) {
+      const hem = new Path2D();
+      hem.moveTo(tips[0][0], tips[0][1]);
+      for (let i = 1; i < m - 1; i++) {
+        const mx = (tips[i][0] + tips[i + 1][0]) / 2, my = (tips[i][1] + tips[i + 1][1]) / 2;
+        hem.quadraticCurveTo(tips[i][0], tips[i][1], mx, my);
+      }
+      hem.lineTo(tips[m - 1][0], tips[m - 1][1]);
+      if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
+      g2d.strokeStyle = HOT(0.35 + 0.25 * S.kick);
+      g2d.lineWidth = Math.max(1, 1.2 * dpr);
+      g2d.stroke(hem);
+      g2d.shadowBlur = 0;
+    }
+    if (fx.bloom) { g2d.shadowColor = c1; g2d.shadowBlur = 6 * dpr; }
+    for (const [tx, ty, v] of tips) {
+      g2d.fillStyle = HOT(0.35 + 0.6 * v);
+      g2d.beginPath(); g2d.arc(tx, ty, bw * (0.42 + 0.25 * v), 0, TAU); g2d.fill();
+    }
+    g2d.shadowBlur = 0;
+    // droplets shed by fast tips
+    for (let k = scDrops.length - 1; k >= 0; k--) {
+      const d = scDrops[k];
+      d.v += h * 2.2 * S.dt;
+      d.y += d.v * S.dt;
+      d.life -= S.dt / 0.5;
+      if (d.life <= 0 || d.y > h) { scDrops.splice(k, 1); continue; }
+      g2d.fillStyle = HOT(0.55 * d.life);
+      g2d.beginPath(); g2d.arc(d.x, d.y, Math.max(1, 1.3 * dpr), 0, TAU); g2d.fill();
+    }
+    g2d.fillStyle = P1(0.4);
+    g2d.fillRect(0, 0, w, Math.max(1, 1.5 * dpr));
+  }
+
+
   function draw() {
     const w = canvas.width, h = canvas.height;
     if (!w || !h) return;
@@ -2908,6 +3690,14 @@ export function setupVisualizer(audio: HTMLAudioElement) {
       drawWave();
       return;
     }
+    // Round 135 scenes
+    if (mode === "Skyline") return drawSkyline(w, h);
+    if (mode === "Strings") return drawStrings(w, h);
+    if (mode === "Electric Arc") return drawArc(w, h);
+    if (mode === "Pearls") return drawPearls(w, h);
+    if (mode === "Sidechain") return drawSidechain(w, h);
+    if (mode === "Bounce") return drawBounce(w, h);
+    if (mode === "Spring Curtain") return drawSpringCurtain(w, h);
     // Ambient & beat-driven scenes (they manage their own signals/particles).
     if (mode === "Aurora" || mode === "Aurora II") return drawAurora(w, h, mode === "Aurora II");
     if (mode === "Tide" || mode === "Tide II") return drawTide(w, h, mode === "Tide II");

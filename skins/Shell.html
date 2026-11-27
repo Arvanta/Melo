@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Melo — Shell</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Shell
+   Your music, in a well-kept terminal. A refined pass on Shell:
+     · transport order is prev · play · stop · next, then shuffle / repeat, then mute —
+       grouped with hairline separators; the keycaps get a tactile bottom edge
+     · accessible label colours in the light theme (dark ink on the cyan / green chips)
+     · powerline-style arrow on the tmux session segment
+     · a dashed rule under the title row so the track name reads as the header of the block
+     · RTL-safe values (Persian / Arabic titles align and truncate correctly), calmer selection colour
+   Same hooks, ids and layout contract as Shell.
+     · the title bar has three traffic-light dots: red closes, yellow
+       minimises, green flips light / dark
+     · the screen starts with a prompt and a neofetch-style block: the cover
+       on the left, key / value lines on the right (keys take the album accent)
+     · the seek bar is a row of block cells between [ ] brackets
+     · queue and lyrics are command output (the lyrics even have line numbers)
+     · the bottom has an htop-style function bar (every transport command and
+       its key) and a tmux-style status line whose "windows" are the views
+   Colours: Tokyo Night for dark, Catppuccin Latte for light.
+   ───────────────────────────────────────────────────────────── */
+@font-face {
+  /* the engine writes the volume as "60%"; this face scales only the % sign to nothing */
+  font-family: "tm-no-percent";
+  src: local("Segoe UI"), local("Arial"), local("Helvetica Neue"), local("Helvetica"), local("Liberation Sans"), local("DejaVu Sans");
+  unicode-range: U+0025;
+  size-adjust: 0%;
+}
+
+:root,
+:root[data-theme="dark"] {
+  --tm-bg: #1a1b26;
+  --tm-bg-2: #16161e;
+  --tm-hi: #292e42;
+  --tm-fg: #c0caf5;
+  --tm-fg-2: #9aa5ce;
+  --tm-dim: #565f89;
+  --tm-line: rgba(192,202,245,.1);
+  --tm-blue: #7aa2f7; --tm-cyan: #7dcfff; --tm-green: #9ece6a; --tm-yellow: #e0af68;
+  --tm-magenta: #bb9af7; --tm-red: #f7768e; --tm-orange: #ff9e64;
+  --tm-label-ink: #16161e;
+  --tm-accent: var(--accent, #9ece6a);
+}
+:root[data-theme="light"] {
+  --tm-bg: #eff1f5;
+  --tm-bg-2: #e6e9ef;
+  --tm-hi: #ccd0da;
+  --tm-fg: #4c4f69;
+  --tm-fg-2: #6c6f85;
+  --tm-dim: #9ca0b0;
+  --tm-line: rgba(76,79,105,.14);
+  --tm-blue: #1e66f5; --tm-cyan: #04a5e5; --tm-green: #40a02b; --tm-yellow: #df8e1d;
+  --tm-magenta: #8839ef; --tm-red: #d20f39; --tm-orange: #fe640b;
+  --tm-label-ink: #11111b;
+  --tm-accent: var(--accent, #40a02b);
+}
+.tm-root {
+  --tm-on: #101018;
+  --tm-on: oklch(from var(--tm-accent) clamp(0, (0.7 - l) * 1000, 1) 0 0);
+  --tm-accent-text: color-mix(in srgb, var(--tm-accent) 78%, var(--tm-fg));
+  --tm-wash: color-mix(in srgb, var(--tm-accent) 16%, transparent);
+  --tm-font: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", Consolas, Menlo, "DejaVu Sans Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+:root[data-theme="light"] .tm-root { color-scheme: light; }
+
+/* ── Window ── */
+body:not(.tauri-main):has(#melo-player) {
+  min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #0c0d14;
+}
+:root[data-theme="light"] body:not(.tauri-main):has(#melo-player) { background: #c4c8d6; }
+
+#melo-player,
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  position: relative;
+  width: 720px; height: 400px;
+  min-width: 560px; min-height: 300px;
+  overflow: hidden; color: var(--tm-fg);
+  background: var(--tm-bg);
+  border: 1px solid var(--tm-line); border-radius: 12px; box-shadow: none;
+}
+body.tauri-main,
+body.tauri-main .app-shell { min-width: 0 !important; }
+body.tauri-main .player-card,
+body.custom-skin-active .player-card {
+  width: 100% !important; height: 100vh !important;
+  min-width: 560px !important; min-height: 300px !important;
+  max-width: 1000px !important; max-height: 600px !important;
+  margin: 0 auto !important; border-radius: 12px !important; box-shadow: none !important;
+}
+
+.tm-root, .tm-root *, .tm-root *::before, .tm-root *::after { box-sizing: border-box; }
+.tm-root {
+  position: absolute; inset: 0; container: tmr / size;
+  display: grid; grid-template-rows: 34px minmax(0, 1fr) 30px 24px;
+  font-family: var(--tm-font); font-size: 13px; line-height: 1.55;
+  color: var(--tm-fg); background: var(--tm-bg); border-radius: 12px;
+  -webkit-font-smoothing: antialiased;
+}
+:where(.tm-root button) { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
+.tm-root svg { display: block; }
+::selection { background: color-mix(in srgb, var(--tm-accent) 32%, transparent); }
+.tm-root { --visualizer: var(--tm-accent); }
+.tm-val, .tm-lyric, .tm-main .lyric-line, .tm-main .embedded-playlist-row .t-title, .tm-main .embedded-playlist-row .t-artist { unicode-bidi: plaintext; }
+.tm-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); opacity: 0; }
+
+.tm-root button:focus-visible,
+.tm-root input[type="range"]:focus-visible,
+.tm-sr:focus-visible + .tm-st { outline: 2px solid var(--tm-accent); outline-offset: 1px; }
+
+/* ── Title bar ── */
+.tm-titlebar { position: relative; display: flex; align-items: center; padding: 0 14px; background: var(--tm-bg-2); border-bottom: 1px solid var(--tm-line); }
+.tm-dots { display: flex; gap: 8px; z-index: 2; -webkit-app-region: no-drag; }
+.tm-dot { position: relative; width: 13px; height: 13px; border-radius: 50%; display: grid; place-items: center; font: 700 9px/1 var(--tm-font); color: transparent; transition: filter .12s ease; -webkit-app-region: no-drag; }
+.tm-dot.r { background: var(--tm-red); } .tm-dot.y { background: var(--tm-yellow); } .tm-dot.g { background: var(--tm-green); }
+.tm-dots:hover .tm-dot { color: rgba(0,0,0,.62); }
+.tm-dot:hover { filter: brightness(1.12); }
+.tm-title { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: grid; place-items: center; font-size: 12px; color: var(--tm-dim); pointer-events: none; user-select: none; }
+.tm-title b { font-weight: 600; color: var(--tm-fg-2); }
+.tm-drag { flex: 1 1 auto; align-self: stretch; }
+
+/* ── Screen ── */
+.tm-screen { position: relative; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; row-gap: 10px; padding: 12px 20px 10px; }
+
+.tm-prompt { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; white-space: nowrap; }
+.tm-prompt .left { min-width: 0; overflow: hidden; }
+.tm-path { color: var(--tm-blue); font-weight: 600; }
+.tm-chev { color: var(--tm-accent); font-weight: 700; padding: 0 6px; }
+.tm-cmd { color: var(--tm-fg); }
+.tm-cursor { display: inline-block; width: .6em; height: 1.1em; margin-left: 4px; vertical-align: -.2em; background: var(--tm-accent); }
+.tm-root:has([data-melo="pause-icon"][style*="block"]) .tm-cursor { animation: tm-blink 1.05s steps(1) infinite; }
+@keyframes tm-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+.tm-rprompt { flex: 0 0 auto; font-size: 12px; color: var(--tm-dim); }
+.tm-rprompt::before { content: "\275A\275A  paused"; }
+.tm-root:has([data-melo="pause-icon"][style*="block"]) .tm-rprompt::before { content: "\25B6  playing"; color: var(--tm-green); }
+
+/* neofetch block */
+.tm-main { position: relative; min-height: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); row-gap: 10px; }
+.tm-fetch { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 22px; align-items: start; }
+.tm-cover { position: relative; width: clamp(80px, min(36cqh, 24cqw), 150px); aspect-ratio: 1; overflow: hidden; border-radius: 4px; background: var(--tm-hi); box-shadow: 0 0 0 1px var(--tm-line); }
+.tm-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.tm-cover-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--tm-dim); }
+.tm-cover-fallback svg { width: 38%; height: 38%; }
+.tm-info { min-width: 0; display: grid; row-gap: 1px; align-content: start; }
+.tm-row { display: grid; grid-template-columns: 8ch minmax(0, 1fr); column-gap: 10px; align-items: center; min-width: 0; min-height: 22px; }
+.tm-key { color: var(--tm-accent-text); font-weight: 700; }
+.tm-row.has-rating { grid-template-columns: 8ch minmax(0, 1fr) auto; }
+/* Star rating at the right end of the title row. Melo fills [data-melo="rating"] with five .rate-star
+   buttons (.on = filled). Styled like a terminal readout: yellow ★ (the palette's yellow), dim when empty.
+   Hover preview: .pv-add = stars a click would fill (dimmed yellow); .pv-remove = stars it would empty
+   (still filled, dimmed). The :hover variants out-rank the app's own .rate-star.pv-*:hover rules. */
+.tm-rating.track-rating { margin: 0; min-height: 0; gap: 2px; align-items: center; }
+.tm-rating .rate-star { padding: 0 1px; font-family: inherit; font-size: 16px; line-height: 18px; opacity: 1; cursor: pointer;
+  color: color-mix(in srgb, var(--tm-dim) 75%, transparent); transition: color .1s ease, opacity .1s ease; }
+.tm-rating .rate-star.on { color: var(--tm-yellow); }
+.tm-rating .rate-star.pv-add, .tm-rating .rate-star.pv-add:hover { color: var(--tm-yellow); opacity: .5; }
+.tm-rating .rate-star.pv-remove, .tm-rating .rate-star.pv-remove:hover { color: var(--tm-yellow); opacity: .4; }
+.tm-rating .rate-star:focus-visible { outline: 1px solid var(--tm-yellow); outline-offset: 1px; }
+.tm-info > .tm-row:first-child { padding-bottom: 5px; margin-bottom: 4px; border-bottom: 1px dashed var(--tm-line); }
+.tm-val { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-val.title { color: var(--tm-fg); font-weight: 700; font-size: 15px; }
+.tm-val.artist { color: var(--tm-magenta); }
+.tm-val.album { color: var(--tm-cyan); }
+.tm-val.album:empty::before { content: "—"; color: var(--tm-dim); }
+.tm-val.format { display: flex; gap: 8px; }
+.tm-codec { color: var(--tm-green); font-weight: 700; flex: 0 0 auto; }
+.tm-specs { color: var(--tm-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tm-val.vol { display: flex; align-items: center; gap: 8px; overflow: visible; }
+.tm-pct { min-width: 2.2ch; text-align: right; font-family: "tm-no-percent", var(--tm-font); color: var(--tm-fg-2); font-variant-numeric: tabular-nums; }
+.tm-root:has(.tm-fn.mute.muted) .tm-pct { color: var(--tm-red); }
+.tm-palette { display: flex; gap: 0; margin-top: 8px; }
+.tm-palette i { width: 17px; height: 17px; }
+.tm-palette i:nth-child(1) { background: var(--tm-red); } .tm-palette i:nth-child(2) { background: var(--tm-orange); } .tm-palette i:nth-child(3) { background: var(--tm-yellow); } .tm-palette i:nth-child(4) { background: var(--tm-green); }
+.tm-palette i:nth-child(5) { background: var(--tm-cyan); } .tm-palette i:nth-child(6) { background: var(--tm-blue); } .tm-palette i:nth-child(7) { background: var(--tm-magenta); } .tm-palette i:nth-child(8) { background: var(--tm-accent); }
+
+/* block-cell sliders (progress + volume) */
+.tm-cells { -webkit-appearance: none; appearance: none; margin: 0; background: transparent; cursor: pointer; outline: none; -webkit-app-region: no-drag; }
+.tm-cells::-webkit-slider-runnable-track {
+  height: 100%;
+  background: linear-gradient(90deg, var(--tm-accent) 0, var(--tm-accent) var(--fill, 0%), var(--tm-hi) var(--fill, 0%), var(--tm-hi) 100%);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px);
+          mask-image: repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px);
+}
+.tm-cells:hover::-webkit-slider-runnable-track { filter: brightness(1.14); }
+.tm-cells::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 100%; background: transparent; }
+.tm-cells::-moz-range-track { height: 100%; background: var(--tm-hi); }
+.tm-cells::-moz-range-progress { height: 100%; background: var(--tm-accent); }
+.tm-cells::-moz-range-thumb { width: 2px; height: 100%; border: 0; background: transparent; }
+.tm-cells[data-melo="volume"] { --fill: var(--vol, 60%); width: 108px; height: 12px; }
+.tm-cells[data-melo="seek"] { --fill: var(--progress, 0%); width: 100%; height: 14px; }
+.tm-root:has(.tm-fn.mute.muted) .tm-cells[data-melo="volume"] { --tm-accent: var(--tm-red); }
+
+/* visualizer: a cava-style strip */
+.tm-viz { position: relative !important; inset: auto !important; width: auto !important; height: auto !important; min-height: 0; display: block !important; overflow: hidden !important; cursor: pointer; align-self: stretch; }
+.tm-viz canvas { display: block; width: 100% !important; height: 100% !important; opacity: .9; }
+html.melo-show-playlist .tm-viz,
+html.melo-show-lyrics .tm-viz { display: none !important; }
+@container tmr (max-height: 360px) { .tm-palette { display: none; } }
+@container tmr (max-height: 330px) { .tm-viz { display: none !important; } }
+/* short windows: keep title, artist, format and volume; the info block must never reach the progress line */
+@container tmr (max-height: 350px) {
+  .tm-row { min-height: 19px; }
+  .tm-info .tm-row:nth-child(3) { display: none; }
+  .tm-val.title { font-size: 14px; }
+}
+
+/* output panels */
+.tm-main [data-melo="embedded-playlist"],
+.tm-main [data-melo="embedded-lyrics"] { position: absolute; z-index: 4; inset: 0; display: none; padding: 0; overflow: hidden; background: var(--tm-bg);
+  --text: var(--tm-fg); --text-soft: var(--tm-fg-2); --text-muted: var(--tm-dim); --track-bg: var(--tm-hi); }
+html.melo-show-playlist .tm-main [data-melo="embedded-playlist"],
+html.melo-show-lyrics .tm-main [data-melo="embedded-lyrics"] { display: block; }
+.tm-main .embedded-playlist, .tm-main .embedded-lyrics { height: 100% !important; max-height: 100% !important; overflow-y: auto !important; overflow-x: hidden !important; padding: 0 6px 0 0; font-family: var(--tm-font); font-size: 12.5px !important; color: var(--tm-fg); }
+.tm-main .embedded-lyrics { counter-reset: tmln; font-size: 13px !important; }
+.tm-main .embedded-playlist { counter-reset: tmq; }
+.tm-main .embedded-playlist-row, .tm-main .embedded-playlist-row .t-title, .tm-main .embedded-playlist-row .t-dur, .tm-main .embedded-playlist-row .ep-meta { color: inherit; font-family: inherit; }
+.tm-main .embedded-playlist-row { position: relative; min-height: 34px; padding: 3px 8px 3px 36px; border-radius: 3px; color: var(--tm-fg-2); counter-increment: tmq; }
+.tm-main .embedded-playlist-row::before { content: "  " counter(tmq); position: absolute; left: 6px; top: 3px; color: var(--tm-dim); font-size: 11px; white-space: pre; }
+.tm-main .embedded-playlist-row:hover { background: var(--tm-hi); color: var(--tm-fg); }
+.tm-main .embedded-playlist-row.active { background: var(--tm-wash); color: var(--tm-fg); }
+.tm-main .embedded-playlist-row.active::before { content: "\276F " counter(tmq); color: var(--tm-accent-text); font-weight: 700; }
+.tm-main .embedded-playlist-row .t-title { font-size: 12.5px; font-weight: 700; }
+.tm-main .embedded-playlist-row .t-artist { font-size: 11px; color: var(--tm-magenta); font-family: inherit; }
+.tm-main .embedded-playlist-empty, .tm-main .embedded-lyrics-title { color: var(--tm-dim); }
+.tm-main .lyric-line { position: relative; font-family: var(--tm-font); font-size: 13px; font-weight: 400; line-height: 1.6; padding: 0 8px 0 40px; text-align: left; color: var(--tm-dim); counter-increment: tmln; }
+.tm-main .lyric-line::before { content: counter(tmln); position: absolute; left: 0; width: 28px; text-align: right; color: var(--tm-dim); opacity: .7; font-size: 11px; }
+.tm-main .lyric-line.passed { color: var(--tm-dim); }
+.tm-main .lyric-line:hover { color: var(--tm-fg-2); }
+.tm-main .lyric-line.active { color: var(--tm-fg); font-weight: 700; background: var(--tm-wash); }
+.tm-main .lyric-line.active::before { color: var(--tm-accent-text); opacity: 1; }
+.tm-main ::-webkit-scrollbar { width: 8px; }
+.tm-main ::-webkit-scrollbar-track { background: transparent; }
+.tm-main ::-webkit-scrollbar-thumb { background: var(--tm-hi); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+
+/* progress line */
+.tm-prog { position: relative; z-index: 6; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; column-gap: 8px; align-items: center; }
+.tm-time { color: var(--tm-fg-2); font-variant-numeric: tabular-nums; min-width: 4.4ch; }
+.tm-time.end { text-align: right; color: var(--tm-dim); }
+.tm-br { color: var(--tm-dim); }
+.tm-bar { position: relative; height: 14px; min-width: 0; }
+.tm-bar [data-melo="seek"] { position: absolute; inset: 0; }
+[data-melo="waveform"] { --melo-wave-played: var(--tm-accent); --melo-wave-rest: var(--tm-hi); display: none; position: absolute; inset: -4px 0; cursor: pointer; touch-action: none; -webkit-app-region: no-drag; }
+html.melo-wave-on [data-melo="waveform"] { display: block; z-index: 2; }
+html.melo-wave-on .tm-bar [data-melo="seek"] { opacity: 0 !important; }
+
+/* current lyric: the last line of output (rolls; the exiting copy needs data-melo-lyric-prev) */
+/* fixed height + centre alignment: with baseline alignment the animating padding moved the row's height and made the bar and visualizer jump */
+.tm-lyric-row { display: none; align-items: center; gap: 8px; min-width: 0; height: 22px; overflow: hidden; }
+html.melo-lyric-skin-on.melo-has-synced-lyrics:not(.melo-show-lyrics):not(.melo-show-playlist) .tm-lyric-row { display: flex; }
+.tm-lyric-row::before { content: "\203A"; color: var(--tm-accent-text); font-weight: 700; line-height: 22px; }
+.tm-lyric { position: relative; flex: 1 1 0; min-width: 0; height: 22px; overflow: hidden; box-sizing: border-box; cursor: pointer; color: var(--tm-fg); font-weight: 600; line-height: 22px; white-space: nowrap; text-overflow: ellipsis; }
+.tm-lyric[data-melo-lyric-prev]::before { content: attr(data-melo-lyric-prev); position: absolute; left: 0; right: 0; top: 0; opacity: 0; pointer-events: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tm-lyric.melo-lyric-tick { animation: tm-in .42s cubic-bezier(.22,.8,.2,1) .07s both; }
+.tm-lyric.melo-lyric-tick[data-melo-lyric-prev]::before { animation: tm-out .3s cubic-bezier(.4,0,.8,.6) both; }
+@keyframes tm-in { from { padding-top: 22px; } to { padding-top: 0; } }
+@keyframes tm-out { from { transform: none; opacity: 1; } 65% { opacity: 0; } to { transform: translateY(-115%); opacity: 0; } }
+
+/* ── Function bar (htop) ── */
+.tm-fnbar { display: flex; align-items: center; gap: 5px; padding: 0 20px; background: var(--tm-bg); border-top: 1px solid var(--tm-line); overflow: hidden; }
+.tm-fn { flex: 0 0 auto; display: flex; align-items: stretch; height: 22px; border-radius: 3px; overflow: hidden; font-size: 12px; transition: transform .06s ease, filter .12s ease; -webkit-app-region: no-drag; }
+.tm-fn:hover { filter: brightness(1.12); }
+.tm-fn:active { transform: translateY(1px); }
+.tm-fn > b { display: grid; place-items: center; min-width: 22px; padding: 0 6px; font-weight: 700; background: var(--tm-hi); color: var(--tm-fg); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--tm-fg) 14%, transparent); }
+.tm-fsep { flex: 0 0 1px; height: 12px; margin: 0 4px; background: var(--tm-line); }
+.tm-fn > span { display: grid; place-items: center; padding: 0 8px; background: var(--tm-cyan); color: var(--tm-label-ink); font-weight: 600; }
+.tm-fn.play > span { background: var(--tm-accent); color: var(--tm-on); min-width: 52px; }
+.tm-fn.active > span { background: var(--tm-yellow); }
+.tm-fn.mute.muted > span { background: var(--tm-red); color: #fff; }
+.tm-fn.mute.muted > b { color: var(--tm-red); }
+.tm-fn .lab { display: block; }
+@container tmr (max-width: 660px) { .tm-fn:not(.play) > span { display: none; } .tm-fn > b { min-width: 26px; } }
+
+/* ── Status line (tmux) ── */
+.tm-status { display: flex; align-items: stretch; gap: 0; font-size: 12px; background: var(--tm-bg-2); border-top: 1px solid var(--tm-line); }
+.tm-session { position: relative; z-index: 1; display: grid; place-items: center; padding: 0 20px 0 12px; font-weight: 700; background: var(--tm-green); color: var(--tm-label-ink); user-select: none;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%); }
+.tm-wins { display: flex; align-items: stretch; margin-left: 2px; -webkit-app-region: no-drag; }
+.tm-win { display: grid; place-items: center; padding: 0 10px; color: var(--tm-dim); transition: color .12s ease, background .12s ease; -webkit-app-region: no-drag; }
+.tm-win:hover { color: var(--tm-fg); background: var(--tm-hi); }
+.tm-win.active { color: var(--tm-accent-text); font-weight: 700; background: var(--tm-wash); }
+.tm-win.active::after { content: "*"; margin-left: 1px; }
+.tm-spacer { flex: 1 1 auto; align-self: stretch; }
+.tm-st { display: grid; place-items: center; padding: 0 9px; color: var(--tm-fg-2); cursor: pointer; transition: color .12s ease, background .12s ease; -webkit-app-region: no-drag; }
+.tm-st:hover { color: var(--tm-fg); background: var(--tm-hi); }
+.tm-root:has(#tmMenu:checked) .tm-st[for="tmMenu"] { background: var(--tm-hi); color: var(--tm-fg); }
+.tm-sep { align-self: center; width: 1px; height: 12px; background: var(--tm-line); }
+
+/* ── Menu ── */
+.tm-menu { display: none; position: absolute; z-index: 200; bottom: 28px; right: 12px; width: 214px; padding: 5px; flex-direction: column; gap: 1px; background: var(--tm-bg-2); color: var(--tm-fg); border-radius: 8px; box-shadow: 0 0 0 1px var(--tm-line), 0 12px 30px rgba(0,0,0,.4); }
+.tm-root:has(#tmMenu:checked) .tm-menu { display: flex; animation: tm-pop .12s ease-out; }
+@keyframes tm-pop { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tm-item { height: 30px; padding: 0 10px; display: flex; align-items: center; gap: 10px; border-radius: 5px; font-size: 12.5px; cursor: pointer; user-select: none; }
+.tm-item i { font-style: normal; color: var(--tm-accent-text); font-weight: 700; width: 1.2em; text-align: center; }
+.tm-item:hover { background: var(--tm-hi); }
+.tm-msep { height: 1px; margin: 4px 8px; background: var(--tm-line); }
+.tm-dismiss { display: none; position: fixed; inset: 0; z-index: 150; }
+.tm-root:has(#tmMenu:checked) .tm-dismiss { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-root *, .tm-root *::before, .tm-root *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body data-window-width="720" data-window-height="400" data-min-width="560" data-min-height="300" data-max-width="1000" data-max-height="600" data-resizable="true">
+
+<div id="melo-player">
+  <div class="tm-root">
+
+    <!-- Title bar: traffic lights -->
+    <header class="tm-titlebar" data-tauri-drag-region>
+      <div class="tm-dots">
+        <button type="button" class="tm-dot r" data-melo="close" aria-label="close" title="Close">×</button>
+        <button type="button" class="tm-dot y" data-melo="minimize" aria-label="minimize" title="Minimize">–</button>
+        <button type="button" class="tm-dot g" data-melo="theme-toggle" aria-label="Toggle light / dark" title="Light / dark">◐</button>
+      </div>
+      <div class="tm-title" data-tauri-drag-region><span><b>melo</b> — zsh</span></div>
+      <div class="tm-drag" data-tauri-drag-region></div>
+    </header>
+
+    <!-- Screen -->
+    <main class="tm-screen">
+      <div class="tm-prompt">
+        <span class="left"><span class="tm-path">~/music</span><span class="tm-chev">❯</span><span class="tm-cmd">melo now</span><i class="tm-cursor"></i></span>
+        <span class="tm-rprompt"></span>
+      </div>
+
+      <div class="tm-main">
+        <div class="tm-fetch">
+          <div class="tm-cover">
+            <div class="tm-cover-fallback" data-melo="cover-fallback" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M19 36V13l19-4v22"/><circle cx="14" cy="36" r="5"/><circle cx="33" cy="31" r="5"/></svg>
+            </div>
+            <img data-melo="cover" alt="Album cover" style="display:none">
+          </div>
+          <div class="tm-info">
+            <div class="tm-row has-rating"><span class="tm-key">title</span><span class="tm-val title" data-melo="title">Nothing playing</span><span class="tm-rating" data-melo="rating"></span></div>
+            <div class="tm-row"><span class="tm-key">artist</span><span class="tm-val artist" data-melo="artist">Add files or a folder</span></div>
+            <div class="tm-row"><span class="tm-key">album</span><span class="tm-val album" data-melo="album"></span></div>
+            <div class="tm-row"><span class="tm-key">format</span><span class="tm-val format"><span class="tm-codec" data-melo="codec"></span><span class="tm-specs" data-melo="specs"></span></span></div>
+            <div class="tm-row"><span class="tm-key">volume</span>
+              <span class="tm-val vol">
+                <input class="tm-cells" type="range" data-melo="volume" min="0" max="100" value="60" aria-label="Volume">
+                <span class="tm-pct" data-melo="volume-pct">60</span>
+              </span>
+            </div>
+            <div class="tm-palette" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+        <div class="tm-viz" data-melo="visualizer" data-bars="48"></div>
+        <div data-melo="embedded-playlist"></div>
+        <div data-melo="embedded-lyrics"></div>
+      </div>
+
+      <div class="tm-prog">
+        <span class="tm-time" data-melo="current-time">0:00</span>
+        <span class="tm-br">[</span>
+        <div class="tm-bar">
+          <div data-melo="waveform"></div>
+          <input class="tm-cells" type="range" data-melo="seek" min="0" max="100" value="0" aria-label="Seek">
+        </div>
+        <span class="tm-br">]</span>
+        <span class="tm-time end" data-melo="duration">0:00</span>
+      </div>
+
+      <div class="tm-lyric-row"><span class="tm-lyric" data-melo="current-lyric" aria-live="polite" title="Click to seek"></span></div>
+    </main>
+
+    <!-- Function bar -->
+    <nav class="tm-fnbar" aria-label="Playback">
+      <button type="button" class="tm-fn" data-melo="prev" title="Previous"><b>←</b><span>Prev</span></button>
+      <button type="button" class="tm-fn play" data-melo="play" title="Play / Pause"><b>␣</b><span><span class="lab" data-melo="pause-icon" style="display:none">Pause</span><span class="lab" data-melo="play-icon">Play</span></span></button>
+      <button type="button" class="tm-fn" data-melo="stop" title="Stop"><b>x</b><span>Stop</span></button>
+      <button type="button" class="tm-fn" data-melo="next" title="Next"><b>→</b><span>Next</span></button>
+      <i class="tm-fsep" aria-hidden="true"></i>
+      <button type="button" class="tm-fn" data-melo="shuffle" title="Shuffle"><b>s</b><span>Shuffle</span></button>
+      <button type="button" class="tm-fn" data-melo="repeat" title="Repeat"><b>r</b><span>Repeat</span></button>
+      <i class="tm-fsep" aria-hidden="true"></i>
+      <button type="button" class="tm-fn mute" data-melo="volume-icon" title="Mute"><b>m</b><span>Mute</span></button>
+    </nav>
+
+    <!-- Status line -->
+    <footer class="tm-status">
+      <span class="tm-session">[melo]</span>
+      <div class="tm-wins" role="group" aria-label="Windows">
+        <button type="button" class="tm-win active" data-melo="toggle-embedded-viz" title="Now playing">0:now</button>
+        <button type="button" class="tm-win" data-melo="toggle-embedded-lyrics" title="Lyrics">1:lyrics</button>
+        <button type="button" class="tm-win" data-melo="toggle-embedded-playlist" title="Queue">2:queue</button>
+      </div>
+      <span class="tm-spacer"></span>
+      <button type="button" class="tm-st" data-melo="toggle-playlist" title="Playlist window">playlist</button>
+      <span class="tm-sep"></span>
+      <button type="button" class="tm-st" data-melo="toggle-library" title="Library">library</button>
+      <span class="tm-sep"></span>
+      <button type="button" class="tm-st" data-melo="toggle-settings" title="Settings">config</button>
+      <span class="tm-sep"></span>
+      <input id="tmMenu" type="checkbox" class="tm-sr" aria-label="More">
+      <label class="tm-st" for="tmMenu" title="More" aria-hidden="true">···</label>
+    </footer>
+
+    <!-- More menu -->
+    <div class="tm-menu" role="menu">
+      <label class="tm-item" for="tmMenu" data-melo="add-files" role="menuitem"><i>+</i>add files</label>
+      <label class="tm-item" for="tmMenu" data-melo="add-folder" role="menuitem"><i>+</i>add folder</label>
+      <div class="tm-msep" role="separator"></div>
+      <label class="tm-item" for="tmMenu" data-melo="toggle-eq" role="menuitem"><i>≈</i>equalizer</label>
+      <label class="tm-item" for="tmMenu" data-melo="toggle-lyrics" role="menuitem"><i>♪</i>lyrics window</label>
+    </div>
+    <label class="tm-dismiss" for="tmMenu" aria-label="Close menu"></label>
+
+  </div>
+</div>
+
+</body>
+</html>
