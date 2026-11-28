@@ -1,3 +1,4 @@
+import { perfNote } from "./perf-log";
 let nodePolyfilled = false;
 async function polyfillNode() {
   if (nodePolyfilled) return;
@@ -138,10 +139,13 @@ export function extractDominantColor(coverSrc: string): Promise<{ r: number; g: 
         if (maxScore > 0) resolve(bestColor);
         else resolve(null);
       } catch {
+        // tainted canvas / decode problem: not a verdict on the artwork, so
+        // don't remember it (a readable copy may be offered later)
+        dominantColorCache.delete(coverSrc);
         resolve(null);
       }
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => { dominantColorCache.delete(coverSrc); resolve(null); };
     img.src = coverSrc;
   });
 
@@ -164,6 +168,7 @@ export async function applyDynamicAmbientTheme(coverSrc: string | null) {
   const doc = document.documentElement;
 
   if (!enabled || !coverSrc) {
+    if (enabled) perfNote("dynamic theme: no artwork yet");
     doc.style.removeProperty("--accent");
     doc.style.removeProperty("--visualizer");
     doc.style.removeProperty("--accent-glow");
@@ -172,6 +177,7 @@ export async function applyDynamicAmbientTheme(coverSrc: string | null) {
 
   const col = await extractDominantColor(coverSrc);
   if (token !== ambientThemeToken) return; // superseded by a newer request
+  perfNote(`dynamic theme: ${/^data:/i.test(coverSrc) ? "data" : "url"} art -> ${col ? `rgb(${col.r},${col.g},${col.b})` : "no colour"}`);
   if (col) {
     const rgbStr = `rgb(${col.r}, ${col.g}, ${col.b})`;
     doc.style.setProperty("--accent", rgbStr);

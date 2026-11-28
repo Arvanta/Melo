@@ -273,15 +273,26 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
   }
   const fullArtPending = new Set<string>();
 
+  // Artwork to read the tint from: cached full art (a data: URL, always
+  // readable) before the thumbnail (can be an asset URL the canvas refuses to
+  // read) — and null while neither exists yet; upgradeCoverToFull re-applies
+  // the tint when the full art arrives.
+  function themeCoverSrc(t: Track | undefined | null): string | null {
+    if (!t) return null;
+    return (t.id && fullArtCacheGet(t.id)) || t.cover || null;
+  }
+
   async function upgradeCoverToFull(t: Track) {
     if (!isTauri || !t || !t.id || !coverImg) return;
     const cached = fullArtCacheGet(t.id);
     if (cached) {
-      if (coverImg.getAttribute("src") !== cached) {
-        coverImg.src = cached;
-        coverImg.style.display = "block";
-        if (coverFallback) coverFallback.style.display = "none";
-      }
+      if (coverImg.getAttribute("src") !== cached) coverImg.src = cached;
+      // Always (re)show: a skin switch can rebind twice, and the second pass
+      // hides the <img> again when the track has no thumbnail (t.cover empty)
+      // while its src already equals the cached art, so the old "only when the
+      // src differs" check left it hidden until the next track change.
+      coverImg.style.display = "block";
+      if (coverFallback) coverFallback.style.display = "none";
       return;
     }
     if (fullArtPending.has(t.id)) return;
@@ -298,6 +309,10 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
           coverImg.src = dataUrl;
           coverImg.style.display = "block";
           if (coverFallback) coverFallback.style.display = "none";
+          // The thumbnail was missing (or not readable for colour extraction),
+          // so the tint could not be computed at track change: do it now from
+          // the full artwork data URL.
+          applyDynamicAmbientTheme(dataUrl);
         }
       }
     } catch { /* keep the 256px thumb — no functional impact */ }
@@ -653,7 +668,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     if (curTime) curTime.textContent = opts.resetProgress ? "0:00" : formatTime(audio.currentTime || 0);
 
     applyReplayGain();
-    applyDynamicAmbientTheme(t.cover || null);
+    applyDynamicAmbientTheme(themeCoverSrc(t));
 
     document.querySelectorAll(".track-row").forEach((el, i) => {
       el.classList.toggle("active", queue[i]?.id === t.id);
@@ -749,7 +764,7 @@ export function setupPlayer(primaryAudio: HTMLAudioElement, toast: (m: string) =
     // current track's artwork. applyDynamicAmbientTheme re-reads the stored
     // preference itself and clears the tint when off.
     if (p && p.key === "dynamicTheme") {
-      applyDynamicAmbientTheme(queue[currentIndex]?.cover || null);
+      applyDynamicAmbientTheme(queue[currentIndex] ? themeCoverSrc(queue[currentIndex]) : null);
     }
   });
 

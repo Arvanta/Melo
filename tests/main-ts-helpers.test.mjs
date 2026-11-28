@@ -2721,3 +2721,15 @@ test("round 136: updated skins carry the rating slot; default-skin stars sit 3px
   }
   assert.match(readSrc("src/app.css"), /\.track-rating \{ position: relative; top: 3px; \}/, "default-skin stars painted 3px lower, layout unchanged");
 });
+
+test("round 137: cover shown after skin reset; dynamic theme follows the full artwork", () => {
+  const player = readSrc("src/player.ts");
+  assert.match(player, /if \(coverImg\.getAttribute\("src"\) !== cached\) coverImg\.src = cached;\s*\n[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n\s*coverImg\.style\.display = "block";/, "cached art is always re-shown, not only when src differs");
+  assert.match(player, /applyDynamicAmbientTheme\(dataUrl\);/, "tint recomputed when full art arrives");
+  assert.match(player, /function themeCoverSrc\(/, "tint source helper");
+  assert.equal((player.match(/applyDynamicAmbientTheme\(themeCoverSrc\(t\)\)/g) || []).length, 1, "track change uses the helper");
+  const cover = readSrc("src/cover.ts");
+  assert.match(cover, /img\.onerror = \(\) => \{ dominantColorCache\.delete\(coverSrc\); resolve\(null\); \};/, "failed reads are not cached");
+  assert.match(cover, /perfNote\(`dynamic theme:/, "tint outcome logged to melo-perf.log");
+  assert.match(readSrc("skins/Mochi.html"), /margin: 0 0 3px 22px;/, "Mochi updated");
+});

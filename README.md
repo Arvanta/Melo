@@ -6,7 +6,7 @@
 
 Built with Tauri 2 · TypeScript · Rust
 
-[![Version](https://img.shields.io/badge/version-1.4.0-5b8cff?style=for-the-badge)](https://github.com/Arvanta/Melo/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.4.1-5b8cff?style=for-the-badge)](https://github.com/Arvanta/Melo/releases/latest)
 ![License](https://img.shields.io/badge/license-GPL--3.0-b56cff?style=for-the-badge)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4?style=for-the-badge)](https://github.com/Arvanta/Melo/releases/latest)
 
